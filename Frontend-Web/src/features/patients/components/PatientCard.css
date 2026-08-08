@@ -1,0 +1,115 @@
+.patient-card {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  transition: all var(--transition-base);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.patient-card--hovered {
+  border-color: var(--clr-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.patient-card__glow {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  opacity: 0;
+  transition: opacity var(--transition-base);
+}
+
+.patient-card--hovered .patient-card__glow {
+  opacity: 1;
+}
+
+.patient-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.patient-card__avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1rem;
+  color: white;
+  flex-shrink: 0;
+}
+
+.patient-card__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.patient-card__name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.patient-card__meta {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.patient-card__details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.patient-card__detail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+}
+
+.patient-card__detail svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.patient-card__detail span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.patient-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-default);
+  margin-top: auto;
+}
+
+.patient-card__nic {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.patient-card__actions {
+  display: flex;
+  gap: var(--space-xs);
+}
