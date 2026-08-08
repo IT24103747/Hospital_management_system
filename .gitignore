@@ -5,6 +5,7 @@
 .env.local
 *.pem
 *.key
+appsettings.json
 appsettings.Production.json
 appsettings.Local.json
 
