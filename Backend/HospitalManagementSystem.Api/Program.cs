@@ -3,6 +3,8 @@ using HospitalManagementSystem.Api.Data;
 using HospitalManagementSystem.Api.Repositories;
 using HospitalManagementSystem.Api.Services;
 
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------- Services ----------

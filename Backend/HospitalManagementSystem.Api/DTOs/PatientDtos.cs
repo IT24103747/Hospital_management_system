@@ -32,11 +32,11 @@ namespace HospitalManagementSystem.Api.DTOs
         public string Gender { get; set; } = string.Empty;
         public string NIC { get; set; } = string.Empty;
         public string PhoneNumber { get; set; } = string.Empty;
-        public string Email { get; set; } = string.Empty;
-        public string Address { get; set; } = string.Empty;
-        public string BloodGroup { get; set; } = string.Empty;
-        public string EmergencyContactName { get; set; } = string.Empty;
-        public string EmergencyContactPhone { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public string? Address { get; set; }
+        public string? BloodGroup { get; set; }
+        public string? EmergencyContactName { get; set; }
+        public string? EmergencyContactPhone { get; set; }
     }
 
     // Used when updating an existing patient (PUT /api/patients/{id})
@@ -45,10 +45,10 @@ namespace HospitalManagementSystem.Api.DTOs
         public string FirstName { get; set; } = string.Empty;
         public string LastName { get; set; } = string.Empty;
         public string PhoneNumber { get; set; } = string.Empty;
-        public string Address { get; set; } = string.Empty;
-        public string BloodGroup { get; set; } = string.Empty;
-        public string EmergencyContactName { get; set; } = string.Empty;
-        public string EmergencyContactPhone { get; set; } = string.Empty;
+        public string? Address { get; set; }
+        public string? BloodGroup { get; set; }
+        public string? EmergencyContactName { get; set; }
+        public string? EmergencyContactPhone { get; set; }
         public string? ProfileImageUrl { get; set; }
     }
 }

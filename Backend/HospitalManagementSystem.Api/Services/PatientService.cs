@@ -38,8 +38,7 @@ namespace HospitalManagementSystem.Api.Services
 
         public async Task<PatientDto> CreatePatientAsync(CreatePatientDto dto)
         {
-            // Business rule: Email and NIC must be unique
-            if (await _repository.ExistsByEmailAsync(dto.Email))
+            if (!string.IsNullOrEmpty(dto.Email) && await _repository.ExistsByEmailAsync(dto.Email))
                 throw new InvalidOperationException("A patient with this email already exists.");
 
             if (await _repository.ExistsByNICAsync(dto.NIC))
@@ -49,15 +48,15 @@ namespace HospitalManagementSystem.Api.Services
             {
                 FirstName = dto.FirstName.Trim(),
                 LastName = dto.LastName.Trim(),
-                DateOfBirth = dto.DateOfBirth,
+                DateOfBirth = DateTime.SpecifyKind(dto.DateOfBirth, DateTimeKind.Utc),
                 Gender = dto.Gender,
                 NIC = dto.NIC.Trim(),
                 PhoneNumber = dto.PhoneNumber.Trim(),
-                Email = dto.Email.Trim().ToLower(),
-                Address = dto.Address.Trim(),
+                Email = dto.Email?.Trim().ToLower(),
+                Address = dto.Address?.Trim(),
                 BloodGroup = dto.BloodGroup,
-                EmergencyContactName = dto.EmergencyContactName.Trim(),
-                EmergencyContactPhone = dto.EmergencyContactPhone.Trim(),
+                EmergencyContactName = dto.EmergencyContactName?.Trim(),
+                EmergencyContactPhone = dto.EmergencyContactPhone?.Trim(),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -74,10 +73,10 @@ namespace HospitalManagementSystem.Api.Services
             patient.FirstName = dto.FirstName.Trim();
             patient.LastName = dto.LastName.Trim();
             patient.PhoneNumber = dto.PhoneNumber.Trim();
-            patient.Address = dto.Address.Trim();
+            patient.Address = dto.Address?.Trim();
             patient.BloodGroup = dto.BloodGroup;
-            patient.EmergencyContactName = dto.EmergencyContactName.Trim();
-            patient.EmergencyContactPhone = dto.EmergencyContactPhone.Trim();
+            patient.EmergencyContactName = dto.EmergencyContactName?.Trim();
+            patient.EmergencyContactPhone = dto.EmergencyContactPhone?.Trim();
             patient.ProfileImageUrl = dto.ProfileImageUrl;
 
             var updated = await _repository.UpdateAsync(patient);
