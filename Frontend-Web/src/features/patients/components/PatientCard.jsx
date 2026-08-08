@@ -57,7 +57,7 @@ export default function PatientCard({ patient, onEdit, onDelete }) {
         <span className="patient-card__nic">NIC: {patient.nic}</span>
         <div className="patient-card__actions">
           <Button
-            variant="ghost"
+            variant="primary"
             size="sm"
             icon={Edit2}
             onClick={() => onEdit?.(patient)}
