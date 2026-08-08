@@ -1,11 +1,11 @@
 import apiClient from '../../../lib/apiClient'
 
 export const patientApi = {
-  getAll: () => apiClient.get('/patients').then(r => r.data),
-  getById: (id) => apiClient.get(`/patients/${id}`).then(r => r.data),
-  create: (data) => apiClient.post('/patients', data).then(r => r.data),
-  update: (id, data) => apiClient.put(`/patients/${id}`, data).then(r => r.data),
-  delete: (id) => apiClient.delete(`/patients/${id}`).then(r => r.data),
+  getAll: () => apiClient.get('/patient').then(r => r.data),
+  getById: (id) => apiClient.get(`/patient/${id}`).then(r => r.data),
+  create: (data) => apiClient.post('/patient', data).then(r => r.data),
+  update: (id, data) => apiClient.put(`/patient/${id}`, data).then(r => r.data),
+  delete: (id) => apiClient.delete(`/patient/${id}`).then(r => r.data),
 }
 
 export const MOCK_PATIENTS = [

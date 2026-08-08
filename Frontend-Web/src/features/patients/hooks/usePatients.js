@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { patientApi, MOCK_PATIENTS } from '../services/patientApi'
 
-const USE_MOCK = true
+const USE_MOCK = false
 
 export function usePatients() {
   const [patients, setPatients] = useState([])
@@ -16,8 +16,8 @@ export function usePatients() {
         await new Promise(r => setTimeout(r, 600))
         setPatients(MOCK_PATIENTS)
       } else {
-        const data = await patientApi.getAll()
-        setPatients(data)
+        const result = await patientApi.getAll()
+        setPatients(result.data || result)
       }
     } catch (err) {
       setError(err.message || 'Failed to load patients')

@@ -74,9 +74,9 @@ export default function PatientForm({ open, onClose, onSubmit, patient, loading 
           <h5 className="form-section__title">Contact Information</h5>
           <div className="form-grid form-grid--2">
             <Field label="Phone Number" name="phoneNumber" value={form.phoneNumber} onChange={handleChange} placeholder="+94 77 123 4567" required />
-            <Field label="Email Address" name="email" type="email" value={form.email} onChange={handleChange} placeholder="patient@email.com" />
+            <Field label="Email Address" name="email" type="email" value={form.email} onChange={handleChange} placeholder="patient@email.com" required />
             <div className="form-grid__span-2">
-              <Field label="Address" name="address" value={form.address} onChange={handleChange} placeholder="Street, City" />
+              <Field label="Address" name="address" value={form.address} onChange={handleChange} placeholder="Street, City" required />
             </div>
           </div>
         </div>
@@ -84,8 +84,8 @@ export default function PatientForm({ open, onClose, onSubmit, patient, loading 
         <div className="form-section">
           <h5 className="form-section__title">Emergency Contact</h5>
           <div className="form-grid form-grid--2">
-            <Field label="Contact Name" name="emergencyContactName" value={form.emergencyContactName} onChange={handleChange} />
-            <Field label="Contact Phone" name="emergencyContactPhone" value={form.emergencyContactPhone} onChange={handleChange} placeholder="+94 71 123 4567" />
+            <Field label="Contact Name" name="emergencyContactName" value={form.emergencyContactName} onChange={handleChange} required />
+            <Field label="Contact Phone" name="emergencyContactPhone" value={form.emergencyContactPhone} onChange={handleChange} placeholder="+94 71 123 4567" required />
           </div>
         </div>
 
