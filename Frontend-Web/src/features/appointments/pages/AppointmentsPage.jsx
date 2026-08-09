@@ -1,13 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, CalendarClock, CheckCircle, Clock, Plus, RefreshCw, Search, Stethoscope, XCircle } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle, Clock, Pencil, Plus, RefreshCw, Search, Stethoscope, X, XCircle } from 'lucide-react'
 import Button from '../../../components/Button'
 import Modal from '../../../components/Modal'
 import Table from '../../../components/Table'
+import { useDebounce } from '../../../hooks/useDebounce'
 import { useAppointments } from '../hooks/useAppointments'
 import './AppointmentsPage.css'
 
-const STATUSES = ['Requested', 'Confirmed', 'Completed', 'Cancelled', 'No-show']
+const STATUS_FILTERS = ['Confirmed', 'Completed', 'Cancelled']
+const STATUS_ACTIONS = ['Confirmed', 'Completed']
 const TYPES = ['Consultation', 'Follow-up', 'Check-up', 'Procedure Review', 'Emergency']
+const SPECIALTIES = ['Cardiology', 'Dermatology', 'General Medicine', 'Neurology', 'Ophthalmology', 'Orthopedics', 'Pediatrics']
+const DEFAULT_CONSULTATION_FEE = 2500
+const SPECIALTY_CONSULTATION_FEES = {
+  Cardiology: 4500,
+  Dermatology: 3500,
+  'General Medicine': 2500,
+  Neurology: 5000,
+  Ophthalmology: 3000,
+  Orthopedics: 4000,
+  Pediatrics: 3000,
+}
 
 const STATUS_CONFIG = {
   Requested: { icon: AlertTriangle, color: 'var(--clr-warning)', bg: 'rgba(245,158,11,0.12)' },
@@ -21,12 +34,12 @@ const emptyAppointment = {
   doctorName: '',
   doctorTimeSlotId: '',
   appointmentNumber: '',
+  patientId: '',
   patientName: '',
+  patientAge: '',
   patientPhone: '',
   patientEmail: '',
   appointmentType: 'Consultation',
-  reason: '',
-  notes: '',
 }
 
 const emptySlot = {
@@ -40,9 +53,10 @@ const emptySlot = {
 
 export default function AppointmentsPage() {
   const [search, setSearch] = useState('')
-  const [status, setStatus] = useState('all')
+  const [status, setStatus] = useState('Confirmed')
   const [date, setDate] = useState('')
   const [appointmentOpen, setAppointmentOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState(null)
   const [appointmentNumberOpen, setAppointmentNumberOpen] = useState(false)
   const [slotOpen, setSlotOpen] = useState(false)
   const [cancelTarget, setCancelTarget] = useState(null)
@@ -50,16 +64,21 @@ export default function AppointmentsPage() {
   const [appointmentForm, setAppointmentForm] = useState(emptyAppointment)
   const [slotForm, setSlotForm] = useState(emptySlot)
   const appointmentNumberRef = useRef(null)
+  const debouncedSearch = useDebounce(search, 300)
 
-  const filters = useMemo(() => ({ search, status, date, sortBy: 'startAt', sortDirection: 'asc' }), [search, status, date])
+  const apiStatus = status === 'Confirmed' ? 'all' : status
+  const filters = useMemo(() => ({ search: debouncedSearch, status: apiStatus, date, sortBy: 'startAt', sortDirection: 'asc' }), [apiStatus, debouncedSearch, date])
   const {
     appointments,
     slots,
+    doctors: doctorDirectory,
+    patients,
     loading,
     saving,
     error,
     refetch,
     createAppointment,
+    updateAppointment,
     createSlot,
     updateStatus,
     cancelAppointment,
@@ -69,33 +88,66 @@ export default function AppointmentsPage() {
   const stats = [
     { label: "Today's Appointments", value: appointments.filter(a => a.startAt?.slice(0, 10) === today).length, color: 'var(--clr-primary)' },
     { label: 'Available Slots', value: slots.reduce((sum, s) => sum + Math.max(0, (s.availableCount ?? s.capacity - s.bookedCount)), 0), color: 'var(--clr-info)' },
-    { label: 'Confirmed', value: appointments.filter(a => a.status === 'Confirmed').length, color: 'var(--clr-success)' },
-    { label: 'Requested', value: appointments.filter(a => a.status === 'Requested').length, color: 'var(--clr-warning)' },
+    { label: 'Confirmed', value: appointments.filter(a => getDisplayStatus(a.status) === 'Confirmed').length, color: 'var(--clr-success)' },
+    { label: 'Completed', value: appointments.filter(a => a.status === 'Completed').length, color: 'var(--clr-primary)' },
   ]
   const doctors = useMemo(() => {
+    if (doctorDirectory.length > 0) return doctorDirectory
+
     const byName = new Map()
     slots.forEach(slot => {
       if (!byName.has(slot.doctorName)) byName.set(slot.doctorName, slot.specialty)
     })
     return Array.from(byName, ([doctorName, specialty]) => ({ doctorName, specialty }))
-  }, [slots])
+  }, [doctorDirectory, slots])
   const selectedDoctorSlots = useMemo(() => {
     const term = appointmentForm.doctorName.trim().toLowerCase()
     if (!term) return []
     return slots.filter(slot =>
       slot.doctorName.toLowerCase() === term &&
-      (slot.availableCount ?? slot.capacity - slot.bookedCount) > 0)
-  }, [appointmentForm.doctorName, slots])
+      (
+        (slot.availableCount ?? slot.capacity - slot.bookedCount) > 0 ||
+        String(slot.doctorTimeSlotId) === String(appointmentForm.doctorTimeSlotId)
+      ))
+  }, [appointmentForm.doctorName, appointmentForm.doctorTimeSlotId, slots])
   const selectedSlot = slots.find(slot => String(slot.doctorTimeSlotId) === String(appointmentForm.doctorTimeSlotId))
+  const selectedPatient = patients.find(patient => String(patient.patientId) === String(appointmentForm.patientId))
+  const selectedDoctor = doctors.find(doctor => doctor.doctorName.toLowerCase() === appointmentForm.doctorName.trim().toLowerCase())
+  const selectedConsultationFee = getConsultationFee({
+    doctor: selectedDoctor,
+    slot: selectedSlot,
+    specialty: selectedSlot?.specialty || selectedDoctor?.specialty,
+  })
+  const filteredAppointments = useMemo(() => {
+    const term = debouncedSearch.trim().toLowerCase()
+    return appointments.filter(appointment => {
+      const matchesSearch = !term || [
+        appointment.patientName,
+        appointment.patientPhone,
+        appointment.patientEmail,
+        appointment.doctorName,
+        appointment.specialty,
+      ].some(value => String(value || '').toLowerCase().includes(term))
+      const displayStatus = getDisplayStatus(appointment.status)
+      const matchesStatus = displayStatus === status
+      const matchesDate = !date || (appointment.startAt || appointment.estimatedStartAt || '').slice(0, 10) === date
+      return matchesSearch && matchesStatus && matchesDate
+    })
+  }, [appointments, date, debouncedSearch, status])
 
   const getBookedNumbersForSlot = (slot) => {
     const bySlot = appointments
       .filter(a => String(a.doctorTimeSlotId) === String(slot.doctorTimeSlotId))
+      .filter(a => !editTarget || a.appointmentId !== editTarget.appointmentId)
       .filter(a => ['Requested', 'Confirmed', 'Completed', 'No-show'].includes(a.status))
       .map(a => Number(a.appointmentNumber))
 
     const fromSlot = (slot.bookedAppointmentNumbers || []).map(n => Number(n))
-    return new Set([...bySlot, ...fromSlot])
+    const bookedNumbers = new Set([...bySlot, ...fromSlot])
+    if (editTarget && String(editTarget.doctorTimeSlotId) === String(slot.doctorTimeSlotId)) {
+      bookedNumbers.delete(Number(editTarget.appointmentNumber))
+    }
+    return bookedNumbers
   }
 
   useEffect(() => {
@@ -114,7 +166,34 @@ export default function AppointmentsPage() {
 
   const closeAppointmentModal = () => {
     setAppointmentOpen(false)
+    setEditTarget(null)
+    setAppointmentForm(emptyAppointment)
     setAppointmentNumberOpen(false)
+  }
+
+  const openCreateAppointment = () => {
+    setEditTarget(null)
+    setAppointmentForm(emptyAppointment)
+    setAppointmentNumberOpen(false)
+    setAppointmentOpen(true)
+  }
+
+  const openEditAppointment = (appointment) => {
+    const patient = patients.find(p => String(p.patientId) === String(appointment.patientId))
+    setEditTarget(appointment)
+    setAppointmentForm({
+      doctorName: appointment.doctorName || '',
+      doctorTimeSlotId: String(appointment.doctorTimeSlotId || ''),
+      appointmentNumber: String(appointment.appointmentNumber || ''),
+      patientId: appointment.patientId ? String(appointment.patientId) : '',
+      patientName: appointment.patientName || '',
+      patientAge: patient ? String(getPatientAge(patient)) : '',
+      patientPhone: appointment.patientPhone || '',
+      patientEmail: appointment.patientEmail || '',
+      appointmentType: appointment.appointmentType || 'Consultation',
+    })
+    setAppointmentNumberOpen(false)
+    setAppointmentOpen(true)
   }
 
   const handleAppointmentSubmit = async (e) => {
@@ -122,25 +201,60 @@ export default function AppointmentsPage() {
     if (!appointmentForm.doctorTimeSlotId || !appointmentForm.appointmentNumber) return
 
     const payload = {
+      patientId: appointmentForm.patientId ? Number(appointmentForm.patientId) : null,
       patientName: appointmentForm.patientName,
       patientPhone: appointmentForm.patientPhone,
       patientEmail: appointmentForm.patientEmail,
       appointmentType: appointmentForm.appointmentType,
-      reason: appointmentForm.reason,
-      notes: appointmentForm.notes,
+      consultationFee: selectedConsultationFee,
+      reason: 'Appointment',
+      notes: '',
       doctorTimeSlotId: Number(appointmentForm.doctorTimeSlotId),
       appointmentNumber: Number(appointmentForm.appointmentNumber),
     }
-    await createAppointment(payload)
+    if (editTarget) {
+      await updateAppointment(editTarget.appointmentId, {
+        ...payload,
+        status: editTarget.status,
+      })
+    } else {
+      await createAppointment(payload)
+    }
     closeAppointmentModal()
-    setAppointmentForm(emptyAppointment)
+  }
+
+  const handlePatientNameChange = (value) => {
+    const matchedPatient = patients.find(patient => getPatientFullName(patient).toLowerCase() === value.trim().toLowerCase())
+
+    if (matchedPatient) {
+      setAppointmentForm({
+        ...appointmentForm,
+        patientId: String(matchedPatient.patientId),
+        patientName: getPatientFullName(matchedPatient),
+        patientAge: String(getPatientAge(matchedPatient)),
+        patientPhone: matchedPatient.phoneNumber || '',
+        patientEmail: matchedPatient.email || '',
+      })
+      return
+    }
+
+    setAppointmentForm({
+      ...appointmentForm,
+      patientId: '',
+      patientName: value,
+    })
   }
 
   const handleSlotSubmit = async (e) => {
     e.preventDefault()
+    const doctorName = slotForm.doctorName.trim()
+    const specialty = slotForm.specialty.trim()
+    const resolvedDoctor = doctors.find(doctor => doctor.doctorName.toLowerCase() === doctorName.toLowerCase())
+      || doctors.find(doctor => doctor.doctorName.toLowerCase().includes(doctorName.toLowerCase()))
+
     await createSlot({
-      doctorName: slotForm.doctorName,
-      specialty: slotForm.specialty,
+      doctorName,
+      specialty: resolvedDoctor?.specialty || specialty,
       startAt: new Date(`${slotForm.date}T${slotForm.startTime}`).toISOString(),
       endAt: new Date(`${slotForm.date}T${slotForm.endTime}`).toISOString(),
       capacity: Number(slotForm.capacity),
@@ -172,6 +286,11 @@ export default function AppointmentsPage() {
       ),
     },
     {
+      key: 'date',
+      label: 'Date',
+      render: (a) => formatDateOnly(a.estimatedStartAt || a.startAt),
+    },
+    {
       key: 'number',
       label: 'No. / Time',
       render: (a) => (
@@ -192,8 +311,16 @@ export default function AppointmentsPage() {
       ),
     },
     { key: 'appointmentType', label: 'Type' },
-    { key: 'reason', label: 'Reason' },
-    { key: 'status', label: 'Status', render: (a) => <StatusPill status={a.status} /> },
+    {
+      key: 'consultationFee',
+      label: 'Fee',
+      render: (a) => formatCurrency(a.consultationFee ?? getConsultationFee({
+        doctor: doctors.find(doctor => doctor.doctorName.toLowerCase() === String(a.doctorName || '').toLowerCase()),
+        slot: a,
+        specialty: a.specialty,
+      })),
+    },
+    { key: 'status', label: 'Status', render: (a) => <StatusPill status={getDisplayStatus(a.status)} /> },
     {
       key: 'actions',
       label: '',
@@ -202,16 +329,31 @@ export default function AppointmentsPage() {
         <div className="appt-actions">
           <select
             className="appt-inline-select"
-            value={a.status}
+            value={getDisplayStatus(a.status)}
             onChange={(e) => updateStatus(a.appointmentId, e.target.value)}
             disabled={saving || a.status === 'Cancelled' || a.status === 'Completed'}
             aria-label={`Update status for ${a.patientName}`}
           >
-            {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            {STATUS_ACTIONS.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <Button variant="danger" size="sm" onClick={() => setCancelTarget(a)} disabled={a.status === 'Cancelled' || a.status === 'Completed'}>
-            Cancel
-          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={Pencil}
+            onClick={() => openEditAppointment(a)}
+            disabled={a.status === 'Cancelled' || a.status === 'Completed'}
+            className="appt-icon-btn"
+            aria-label={`Edit appointment for ${a.patientName}`}
+          />
+          <Button
+            variant="danger"
+            size="sm"
+            icon={X}
+            onClick={() => setCancelTarget(a)}
+            disabled={a.status === 'Cancelled' || a.status === 'Completed'}
+            className="appt-icon-btn"
+            aria-label={`Cancel appointment for ${a.patientName}`}
+          />
         </div>
       ),
     },
@@ -228,7 +370,7 @@ export default function AppointmentsPage() {
           <div className="appt-header__actions">
             <Button variant="secondary" icon={RefreshCw} onClick={refetch}>Refresh</Button>
             <Button variant="secondary" icon={CalendarClock} onClick={() => setSlotOpen(true)}>Add Slot</Button>
-            <Button variant="primary" icon={Plus} onClick={() => setAppointmentOpen(true)}>New Appointment</Button>
+            <Button variant="primary" icon={Plus} onClick={openCreateAppointment}>New Appointment</Button>
           </div>
         </div>
       </div>
@@ -246,11 +388,10 @@ export default function AppointmentsPage() {
         <div className="appt-toolbar">
           <label className="appt-search">
             <Search size={15} />
-            <input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search patient, phone, doctor, reason" />
+            <input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search patient, phone, doctor" />
           </label>
           <select value={status} onChange={e => setStatus(e.target.value)} className="appt-filter">
-            <option value="all">All Statuses</option>
-            {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            {STATUS_FILTERS.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="appt-filter" />
         </div>
@@ -258,11 +399,11 @@ export default function AppointmentsPage() {
         {error && (
           <div className="appt-error">
             <AlertTriangle size={16} />
-            <span>{error} - showing demo appointment data</span>
+            <span>{error}</span>
           </div>
         )}
 
-        <Table columns={columns} data={appointments} loading={loading} emptyMessage="No appointments match the current filters" />
+        <Table columns={columns} data={filteredAppointments} loading={loading} emptyMessage="No appointments match the current filters" />
       </div>
 
       <div className="appt-slots">
@@ -289,99 +430,136 @@ export default function AppointmentsPage() {
         </div>
       </div>
 
-      <Modal open={appointmentOpen} onClose={closeAppointmentModal} title="Create Appointment" subtitle="Book on behalf of a patient" size="lg" id="appointment-form-modal">
+      <Modal
+        open={appointmentOpen}
+        onClose={closeAppointmentModal}
+        title={editTarget ? 'Edit Appointment' : 'Create Appointment'}
+        subtitle={editTarget ? 'Update appointment details' : 'Book on behalf of a patient'}
+        size="lg"
+        id="appointment-form-modal"
+      >
         <form className="appt-form" onSubmit={handleAppointmentSubmit}>
-          <label>Search or Select Doctor
-            <input
-              required
-              list="appointment-doctors"
-              value={appointmentForm.doctorName}
-              onChange={e => {
-                setAppointmentForm({ ...appointmentForm, doctorName: e.target.value, doctorTimeSlotId: '', appointmentNumber: '' })
-                setAppointmentNumberOpen(false)
-              }}
-              placeholder="Type doctor name"
-            />
-            <datalist id="appointment-doctors">
-              {doctors.map(doctor => (
-                <option key={doctor.doctorName} value={doctor.doctorName}>{doctor.specialty}</option>
-              ))}
-            </datalist>
-          </label>
-          <label className="appt-form__wide">Select Appointment No
-            <div className="appt-number-select" role="group" aria-label="Select appointment number" ref={appointmentNumberRef}>
-              <button
-                type="button"
-                className="appt-number-trigger"
-                onClick={() => setAppointmentNumberOpen(open => !open)}
-                aria-expanded={appointmentNumberOpen}
-                aria-haspopup="dialog"
-                disabled={!appointmentForm.doctorName || selectedDoctorSlots.length === 0}
-              >
-                {appointmentForm.appointmentNumber && selectedSlot
-                  ? `#${appointmentForm.appointmentNumber} · ${formatTime(getEstimatedTimeForNumber(selectedSlot, Number(appointmentForm.appointmentNumber)))} (${formatTime(selectedSlot.startAt)}-${formatTime(selectedSlot.endAt)})`
-                  : 'Select appointment no'}
-              </button>
-              {appointmentNumberOpen && (
-                <div className="appt-number-popover">
-                  {selectedDoctorSlots.map(slot => {
-                    const selectableNumbers = Array.from({ length: slot.capacity }, (_, i) => i + 1)
-                    const bookedNumbers = getBookedNumbersForSlot(slot)
-                    return (
-                      <div className="appt-number-slot-group" key={slot.doctorTimeSlotId}>
-                        <p className="appt-number-slot-title">
-                          {formatDateTime(slot.startAt)}-{formatTime(slot.endAt)}
-                        </p>
-                        <div className="appt-number-grid">
-                          {selectableNumbers.map(number => {
-                            const isBooked = bookedNumbers.has(number)
-                            const isSelected =
-                              String(appointmentForm.doctorTimeSlotId) === String(slot.doctorTimeSlotId) &&
-                              String(appointmentForm.appointmentNumber) === String(number)
-                            return (
-                              <button
-                                key={`${slot.doctorTimeSlotId}-${number}`}
-                                type="button"
-                                className={`appt-number-btn${isSelected ? ' is-selected' : ''}${isBooked ? ' is-booked' : ''}`}
-                                onClick={() => {
-                                  if (isBooked) return
-                                  setAppointmentForm({
-                                    ...appointmentForm,
-                                    doctorTimeSlotId: String(slot.doctorTimeSlotId),
-                                    appointmentNumber: String(number),
-                                  })
-                                  setAppointmentNumberOpen(false)
-                                }}
-                                disabled={isBooked}
-                                aria-pressed={isSelected}
-                                aria-label={`Appointment number ${number}${isBooked ? ' already booked' : ''}`}
-                              >
-                                #{number}
-                              </button>
-                            )
-                          })}
+          <div className="appt-form__wide appt-top-row">
+            <label>Search or Select Doctor
+              <input
+                required
+                list="appointment-doctors"
+                value={appointmentForm.doctorName}
+                onChange={e => {
+                  setAppointmentForm({ ...appointmentForm, doctorName: e.target.value, doctorTimeSlotId: '', appointmentNumber: '' })
+                  setAppointmentNumberOpen(false)
+                }}
+                placeholder="Type doctor name"
+              />
+              <datalist id="appointment-doctors">
+                {doctors.map(doctor => (
+                  <option key={doctor.doctorName} value={doctor.doctorName}>{doctor.specialty}</option>
+                ))}
+              </datalist>
+            </label>
+            <label>Select Appointment No
+              <div className="appt-number-select" role="group" aria-label="Select appointment number" ref={appointmentNumberRef}>
+                <button
+                  type="button"
+                  className="appt-number-trigger"
+                  onClick={() => setAppointmentNumberOpen(open => !open)}
+                  aria-expanded={appointmentNumberOpen}
+                  aria-haspopup="dialog"
+                  disabled={!appointmentForm.doctorName || selectedDoctorSlots.length === 0}
+                >
+                  {appointmentForm.appointmentNumber && selectedSlot
+                    ? `#${appointmentForm.appointmentNumber} · ${formatTime(getEstimatedTimeForNumber(selectedSlot, Number(appointmentForm.appointmentNumber)))} (${formatTime(selectedSlot.startAt)}-${formatTime(selectedSlot.endAt)})`
+                    : 'Select appointment no'}
+                </button>
+                {appointmentNumberOpen && (
+                  <div className="appt-number-popover">
+                    {selectedDoctorSlots.map(slot => {
+                      const selectableNumbers = Array.from({ length: slot.capacity }, (_, i) => i + 1)
+                      const bookedNumbers = getBookedNumbersForSlot(slot)
+                      return (
+                        <div className="appt-number-slot-group" key={slot.doctorTimeSlotId}>
+                          <p className="appt-number-slot-title">
+                            {formatDateTime(slot.startAt)}-{formatTime(slot.endAt)}
+                          </p>
+                          <div className="appt-number-grid">
+                            {selectableNumbers.map(number => {
+                              const isBooked = bookedNumbers.has(number)
+                              const isSelected =
+                                String(appointmentForm.doctorTimeSlotId) === String(slot.doctorTimeSlotId) &&
+                                String(appointmentForm.appointmentNumber) === String(number)
+                              return (
+                                <button
+                                  key={`${slot.doctorTimeSlotId}-${number}`}
+                                  type="button"
+                                  className={`appt-number-btn${isSelected ? ' is-selected' : ''}${isBooked ? ' is-booked' : ''}`}
+                                  onClick={() => {
+                                    if (isBooked) return
+                                    setAppointmentForm({
+                                      ...appointmentForm,
+                                      doctorTimeSlotId: String(slot.doctorTimeSlotId),
+                                      appointmentNumber: String(number),
+                                    })
+                                    setAppointmentNumberOpen(false)
+                                  }}
+                                  disabled={isBooked}
+                                  aria-pressed={isSelected}
+                                  aria-label={`Appointment number ${number}${isBooked ? ' already booked' : ''}`}
+                                >
+                                  #{number}
+                                </button>
+                              )
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
-                  <small>Booked numbers are disabled.</small>
-                </div>
-              )}
-            </div>
-          </label>
+                      )
+                    })}
+                    <small>Booked numbers are disabled.</small>
+                  </div>
+                )}
+              </div>
+            </label>
+          </div>
           {selectedSlot && (
             <div className="appt-estimate appt-form__wide">
-              <strong>Appointment #{appointmentForm.appointmentNumber || '-'}</strong>
-              <span>
-                Estimated patient time:{' '}
-                {appointmentForm.appointmentNumber
-                  ? formatDateTime(getEstimatedTimeForNumber(selectedSlot, Number(appointmentForm.appointmentNumber)))
-                  : 'Select a number'}
-              </span>
+              <div>
+                <strong>Appointment #{appointmentForm.appointmentNumber || '-'}</strong>
+                <span>
+                  Estimated patient time:{' '}
+                  {appointmentForm.appointmentNumber
+                    ? formatDateTime(getEstimatedTimeForNumber(selectedSlot, Number(appointmentForm.appointmentNumber)))
+                    : 'Select a number'}
+                </span>
+              </div>
+              <div className="appt-fee">
+                <span>Consultation fee</span>
+                <strong>{formatCurrency(selectedConsultationFee)}</strong>
+              </div>
             </div>
           )}
           <label>Patient Name
-            <input required value={appointmentForm.patientName} onChange={e => setAppointmentForm({ ...appointmentForm, patientName: e.target.value })} />
+            <input
+              required
+              list="appointment-patients"
+              value={appointmentForm.patientName}
+              onChange={e => handlePatientNameChange(e.target.value)}
+              placeholder="Select existing patient or type a new name"
+            />
+            <datalist id="appointment-patients">
+              {patients.map(patient => (
+                <option key={patient.patientId} value={getPatientFullName(patient)}>
+                  {patient.phoneNumber}
+                </option>
+              ))}
+            </datalist>
+          </label>
+          <label>Patient Age
+            <input
+              type="number"
+              min="0"
+              value={appointmentForm.patientAge}
+              onChange={e => setAppointmentForm({ ...appointmentForm, patientAge: e.target.value })}
+              readOnly={Boolean(selectedPatient)}
+            />
           </label>
           <label>Patient Phone
             <input required value={appointmentForm.patientPhone} onChange={e => setAppointmentForm({ ...appointmentForm, patientPhone: e.target.value })} />
@@ -394,26 +572,50 @@ export default function AppointmentsPage() {
               {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </label>
-          <label className="appt-form__wide">Reason
-            <textarea required rows="3" value={appointmentForm.reason} onChange={e => setAppointmentForm({ ...appointmentForm, reason: e.target.value })} />
-          </label>
-          <label className="appt-form__wide">Notes
-            <textarea rows="2" value={appointmentForm.notes} onChange={e => setAppointmentForm({ ...appointmentForm, notes: e.target.value })} />
-          </label>
           <div className="appt-form__actions">
             <Button variant="secondary" onClick={closeAppointmentModal}>Close</Button>
-            <Button type="submit" loading={saving}>Create Appointment</Button>
+            <Button type="submit" loading={saving}>{editTarget ? 'Save Changes' : 'Create Appointment'}</Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={slotOpen} onClose={() => setSlotOpen(false)} title="Add Doctor Time Slot" subtitle="Used by admin until doctor module is ready" size="md" id="slot-form-modal">
+      <Modal open={slotOpen} onClose={() => setSlotOpen(false)} title="Add Doctor Time Slot" subtitle="Add on behalf of a doctor" size="md" id="slot-form-modal">
         <form className="appt-form" onSubmit={handleSlotSubmit}>
           <label>Doctor Name
-            <input required value={slotForm.doctorName} onChange={e => setSlotForm({ ...slotForm, doctorName: e.target.value })} placeholder="Dr. Name" />
+            <input
+              required
+              list="doctor-directory"
+              value={slotForm.doctorName}
+              onChange={e => {
+                const value = e.target.value
+                const matchedDoctor = doctors.find(doctor => doctor.doctorName.toLowerCase() === value.toLowerCase())
+                setSlotForm({
+                  ...slotForm,
+                  doctorName: value,
+                  specialty: matchedDoctor?.specialty || '',
+                })
+              }}
+              placeholder="Search doctor name"
+            />
+            <datalist id="doctor-directory">
+              {doctors.map(doctor => (
+                <option key={doctor.doctorName} value={doctor.doctorName}>{doctor.specialty}</option>
+              ))}
+            </datalist>
           </label>
           <label>Specialty
-            <input required value={slotForm.specialty} onChange={e => setSlotForm({ ...slotForm, specialty: e.target.value })} placeholder="General Medicine" />
+            <input
+              required
+              list="appointment-specialties"
+              value={slotForm.specialty}
+              onChange={e => setSlotForm({ ...slotForm, specialty: e.target.value })}
+              placeholder="Select or type specialty"
+            />
+            <datalist id="appointment-specialties">
+              {SPECIALTIES.map(specialty => (
+                <option key={specialty} value={specialty} />
+              ))}
+            </datalist>
           </label>
           <label>Date
             <input required type="date" value={slotForm.date} onChange={e => setSlotForm({ ...slotForm, date: e.target.value })} />
@@ -463,13 +665,54 @@ function StatusPill({ status }) {
   )
 }
 
+function getDisplayStatus(status) {
+  return status === 'Requested' || status === 'No-show' ? 'Confirmed' : status
+}
+
+function getConsultationFee({ doctor, slot, specialty }) {
+  const fee = doctor?.consultationFee ?? slot?.consultationFee
+  if (Number.isFinite(Number(fee)) && Number(fee) >= 0) return Number(fee)
+
+  const resolvedSpecialty = specialty || doctor?.specialty || slot?.specialty
+  return SPECIALTY_CONSULTATION_FEES[resolvedSpecialty] ?? DEFAULT_CONSULTATION_FEE
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat('en-LK', {
+    style: 'currency',
+    currency: 'LKR',
+    maximumFractionDigits: 0,
+  }).format(Number(value) || 0)
+}
+
 function getInitials(name = '') {
   return name.split(' ').filter(Boolean).map(part => part[0]).join('').slice(0, 2).toUpperCase()
+}
+
+function getPatientFullName(patient) {
+  return patient.fullName || [patient.firstName, patient.lastName].filter(Boolean).join(' ')
+}
+
+function getPatientAge(patient) {
+  if (typeof patient.age === 'number') return patient.age
+  if (!patient.dateOfBirth) return ''
+
+  const today = new Date()
+  const birth = new Date(patient.dateOfBirth)
+  let age = today.getFullYear() - birth.getFullYear()
+  const monthDiff = today.getMonth() - birth.getMonth()
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age--
+  return age
 }
 
 function formatDateTime(value) {
   if (!value) return ''
   return new Intl.DateTimeFormat('en-LK', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+}
+
+function formatDateOnly(value) {
+  if (!value) return ''
+  return new Intl.DateTimeFormat('en-LK', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value))
 }
 
 function formatTime(value) {

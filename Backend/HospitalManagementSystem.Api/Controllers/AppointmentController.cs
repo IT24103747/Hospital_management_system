@@ -160,6 +160,14 @@ namespace HospitalManagementSystem.Api.Controllers
             return Ok(slots);
         }
 
+        [HttpGet("doctors")]
+        [ProducesResponseType(typeof(IEnumerable<DoctorLookupDto>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetDoctors()
+        {
+            var doctors = await _service.GetDoctorsAsync();
+            return Ok(doctors);
+        }
+
         [HttpPost("slots")]
         [ProducesResponseType(typeof(DoctorTimeSlotDto), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]

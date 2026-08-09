@@ -41,7 +41,7 @@ namespace HospitalManagementSystem.Api.DTOs
         public string? PatientEmail { get; set; }
         [Required, MaxLength(80)]
         public string AppointmentType { get; set; } = "Consultation";
-        [Required, MaxLength(500)]
+        [MaxLength(500)]
         public string Reason { get; set; } = string.Empty;
         [MaxLength(500)]
         public string? Notes { get; set; }
@@ -50,7 +50,7 @@ namespace HospitalManagementSystem.Api.DTOs
     public class UpdateAppointmentDto : CreateAppointmentDto
     {
         [Required, MaxLength(30)]
-        public string Status { get; set; } = "Requested";
+        public string Status { get; set; } = "Confirmed";
     }
 
     public class UpdateAppointmentStatusDto
@@ -85,6 +85,12 @@ namespace HospitalManagementSystem.Api.DTOs
         public int NextAppointmentNumber { get; set; }
         public DateTime? NextEstimatedStartAt { get; set; }
         public bool IsActive { get; set; }
+    }
+
+    public class DoctorLookupDto
+    {
+        public string DoctorName { get; set; } = string.Empty;
+        public string Specialty { get; set; } = string.Empty;
     }
 
     public class CreateDoctorTimeSlotDto

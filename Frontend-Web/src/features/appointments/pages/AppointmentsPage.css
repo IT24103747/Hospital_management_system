@@ -163,12 +163,25 @@
 }
 
 .appt-inline-select {
+  width: 108px;
   height: 34px;
-  padding: 0 8px;
+  padding: 0 6px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   background: var(--bg-base);
   color: var(--text-primary);
+}
+
+.appt-actions {
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.appt-icon-btn.btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  flex: 0 0 34px;
 }
 
 .appt-section__header {
@@ -252,6 +265,12 @@
   grid-column: 1 / -1;
 }
 
+.appt-top-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
+  gap: var(--space-md);
+}
+
 .appt-estimate,
 .appt-form__hint {
   grid-column: 1 / -1;
@@ -263,8 +282,26 @@
 .appt-estimate {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: var(--space-md);
   padding: 12px;
+}
+
+.appt-estimate > div:first-child,
+.appt-fee {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.appt-fee {
+  align-items: flex-end;
+  min-width: 150px;
+}
+
+.appt-fee strong {
+  color: var(--clr-success);
+  font-size: 1rem;
 }
 
 .appt-estimate span,
@@ -315,15 +352,16 @@
   position: absolute;
   top: calc(100% + 6px);
   left: 12px;
-  width: min(360px, calc(100% - 24px));
+  width: min(360px, calc(100vw - 48px));
   background: var(--bg-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-sm);
-  padding: 10px;
+  padding: 12px;
   z-index: 5;
-  max-height: 320px;
-  overflow: auto;
+  max-height: min(420px, 70vh);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .appt-number-slot-group {
@@ -346,16 +384,20 @@
 
 .appt-number-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  justify-content: start;
+  gap: 7px;
 }
 
 .appt-number-btn {
+  width: 100%;
+  min-width: 0;
   aspect-ratio: 1 / 1;
   border: 1px solid var(--border-default);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--bg-surface-2);
   color: var(--text-primary);
+  font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
   transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
@@ -404,8 +446,21 @@
     grid-template-columns: 1fr;
   }
 
-  .appt-actions {
-    align-items: stretch;
+  .appt-top-row {
+    grid-template-columns: 1fr;
+  }
+
+  .appt-estimate {
+    align-items: flex-start;
     flex-direction: column;
+  }
+
+  .appt-fee {
+    align-items: flex-start;
+  }
+
+  .appt-actions {
+    align-items: center;
+    flex-direction: row;
   }
 }

@@ -12,6 +12,7 @@ export default function Button({
   onClick,
   type = 'button',
   id,
+  className = '',
   ...rest
 }) {
   return (
@@ -24,6 +25,7 @@ export default function Button({
         `btn--${size}`,
         fullWidth ? 'btn--full' : '',
         loading ? 'btn--loading' : '',
+        className,
       ].filter(Boolean).join(' ')}
       disabled={disabled || loading}
       onClick={onClick}
@@ -31,7 +33,7 @@ export default function Button({
     >
       {loading && <span className="btn__spinner" aria-hidden="true" />}
       {!loading && Icon && <Icon size={15} strokeWidth={2} />}
-      <span>{children}</span>
+      {children && <span>{children}</span>}
       {iconRight && !loading && <iconRight size={15} strokeWidth={2} />}
     </button>
   )
