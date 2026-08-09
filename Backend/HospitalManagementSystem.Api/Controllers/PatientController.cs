@@ -38,6 +38,22 @@ namespace HospitalManagementSystem.Api.Controllers
         [ProducesResponseType(typeof(PatientSummaryDto), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetSummary() => Ok(await _service.GetSummaryAsync());
 
+        // GET /api/patient/me?email=user@example.com
+        [HttpGet("me")]
+        [ProducesResponseType(typeof(PatientDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetByEmail([FromQuery] string email)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+                return BadRequest(new { message = "Email is required." });
+
+            var patient = await _service.GetPatientByEmailAsync(email);
+            if (patient is null)
+                return NotFound(new { message = "No patient profile found for this account." });
+
+            return Ok(patient);
+        }
+
         // GET /api/patient/{id}
         [HttpGet("{id:int}")]
         [ProducesResponseType(typeof(PatientDto), StatusCodes.Status200OK)]

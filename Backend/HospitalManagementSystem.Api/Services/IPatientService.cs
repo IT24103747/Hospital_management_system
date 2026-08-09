@@ -7,6 +7,7 @@ namespace HospitalManagementSystem.Api.Services
         Task<PagedResult<PatientDto>> GetAllPatientsAsync(string? search, string? gender, string? bloodGroup, string? sortBy, string? sortDirection, int page, int pageSize);
         Task<PatientSummaryDto> GetSummaryAsync();
         Task<PatientDto?> GetPatientByIdAsync(int id);
+        Task<PatientDto?> GetPatientByEmailAsync(string email);
         Task<IEnumerable<PatientAppointmentHistoryDto>?> GetAppointmentHistoryAsync(int patientId);
         Task<PatientDto> CreatePatientAsync(CreatePatientDto dto);
         Task<PatientDto?> UpdatePatientAsync(int id, UpdatePatientDto dto);

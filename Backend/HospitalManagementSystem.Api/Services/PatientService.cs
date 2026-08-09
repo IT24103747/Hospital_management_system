@@ -38,6 +38,12 @@ namespace HospitalManagementSystem.Api.Services
             return patient is null ? null : MapToDto(patient);
         }
 
+        public async Task<PatientDto?> GetPatientByEmailAsync(string email)
+        {
+            var patient = await _repository.GetByEmailAsync(email.Trim().ToLowerInvariant());
+            return patient is null ? null : MapToDto(patient);
+        }
+
         public async Task<IEnumerable<PatientAppointmentHistoryDto>?> GetAppointmentHistoryAsync(int patientId)
         {
             if (await _repository.GetByIdAsync(patientId) is null) return null;
@@ -74,8 +80,8 @@ namespace HospitalManagementSystem.Api.Services
                 Email = dto.Email?.Trim().ToLower(),
                 Address = dto.Address?.Trim(),
                 BloodGroup = dto.BloodGroup,
-                EmergencyContactName = dto.EmergencyContactName?.Trim(),
-                EmergencyContactPhone = dto.EmergencyContactPhone?.Trim(),
+                EmergencyContactName = dto.EmergencyContactName?.Trim() ?? string.Empty,
+                EmergencyContactPhone = dto.EmergencyContactPhone?.Trim() ?? string.Empty,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };

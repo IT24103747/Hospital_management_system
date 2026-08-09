@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using HospitalManagementSystem.Api.Data;
 using HospitalManagementSystem.Api.Repositories;
 using HospitalManagementSystem.Api.Services;
+using HospitalManagementSystem.Api.Models;
+using Microsoft.AspNetCore.Identity;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
@@ -33,6 +35,7 @@ builder.Services.AddScoped<IPatientRepository, PatientRepository>();
 builder.Services.AddScoped<IPatientService, PatientService>();
 builder.Services.AddScoped<IAppointmentRepository, AppointmentRepository>();
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
+builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 
 // CORS – allow React and Flutter (dev)
 builder.Services.AddCors(options =>
@@ -75,12 +78,23 @@ app.Run();
 
 static async Task SeedSampleDataAsync(ApplicationDbContext db)
 {
+    if (!await db.Users.AnyAsync())
+    {
+        var passwordHasher = new PasswordHasher<User>();
+        var user1 = new User { FullName = "Amal Perera", Email = "amal.perera@email.com", Role = "Patient" };
+        user1.PasswordHash = passwordHasher.HashPassword(user1, "Patient123!");
+        
+        var user2 = new User { FullName = "Nimesha Silva", Email = "nimesha.silva@email.com", Role = "Patient" };
+        user2.PasswordHash = passwordHasher.HashPassword(user2, "Patient123!");
+
+        db.Users.AddRange(user1, user2);
+    }
+
     if (!await db.Patients.AnyAsync())
     {
         db.Patients.AddRange(
             new HospitalManagementSystem.Api.Models.Patient
             {
-                PatientId = 1,
                 FirstName = "Amal",
                 LastName = "Perera",
                 DateOfBirth = new DateTime(1985, 3, 14, 0, 0, 0, DateTimeKind.Utc),
@@ -97,7 +111,6 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
             },
             new HospitalManagementSystem.Api.Models.Patient
             {
-                PatientId = 2,
                 FirstName = "Nimesha",
                 LastName = "Silva",
                 DateOfBirth = new DateTime(1992, 7, 22, 0, 0, 0, DateTimeKind.Utc),
@@ -120,7 +133,6 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
         db.DoctorTimeSlots.AddRange(
             new HospitalManagementSystem.Api.Models.DoctorTimeSlot
             {
-                DoctorTimeSlotId = 1,
                 DoctorName = "Dr. Priyantha Jayawardena",
                 Specialty = "General Medicine",
                 StartAt = new DateTime(2026, 8, 8, 9, 0, 0, DateTimeKind.Utc),
@@ -132,7 +144,6 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
             },
             new HospitalManagementSystem.Api.Models.DoctorTimeSlot
             {
-                DoctorTimeSlotId = 2,
                 DoctorName = "Dr. Chamari Gunaratne",
                 Specialty = "Cardiology",
                 StartAt = new DateTime(2026, 8, 8, 14, 0, 0, DateTimeKind.Utc),
@@ -150,7 +161,6 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
         db.Appointments.AddRange(
             new HospitalManagementSystem.Api.Models.Appointment
             {
-                AppointmentId = 1,
                 DoctorTimeSlotId = 1,
                 PatientId = 1,
                 AppointmentNumber = 1,
@@ -166,7 +176,6 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
             },
             new HospitalManagementSystem.Api.Models.Appointment
             {
-                AppointmentId = 2,
                 DoctorTimeSlotId = 2,
                 PatientId = 2,
                 AppointmentNumber = 1,
