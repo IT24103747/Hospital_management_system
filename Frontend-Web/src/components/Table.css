@@ -1,10 +1,12 @@
 .table-wrapper {
   width: 100%;
   overflow-x: auto;
-  border-radius: var(--radius-lg);
+  border-radius: 14px;
   border: 1px solid var(--border-default);
   background: var(--bg-surface);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
 }
 
 .table {

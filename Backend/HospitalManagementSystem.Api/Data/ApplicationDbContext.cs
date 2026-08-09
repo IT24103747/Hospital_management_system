@@ -10,6 +10,8 @@ namespace HospitalManagementSystem.Api.Data
 
         public DbSet<User> Users => Set<User>();
         public DbSet<Patient> Patients => Set<Patient>();
+        public DbSet<DoctorTimeSlot> DoctorTimeSlots => Set<DoctorTimeSlot>();
+        public DbSet<Appointment> Appointments => Set<Appointment>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -41,6 +43,54 @@ namespace HospitalManagementSystem.Api.Data
                 entity.Property(p => p.EmergencyContactName).HasMaxLength(100);
                 entity.Property(p => p.EmergencyContactPhone).HasMaxLength(20);
                 entity.Property(p => p.ProfileImageUrl).HasMaxLength(500);
+            });
+
+            modelBuilder.Entity<DoctorTimeSlot>(entity =>
+            {
+                entity.ToTable(t =>
+                {
+                    t.HasCheckConstraint("CK_DoctorTimeSlots_Capacity_Positive", "\"Capacity\" > 0");
+                    t.HasCheckConstraint("CK_DoctorTimeSlots_TimeRange", "\"EndAt\" > \"StartAt\"");
+                });
+                entity.HasKey(s => s.DoctorTimeSlotId);
+                entity.Property(s => s.DoctorName).IsRequired().HasMaxLength(150);
+                entity.Property(s => s.Specialty).IsRequired().HasMaxLength(100);
+                entity.Property(s => s.Capacity).IsRequired();
+                entity.Property(s => s.IsActive).IsRequired();
+                entity.HasIndex(s => new { s.DoctorName, s.StartAt, s.EndAt });
+            });
+
+            modelBuilder.Entity<Appointment>(entity =>
+            {
+                entity.ToTable(t =>
+                    t.HasCheckConstraint(
+                        "CK_Appointments_Status",
+                        "\"Status\" IN ('Requested', 'Confirmed', 'Completed', 'Cancelled', 'No-show')"));
+                entity.HasKey(a => a.AppointmentId);
+                entity.Property(a => a.AppointmentNumber).IsRequired();
+                entity.Property(a => a.EstimatedStartAt).IsRequired();
+                entity.Property(a => a.PatientName).IsRequired().HasMaxLength(150);
+                entity.Property(a => a.PatientPhone).IsRequired().HasMaxLength(30);
+                entity.Property(a => a.PatientEmail).HasMaxLength(200);
+                entity.Property(a => a.AppointmentType).IsRequired().HasMaxLength(80);
+                entity.Property(a => a.Reason).IsRequired().HasMaxLength(500);
+                entity.Property(a => a.Status).IsRequired().HasMaxLength(30);
+                entity.Property(a => a.CancellationReason).HasMaxLength(500);
+                entity.Property(a => a.Notes).HasMaxLength(500);
+                entity.HasIndex(a => a.Status);
+                entity.HasIndex(a => a.CreatedAt);
+                entity.HasIndex(a => new { a.DoctorTimeSlotId, a.AppointmentNumber })
+                    .IsUnique()
+                    .HasFilter("\"Status\" <> 'Cancelled'");
+                entity.HasIndex(a => a.EstimatedStartAt);
+                entity.HasOne(a => a.DoctorTimeSlot)
+                    .WithMany(s => s.Appointments)
+                    .HasForeignKey(a => a.DoctorTimeSlotId)
+                    .OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(a => a.Patient)
+                    .WithMany()
+                    .HasForeignKey(a => a.PatientId)
+                    .OnDelete(DeleteBehavior.SetNull);
             });
         }
     }

@@ -19,13 +19,8 @@ namespace HospitalManagementSystem.Api.Repositories
 
             if (!string.IsNullOrWhiteSpace(search))
             {
-                search = search.ToLower();
-                query = query.Where(p =>
-                    p.FirstName.ToLower().Contains(search) ||
-                    p.LastName.ToLower().Contains(search) ||
-                    p.Email.ToLower().Contains(search) ||
-                    p.NIC.ToLower().Contains(search) ||
-                    p.PhoneNumber.Contains(search));
+                var normalizedSearch = search.Trim().ToLowerInvariant();
+                query = query.Where(p => MatchesSearch(p, normalizedSearch));
             }
 
             return await query
@@ -41,13 +36,8 @@ namespace HospitalManagementSystem.Api.Repositories
 
             if (!string.IsNullOrWhiteSpace(search))
             {
-                search = search.ToLower();
-                query = query.Where(p =>
-                    p.FirstName.ToLower().Contains(search) ||
-                    p.LastName.ToLower().Contains(search) ||
-                    p.Email.ToLower().Contains(search) ||
-                    p.NIC.ToLower().Contains(search) ||
-                    p.PhoneNumber.Contains(search));
+                var normalizedSearch = search.Trim().ToLowerInvariant();
+                query = query.Where(p => MatchesSearch(p, normalizedSearch));
             }
 
             return await query.CountAsync();
@@ -85,5 +75,15 @@ namespace HospitalManagementSystem.Api.Repositories
 
         public async Task<bool> ExistsByNICAsync(string nic, int? excludeId = null) =>
             await _context.Patients.AnyAsync(p => p.NIC == nic && p.PatientId != excludeId);
+
+        private static bool MatchesSearch(Patient patient, string search)
+        {
+            return
+                (patient.FirstName != null && patient.FirstName.ToLower().Contains(search)) ||
+                (patient.LastName != null && patient.LastName.ToLower().Contains(search)) ||
+                (patient.Email != null && patient.Email.ToLower().Contains(search)) ||
+                (patient.NIC != null && patient.NIC.ToLower().Contains(search)) ||
+                (patient.PhoneNumber != null && patient.PhoneNumber.Contains(search, StringComparison.OrdinalIgnoreCase));
+        }
     }
 }
