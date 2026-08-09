@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using HospitalManagementSystem.Api.Data;
+using HospitalManagementSystem.Api.DTOs;
 using HospitalManagementSystem.Api.Models;
 
 namespace HospitalManagementSystem.Api.Repositories
@@ -13,38 +14,52 @@ namespace HospitalManagementSystem.Api.Repositories
             _context = context;
         }
 
-        public async Task<IEnumerable<Patient>> GetAllAsync(string? search, int page, int pageSize)
+        public async Task<IEnumerable<Patient>> GetAllAsync(string? search, string? gender, string? bloodGroup, string? sortBy, string? sortDirection, int page, int pageSize)
         {
-            var query = _context.Patients.AsQueryable();
+            var query = ApplyFilters(_context.Patients.AsQueryable(), search, gender, bloodGroup);
+            var descending = !string.Equals(sortDirection, "asc", StringComparison.OrdinalIgnoreCase);
 
-            if (!string.IsNullOrWhiteSpace(search))
+            query = sortBy?.ToLowerInvariant() switch
             {
-                var normalizedSearch = search.Trim().ToLowerInvariant();
-                query = query.Where(p => MatchesSearch(p, normalizedSearch));
-            }
+                "name" => descending ? query.OrderByDescending(p => p.FirstName).ThenByDescending(p => p.LastName) : query.OrderBy(p => p.FirstName).ThenBy(p => p.LastName),
+                "dob" => descending ? query.OrderByDescending(p => p.DateOfBirth) : query.OrderBy(p => p.DateOfBirth),
+                _ => descending ? query.OrderByDescending(p => p.CreatedAt) : query.OrderBy(p => p.CreatedAt)
+            };
 
             return await query
-                .OrderByDescending(p => p.CreatedAt)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();
         }
 
-        public async Task<int> GetTotalCountAsync(string? search)
+        public Task<int> GetTotalCountAsync(string? search, string? gender, string? bloodGroup) =>
+            ApplyFilters(_context.Patients.AsQueryable(), search, gender, bloodGroup).CountAsync();
+
+        public async Task<PatientSummaryDto> GetSummaryAsync()
         {
-            var query = _context.Patients.AsQueryable();
+            var patients = _context.Patients.AsNoTracking();
+            var startOfMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
-            if (!string.IsNullOrWhiteSpace(search))
+            return new PatientSummaryDto
             {
-                var normalizedSearch = search.Trim().ToLowerInvariant();
-                query = query.Where(p => MatchesSearch(p, normalizedSearch));
-            }
-
-            return await query.CountAsync();
+                TotalPatients = await patients.CountAsync(),
+                RegisteredThisMonth = await patients.CountAsync(patient => patient.CreatedAt >= startOfMonth),
+                MaleCount = await patients.CountAsync(patient => patient.Gender == "Male"),
+                FemaleCount = await patients.CountAsync(patient => patient.Gender == "Female"),
+                OtherCount = await patients.CountAsync(patient => patient.Gender == "Other"),
+            };
         }
 
         public async Task<Patient?> GetByIdAsync(int id) =>
             await _context.Patients.FindAsync(id);
+
+        public async Task<IEnumerable<Appointment>> GetAppointmentsByPatientIdAsync(int patientId) =>
+            await _context.Appointments
+                .AsNoTracking()
+                .Include(appointment => appointment.DoctorTimeSlot)
+                .Where(appointment => appointment.PatientId == patientId)
+                .OrderByDescending(appointment => appointment.EstimatedStartAt)
+                .ToListAsync();
 
         public async Task<Patient?> GetByEmailAsync(string email) =>
             await _context.Patients.FirstOrDefaultAsync(p => p.Email == email);
@@ -76,14 +91,26 @@ namespace HospitalManagementSystem.Api.Repositories
         public async Task<bool> ExistsByNICAsync(string nic, int? excludeId = null) =>
             await _context.Patients.AnyAsync(p => p.NIC == nic && p.PatientId != excludeId);
 
-        private static bool MatchesSearch(Patient patient, string search)
+        private static IQueryable<Patient> ApplyFilters(IQueryable<Patient> query, string? search, string? gender, string? bloodGroup)
         {
-            return
-                (patient.FirstName != null && patient.FirstName.ToLower().Contains(search)) ||
-                (patient.LastName != null && patient.LastName.ToLower().Contains(search)) ||
-                (patient.Email != null && patient.Email.ToLower().Contains(search)) ||
-                (patient.NIC != null && patient.NIC.ToLower().Contains(search)) ||
-                (patient.PhoneNumber != null && patient.PhoneNumber.Contains(search, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var searchPattern = $"%{search.Trim()}%";
+                query = query.Where(p =>
+                    EF.Functions.ILike(p.FirstName, searchPattern) ||
+                    EF.Functions.ILike(p.LastName, searchPattern) ||
+                    (p.Email != null && EF.Functions.ILike(p.Email, searchPattern)) ||
+                    EF.Functions.ILike(p.NIC, searchPattern) ||
+                    EF.Functions.ILike(p.PhoneNumber, searchPattern));
+            }
+
+            if (!string.IsNullOrWhiteSpace(gender))
+                query = query.Where(p => p.Gender == gender.Trim());
+
+            if (!string.IsNullOrWhiteSpace(bloodGroup))
+                query = query.Where(p => p.BloodGroup == bloodGroup.Trim());
+
+            return query;
         }
     }
 }

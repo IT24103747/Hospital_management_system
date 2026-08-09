@@ -4,8 +4,10 @@ namespace HospitalManagementSystem.Api.Services
 {
     public interface IPatientService
     {
-        Task<PagedResult<PatientDto>> GetAllPatientsAsync(string? search, int page, int pageSize);
+        Task<PagedResult<PatientDto>> GetAllPatientsAsync(string? search, string? gender, string? bloodGroup, string? sortBy, string? sortDirection, int page, int pageSize);
+        Task<PatientSummaryDto> GetSummaryAsync();
         Task<PatientDto?> GetPatientByIdAsync(int id);
+        Task<IEnumerable<PatientAppointmentHistoryDto>?> GetAppointmentHistoryAsync(int patientId);
         Task<PatientDto> CreatePatientAsync(CreatePatientDto dto);
         Task<PatientDto?> UpdatePatientAsync(int id, UpdatePatientDto dto);
         Task<bool> DeletePatientAsync(int id);

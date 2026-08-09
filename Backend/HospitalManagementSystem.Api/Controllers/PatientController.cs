@@ -17,17 +17,26 @@ namespace HospitalManagementSystem.Api.Controllers
             _logger = logger;
         }
 
-        // GET /api/patient?search=john&page=1&pageSize=10
+        // GET /api/patient?search=john&gender=Female&bloodGroup=O%2B&sortBy=name&sortDirection=asc&page=1&pageSize=10
         [HttpGet]
         [ProducesResponseType(typeof(PagedResult<PatientDto>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetAll(
             [FromQuery] string? search,
+            [FromQuery] string? gender,
+            [FromQuery] string? bloodGroup,
+            [FromQuery] string? sortBy,
+            [FromQuery] string? sortDirection,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10)
         {
-            var result = await _service.GetAllPatientsAsync(search, page, pageSize);
+            var result = await _service.GetAllPatientsAsync(search, gender, bloodGroup, sortBy, sortDirection, page, pageSize);
             return Ok(result);
         }
+
+        // GET /api/patient/summary
+        [HttpGet("summary")]
+        [ProducesResponseType(typeof(PatientSummaryDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetSummary() => Ok(await _service.GetSummaryAsync());
 
         // GET /api/patient/{id}
         [HttpGet("{id:int}")]
@@ -42,6 +51,19 @@ namespace HospitalManagementSystem.Api.Controllers
                 return NotFound(new { message = $"Patient with ID {id} not found." });
             }
             return Ok(patient);
+        }
+
+        // GET /api/patient/{id}/appointments
+        [HttpGet("{id:int}/appointments")]
+        [ProducesResponseType(typeof(IEnumerable<PatientAppointmentHistoryDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetAppointmentHistory(int id)
+        {
+            var appointments = await _service.GetAppointmentHistoryAsync(id);
+            if (appointments is null)
+                return NotFound(new { message = $"Patient with ID {id} not found." });
+
+            return Ok(appointments);
         }
 
         // POST /api/patient
@@ -76,11 +98,19 @@ namespace HospitalManagementSystem.Api.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            var updated = await _service.UpdatePatientAsync(id, dto);
-            if (updated is null)
-                return NotFound(new { message = $"Patient with ID {id} not found." });
+            try
+            {
+                var updated = await _service.UpdatePatientAsync(id, dto);
+                if (updated is null)
+                    return NotFound(new { message = $"Patient with ID {id} not found." });
 
-            return Ok(updated);
+                return Ok(updated);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning("Conflict updating patient {Id}: {Message}", id, ex.Message);
+                return Conflict(new { message = ex.Message });
+            }
         }
 
         // DELETE /api/patient/{id}

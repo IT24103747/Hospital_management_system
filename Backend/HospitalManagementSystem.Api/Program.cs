@@ -7,6 +7,10 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ---------- Database Connection Check ----------
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+
 // ---------- Services ----------
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -22,7 +26,7 @@ builder.Services.AddSwaggerGen(c =>
 
 // PostgreSQL + EF Core
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(connectionString));
 
 // Dependency Injection
 builder.Services.AddScoped<IPatientRepository, PatientRepository>();
@@ -42,7 +46,9 @@ var app = builder.Build();
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
     await db.Database.MigrateAsync();
+
     await SeedSampleDataAsync(db);
 }
 
@@ -59,7 +65,11 @@ app.UseAuthorization();
 app.MapControllers();
 
 // Health check endpoint
-app.MapGet("/health", () => Results.Ok(new { status = "Healthy", timestamp = DateTime.UtcNow }));
+app.MapGet("/health", () => Results.Ok(new
+{
+    status = "Healthy",
+    timestamp = DateTime.UtcNow
+}));
 
 app.Run();
 
