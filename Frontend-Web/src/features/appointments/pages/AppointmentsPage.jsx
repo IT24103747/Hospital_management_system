@@ -86,10 +86,10 @@ export default function AppointmentsPage() {
 
   const today = new Date().toISOString().slice(0, 10)
   const stats = [
-    { label: "Today's Appointments", value: appointments.filter(a => a.startAt?.slice(0, 10) === today).length, color: 'var(--clr-primary)' },
-    { label: 'Available Slots', value: slots.reduce((sum, s) => sum + Math.max(0, (s.availableCount ?? s.capacity - s.bookedCount)), 0), color: 'var(--clr-info)' },
-    { label: 'Confirmed', value: appointments.filter(a => getDisplayStatus(a.status) === 'Confirmed').length, color: 'var(--clr-success)' },
-    { label: 'Completed', value: appointments.filter(a => a.status === 'Completed').length, color: 'var(--clr-primary)' },
+    { label: "Today's Appointments", value: appointments.filter(a => a.startAt?.slice(0, 10) === today).length, icon: CalendarClock, tone: 'primary' },
+    { label: 'Available Slots', value: slots.reduce((sum, s) => sum + Math.max(0, (s.availableCount ?? s.capacity - s.bookedCount)), 0), icon: Clock, tone: 'blue' },
+    { label: 'Confirmed', value: appointments.filter(a => getDisplayStatus(a.status) === 'Confirmed').length, icon: CheckCircle, tone: 'success' },
+    { label: 'Completed', value: appointments.filter(a => a.status === 'Completed').length, icon: Stethoscope, tone: 'purple' },
   ]
   const doctors = useMemo(() => {
     if (doctorDirectory.length > 0) return doctorDirectory
@@ -377,9 +377,12 @@ export default function AppointmentsPage() {
 
       <div className="appt-stats animate-fade-in">
         {stats.map(s => (
-          <div key={s.label} className="appt-stat">
-            <span className="appt-stat__val" style={{ color: s.color }}>{s.value}</span>
-            <span className="appt-stat__label">{s.label}</span>
+          <div key={s.label} className={`appt-stat appt-stat--${s.tone}`}>
+            <span className="appt-stat__icon"><s.icon size={18} /></span>
+            <div>
+              <span className="appt-stat__label">{s.label}</span>
+              <strong className="appt-stat__val">{s.value}</strong>
+            </div>
           </div>
         ))}
       </div>

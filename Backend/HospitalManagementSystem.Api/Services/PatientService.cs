@@ -13,13 +13,13 @@ namespace HospitalManagementSystem.Api.Services
             _repository = repository;
         }
 
-        public async Task<PagedResult<PatientDto>> GetAllPatientsAsync(string? search, int page, int pageSize)
+        public async Task<PagedResult<PatientDto>> GetAllPatientsAsync(string? search, string? gender, string? bloodGroup, string? sortBy, string? sortDirection, int page, int pageSize)
         {
             pageSize = Math.Clamp(pageSize, 1, 50);
             page = Math.Max(1, page);
 
-            var patients = await _repository.GetAllAsync(search, page, pageSize);
-            var totalCount = await _repository.GetTotalCountAsync(search);
+            var patients = await _repository.GetAllAsync(search, gender, bloodGroup, sortBy, sortDirection, page, pageSize);
+            var totalCount = await _repository.GetTotalCountAsync(search, gender, bloodGroup);
 
             return new PagedResult<PatientDto>
             {
@@ -30,10 +30,35 @@ namespace HospitalManagementSystem.Api.Services
             };
         }
 
+        public Task<PatientSummaryDto> GetSummaryAsync() => _repository.GetSummaryAsync();
+
         public async Task<PatientDto?> GetPatientByIdAsync(int id)
         {
             var patient = await _repository.GetByIdAsync(id);
             return patient is null ? null : MapToDto(patient);
+        }
+
+        public async Task<PatientDto?> GetPatientByEmailAsync(string email)
+        {
+            var patient = await _repository.GetByEmailAsync(email.Trim().ToLowerInvariant());
+            return patient is null ? null : MapToDto(patient);
+        }
+
+        public async Task<IEnumerable<PatientAppointmentHistoryDto>?> GetAppointmentHistoryAsync(int patientId)
+        {
+            if (await _repository.GetByIdAsync(patientId) is null) return null;
+
+            var appointments = await _repository.GetAppointmentsByPatientIdAsync(patientId);
+            return appointments.Select(appointment => new PatientAppointmentHistoryDto
+            {
+                AppointmentId = appointment.AppointmentId,
+                ScheduledAt = appointment.EstimatedStartAt,
+                DoctorName = appointment.DoctorTimeSlot?.DoctorName ?? "Not assigned",
+                Specialty = appointment.DoctorTimeSlot?.Specialty ?? "—",
+                AppointmentType = appointment.AppointmentType,
+                Status = appointment.Status,
+                Reason = appointment.Reason,
+            });
         }
 
         public async Task<PatientDto> CreatePatientAsync(CreatePatientDto dto)
@@ -55,8 +80,8 @@ namespace HospitalManagementSystem.Api.Services
                 Email = dto.Email?.Trim().ToLower(),
                 Address = dto.Address?.Trim(),
                 BloodGroup = dto.BloodGroup,
-                EmergencyContactName = dto.EmergencyContactName?.Trim(),
-                EmergencyContactPhone = dto.EmergencyContactPhone?.Trim(),
+                EmergencyContactName = dto.EmergencyContactName?.Trim() ?? string.Empty,
+                EmergencyContactPhone = dto.EmergencyContactPhone?.Trim() ?? string.Empty,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -70,9 +95,21 @@ namespace HospitalManagementSystem.Api.Services
             var patient = await _repository.GetByIdAsync(id);
             if (patient is null) return null;
 
+            var normalizedEmail = dto.Email?.Trim().ToLower();
+            var normalizedNic = dto.NIC.Trim();
+            if (!string.IsNullOrEmpty(normalizedEmail) && await _repository.ExistsByEmailAsync(normalizedEmail, id))
+                throw new InvalidOperationException("A patient with this email already exists.");
+
+            if (await _repository.ExistsByNICAsync(normalizedNic, id))
+                throw new InvalidOperationException("A patient with this NIC already exists.");
+
             patient.FirstName = dto.FirstName.Trim();
             patient.LastName = dto.LastName.Trim();
+            patient.DateOfBirth = DateTime.SpecifyKind(dto.DateOfBirth, DateTimeKind.Utc);
+            patient.Gender = dto.Gender.Trim();
+            patient.NIC = normalizedNic;
             patient.PhoneNumber = dto.PhoneNumber.Trim();
+            patient.Email = normalizedEmail;
             patient.Address = dto.Address?.Trim();
             patient.BloodGroup = dto.BloodGroup;
             patient.EmergencyContactName = dto.EmergencyContactName?.Trim();
@@ -108,9 +145,8 @@ namespace HospitalManagementSystem.Api.Services
             EmergencyContactName = p.EmergencyContactName,
             EmergencyContactPhone = p.EmergencyContactPhone,
             ProfileImageUrl = p.ProfileImageUrl,
-            CreatedAt = p.CreatedAt
+            CreatedAt = p.CreatedAt,
+            UpdatedAt = p.UpdatedAt
         };
     }
 }
-
-

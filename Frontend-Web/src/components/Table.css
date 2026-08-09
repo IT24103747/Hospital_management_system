@@ -70,3 +70,8 @@
 
 .text-right  { text-align: right; }
 .text-center { text-align: center; }
+
+body.dark .table-wrapper,
+body.dark .table thead {
+  background: var(--bg-card);
+}

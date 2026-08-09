@@ -3,8 +3,10 @@ import { patientApi } from '../services/patientApi'
 
 const USE_MOCK = false
 
-export function usePatients() {
+export function usePatients({ search = '', gender = '', bloodGroup = '', sortBy = 'createdAt', sortDirection = 'desc', page = 1, pageSize = 12 } = {}) {
   const [patients, setPatients] = useState([])
+  const [pagination, setPagination] = useState({ page, pageSize, totalCount: 0, totalPages: 0 })
+  const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -16,8 +18,18 @@ export function usePatients() {
         await new Promise(r => setTimeout(r, 600))
         setPatients(MOCK_PATIENTS)
       } else {
-        const result = await patientApi.getAll()
-        setPatients(result.data || result)
+        const [result, summaryResult] = await Promise.all([
+          patientApi.getAll({ search, gender, bloodGroup, sortBy, sortDirection, page, pageSize }),
+          patientApi.getSummary(),
+        ])
+        setPatients(result.data || [])
+        setSummary(summaryResult)
+        setPagination({
+          page: result.page || page,
+          pageSize: result.pageSize || pageSize,
+          totalCount: result.totalCount || 0,
+          totalPages: result.totalPages || 0,
+        })
       }
     } catch (err) {
       setError(err.message || 'Failed to load patients')
@@ -25,7 +37,7 @@ export function usePatients() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [bloodGroup, gender, page, pageSize, search, sortBy, sortDirection])
 
   useEffect(() => { load() }, [load])
 
@@ -58,5 +70,5 @@ export function usePatients() {
     await load()
   }
 
-  return { patients, loading, error, refetch: load, createPatient, updatePatient, deletePatient }
+  return { patients, pagination, summary, loading, error, refetch: load, createPatient, updatePatient, deletePatient }
 }
