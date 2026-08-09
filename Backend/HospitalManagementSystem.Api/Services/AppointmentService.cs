@@ -9,6 +9,7 @@ namespace HospitalManagementSystem.Api.Services
         private readonly IAppointmentRepository _repository;
         private static readonly HashSet<string> ValidStatuses = ["Requested", "Confirmed", "Completed", "Cancelled", "No-show"];
         private static readonly HashSet<string> TerminalStatuses = ["Completed", "Cancelled", "No-show"];
+        private static readonly HashSet<string> OccupyingStatuses = ["Requested", "Confirmed", "Completed", "No-show"];
 
         public AppointmentService(IAppointmentRepository repository)
         {
@@ -225,6 +226,71 @@ namespace HospitalManagementSystem.Api.Services
             };
 
             return MapSlot(await _repository.CreateSlotAsync(slot));
+        }
+
+        public async Task<DoctorTimeSlotDto?> UpdateSlotAsync(int id, UpdateDoctorTimeSlotDto dto)
+        {
+            var slot = await _repository.GetSlotByIdAsync(id);
+            if (slot is null) return null;
+
+            var doctorName = dto.DoctorName.Trim();
+            var specialty = dto.Specialty.Trim();
+            var startAt = DateTime.SpecifyKind(dto.StartAt, DateTimeKind.Utc);
+            var endAt = DateTime.SpecifyKind(dto.EndAt, DateTimeKind.Utc);
+            var activeAppointments = slot.Appointments
+                .Where(a => OccupyingStatuses.Contains(a.Status))
+                .OrderBy(a => a.AppointmentNumber)
+                .ToList();
+
+            if (string.IsNullOrWhiteSpace(doctorName) || string.IsNullOrWhiteSpace(specialty))
+                throw new InvalidOperationException("Doctor name and specialty are required.");
+
+            if (endAt <= startAt)
+                throw new InvalidOperationException("Slot end time must be after start time.");
+
+            if (dto.Capacity < activeAppointments.Count)
+                throw new InvalidOperationException("Slot capacity cannot be less than the number of booked appointments.");
+
+            if (await _repository.SlotOverlapsAsync(doctorName, startAt, endAt, id))
+                throw new InvalidOperationException("This doctor already has an overlapping time slot.");
+
+            slot.DoctorName = doctorName;
+            slot.Specialty = specialty;
+            slot.StartAt = startAt;
+            slot.EndAt = endAt;
+            slot.Capacity = dto.Capacity;
+            slot.IsActive = dto.IsActive;
+
+            foreach (var appointment in activeAppointments)
+            {
+                appointment.EstimatedStartAt = GetEstimatedStartAt(slot, appointment.AppointmentNumber);
+            }
+
+            var updated = await _repository.UpdateSlotAsync(slot);
+            return MapSlot(updated);
+        }
+
+        public async Task<DoctorTimeSlotDto?> CancelSlotAsync(int id, string? reason)
+        {
+            var slot = await _repository.GetSlotByIdAsync(id);
+            if (slot is null) return null;
+
+            var affectedAppointments = slot.Appointments
+                .Where(a => a.Status is "Requested" or "Confirmed")
+                .OrderBy(a => a.AppointmentNumber)
+                .ToList();
+
+            slot.IsActive = false;
+            foreach (var appointment in affectedAppointments)
+            {
+                appointment.Status = "Cancelled";
+                appointment.CancellationReason = string.IsNullOrWhiteSpace(reason)
+                    ? "Doctor time slot cancelled."
+                    : reason.Trim();
+            }
+
+            var updated = await _repository.UpdateSlotAsync(slot);
+            return MapSlot(updated);
         }
 
         private async Task<DoctorTimeSlot> ValidateSlotCapacityAsync(int slotId, int? excludeAppointmentId = null)

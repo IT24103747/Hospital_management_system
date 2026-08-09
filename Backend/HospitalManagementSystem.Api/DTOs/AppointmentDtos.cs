@@ -106,4 +106,15 @@ namespace HospitalManagementSystem.Api.DTOs
         [Range(1, 100)]
         public int Capacity { get; set; } = 1;
     }
+
+    public class UpdateDoctorTimeSlotDto : CreateDoctorTimeSlotDto
+    {
+        public bool IsActive { get; set; } = true;
+    }
+
+    public class CancelDoctorTimeSlotDto
+    {
+        [MaxLength(500)]
+        public string? Reason { get; set; }
+    }
 }

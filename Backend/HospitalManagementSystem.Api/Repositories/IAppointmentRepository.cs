@@ -15,6 +15,7 @@ namespace HospitalManagementSystem.Api.Repositories
         Task<DoctorTimeSlot?> GetSlotByIdAsync(int id);
         Task<IEnumerable<DoctorTimeSlot>> GetSlotsAsync(string? doctorName, DateTime? date, bool onlyAvailable);
         Task<DoctorTimeSlot> CreateSlotAsync(DoctorTimeSlot slot);
+        Task<DoctorTimeSlot> UpdateSlotAsync(DoctorTimeSlot slot);
         Task<bool> SlotOverlapsAsync(string doctorName, DateTime startAt, DateTime endAt, int? excludeSlotId = null);
     }
 }

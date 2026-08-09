@@ -105,6 +105,47 @@
   margin-bottom: var(--space-xl);
 }
 
+.appt-panel .table-wrapper {
+  overflow: hidden;
+  border-radius: 10px;
+  border-color: #d8e2ef;
+  background: var(--bg-card);
+  box-shadow: none;
+}
+
+.appt-panel .table {
+  font-size: 0.82rem;
+  table-layout: auto;
+}
+
+.appt-panel .table thead {
+  background: #eef4fa;
+}
+
+.appt-panel .table th {
+  padding: 10px 14px;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.appt-panel .table td {
+  padding: 12px 14px;
+  border-bottom-color: #dce6f1;
+}
+
+.appt-panel .table tbody tr {
+  background: #f7fbff;
+}
+
+.appt-panel .table tbody tr:nth-child(even) {
+  background: #f1f6fc;
+}
+
+.appt-panel .table tbody tr:hover {
+  background: #ecf5ff;
+}
+
 .appt-toolbar {
   margin-bottom: var(--space-md);
   flex-wrap: wrap;
@@ -164,19 +205,19 @@
 }
 
 .appt-avatar {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
-  background: #a7e1c7;
-  color: #000000;
+  background: linear-gradient(135deg, #a7f3d0, #bfdbfe);
+  color: #2563eb;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  font-size: 0.82rem;
+  font-size: 0.74rem;
   letter-spacing: 0;
   flex-shrink: 0;
-  border: 1px solid #83ec88;
+  border: 1px solid rgba(37, 99, 235, 0.18);
 }
 
 .appt-patient-cell div,
@@ -190,8 +231,14 @@
 .appt-patient-cell span,
 .appt-number-cell span,
 .appt-doctor-cell span {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
+}
+
+.appt-patient-cell strong,
+.appt-number-cell strong,
+.appt-doctor-cell strong {
+  font-size: 0.86rem;
 }
 
 .appt-number-cell {
@@ -203,33 +250,34 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 0.74rem;
+  font-size: 0.7rem;
   font-weight: 700;
-  padding: 4px 10px;
+  padding: 4px 9px;
   border-radius: var(--radius-full);
   white-space: nowrap;
 }
 
 .appt-inline-select {
-  width: 108px;
-  height: 34px;
-  padding: 0 6px;
+  width: 92px;
+  height: 30px;
+  padding: 0 5px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   background: var(--bg-base);
   color: var(--text-primary);
+  font-size: 0.76rem;
 }
 
 .appt-actions {
   justify-content: flex-end;
-  gap: 4px;
+  gap: 3px;
 }
 
 .appt-icon-btn.btn {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   padding: 0;
-  flex: 0 0 34px;
+  flex: 0 0 30px;
 }
 
 .appt-section__header {
@@ -279,6 +327,24 @@
 .appt-slot meter {
   width: 100%;
   height: 8px;
+}
+
+.appt-slot .appt-slot__actions {
+  display: grid;
+  grid-template-columns: 34px 34px;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.appt-slot .appt-slot__actions .appt-slot__icon-btn {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0;
+  border-radius: 8px;
 }
 
 .appt-form {

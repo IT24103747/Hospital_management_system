@@ -186,6 +186,38 @@ namespace HospitalManagementSystem.Api.Controllers
             }
         }
 
+        [HttpPut("slots/{id:int}")]
+        [ProducesResponseType(typeof(DoctorTimeSlotDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<IActionResult> UpdateSlot(int id, [FromBody] UpdateDoctorTimeSlotDto dto)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            try
+            {
+                var updated = await _service.UpdateSlotAsync(id, dto);
+                return updated is null
+                    ? NotFound(new { message = $"Doctor time slot with ID {id} not found." })
+                    : Ok(updated);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("slots/{id:int}/cancel")]
+        [ProducesResponseType(typeof(DoctorTimeSlotDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> CancelSlot(int id, [FromBody] CancelDoctorTimeSlotDto? dto)
+        {
+            var cancelled = await _service.CancelSlotAsync(id, dto?.Reason);
+            return cancelled is null
+                ? NotFound(new { message = $"Doctor time slot with ID {id} not found." })
+                : Ok(cancelled);
+        }
+
         [HttpGet("available-slots")]
         [ProducesResponseType(typeof(IEnumerable<DoctorTimeSlotDto>), StatusCodes.Status200OK)]
         public async Task<IActionResult> SuggestAvailableSlots([FromQuery] string? doctorName, [FromQuery] DateTime? date)
