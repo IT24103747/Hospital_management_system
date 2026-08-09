@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { patientApi, MOCK_PATIENTS } from '../services/patientApi'
+import { patientApi } from '../services/patientApi'
 
 const USE_MOCK = false
 
@@ -21,7 +21,7 @@ export function usePatients() {
       }
     } catch (err) {
       setError(err.message || 'Failed to load patients')
-      setPatients(MOCK_PATIENTS)
+      setPatients([])
     } finally {
       setLoading(false)
     }

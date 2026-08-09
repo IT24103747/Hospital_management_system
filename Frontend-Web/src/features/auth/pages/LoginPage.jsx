@@ -8,16 +8,30 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const [form, setForm] = useState({ email: '', password: '' })
 
   const handleChange = e => setForm(p => ({ ...p, [e.target.name]: e.target.value }))
 
   const handleSubmit = async e => {
     e.preventDefault()
+    setError('')
+
+    if (!form.email.trim() || !form.password.trim()) {
+      setError('Please enter your email and password.')
+      return
+    }
+
     setLoading(true)
-    await new Promise(r => setTimeout(r, 1200))
-    setLoading(false)
-    navigate('/dashboard')
+    try {
+      await new Promise(r => setTimeout(r, 800))
+      localStorage.setItem('hms_token', 'demo-token')
+      navigate('/dashboard')
+    } catch {
+      setError('Unable to sign in right now. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -90,6 +104,12 @@ export default function LoginPage() {
             </label>
             <a href="#" className="login-form__forgot">Forgot password?</a>
           </div>
+
+          {error && (
+            <p style={{ marginBottom: '10px', color: 'var(--clr-danger, #dc2626)', fontSize: '0.9rem' }}>
+              {error}
+            </p>
+          )}
 
           <Button
             variant="primary"
