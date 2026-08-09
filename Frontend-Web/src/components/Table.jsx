@@ -50,7 +50,7 @@ export default function Table({ columns, data, loading = false, emptyMessage = '
           ) : (
             data.map((row, i) => (
               <tr
-                key={row.id || row.patientId || i}
+                key={row.id || row.appointmentId || row.patientId || i}
                 className={onRowClick ? 'table__row--clickable' : ''}
                 onClick={() => onRowClick?.(row)}
               >

@@ -12,6 +12,7 @@ namespace HospitalManagementSystem.Api.Services
         Task<AppointmentDto?> UpdateStatusAsync(int id, string status);
         Task<AppointmentDto?> CancelAppointmentAsync(int id, string reason);
         Task<AppointmentDto?> RescheduleAppointmentAsync(int id, int doctorTimeSlotId);
+        Task<IEnumerable<DoctorLookupDto>> GetDoctorsAsync();
         Task<IEnumerable<DoctorTimeSlotDto>> GetSlotsAsync(string? doctorName, DateTime? date, bool onlyAvailable);
         Task<DoctorTimeSlotDto> CreateSlotAsync(CreateDoctorTimeSlotDto dto);
     }

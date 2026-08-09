@@ -1,7 +1,17 @@
 import apiClient from '../../../lib/apiClient'
 
+const toParams = (params = {}) => {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+      query.append(key, value)
+    }
+  })
+  return query.toString()
+}
+
 export const patientApi = {
-  getAll: () => apiClient.get('/patient').then(r => r.data),
+  getAll: (params) => apiClient.get(`/patient?${toParams(params)}`).then(r => r.data),
   getById: (id) => apiClient.get(`/patient/${id}`).then(r => r.data),
   create: (data) => apiClient.post('/patient', data).then(r => r.data),
   update: (id, data) => apiClient.put(`/patient/${id}`, data).then(r => r.data),

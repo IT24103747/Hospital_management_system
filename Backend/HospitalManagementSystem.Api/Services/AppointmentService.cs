@@ -54,9 +54,9 @@ namespace HospitalManagementSystem.Api.Services
                 PatientPhone = dto.PatientPhone.Trim(),
                 PatientEmail = dto.PatientEmail?.Trim().ToLower(),
                 AppointmentType = dto.AppointmentType.Trim(),
-                Reason = dto.Reason.Trim(),
+                Reason = NormalizeAppointmentReason(dto.Reason),
                 Notes = dto.Notes?.Trim(),
-                Status = "Requested",
+                Status = "Confirmed",
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -117,7 +117,7 @@ namespace HospitalManagementSystem.Api.Services
             appointment.PatientPhone = dto.PatientPhone.Trim();
             appointment.PatientEmail = dto.PatientEmail?.Trim().ToLower();
             appointment.AppointmentType = dto.AppointmentType.Trim();
-            appointment.Reason = dto.Reason.Trim();
+            appointment.Reason = NormalizeAppointmentReason(dto.Reason);
             appointment.Notes = dto.Notes?.Trim();
             appointment.Status = dto.Status;
 
@@ -177,6 +177,19 @@ namespace HospitalManagementSystem.Api.Services
             return MapAppointment(await _repository.UpdateAsync(appointment));
         }
 
+        public async Task<IEnumerable<DoctorLookupDto>> GetDoctorsAsync()
+        {
+            var slots = await _repository.GetSlotsAsync(null, null, false);
+            return slots
+                .GroupBy(s => new { s.DoctorName, s.Specialty })
+                .Select(g => new DoctorLookupDto
+                {
+                    DoctorName = g.Key.DoctorName,
+                    Specialty = g.Key.Specialty
+                })
+                .OrderBy(d => d.DoctorName);
+        }
+
         public async Task<IEnumerable<DoctorTimeSlotDto>> GetSlotsAsync(string? doctorName, DateTime? date, bool onlyAvailable)
         {
             var slots = await _repository.GetSlotsAsync(doctorName, date, onlyAvailable);
@@ -185,19 +198,24 @@ namespace HospitalManagementSystem.Api.Services
 
         public async Task<DoctorTimeSlotDto> CreateSlotAsync(CreateDoctorTimeSlotDto dto)
         {
+            var doctorName = dto.DoctorName.Trim();
+            var specialty = dto.Specialty.Trim();
             var startAt = DateTime.SpecifyKind(dto.StartAt, DateTimeKind.Utc);
             var endAt = DateTime.SpecifyKind(dto.EndAt, DateTimeKind.Utc);
+
+            if (string.IsNullOrWhiteSpace(doctorName) || string.IsNullOrWhiteSpace(specialty))
+                throw new InvalidOperationException("Doctor name and specialty are required.");
 
             if (endAt <= startAt)
                 throw new InvalidOperationException("Slot end time must be after start time.");
 
-            if (await _repository.SlotOverlapsAsync(dto.DoctorName.Trim(), startAt, endAt))
+            if (await _repository.SlotOverlapsAsync(doctorName, startAt, endAt))
                 throw new InvalidOperationException("This doctor already has an overlapping time slot.");
 
             var slot = new DoctorTimeSlot
             {
-                DoctorName = dto.DoctorName.Trim(),
-                Specialty = dto.Specialty.Trim(),
+                DoctorName = doctorName,
+                Specialty = specialty,
                 StartAt = startAt,
                 EndAt = endAt,
                 Capacity = dto.Capacity,
@@ -280,6 +298,12 @@ namespace HospitalManagementSystem.Api.Services
             NextEstimatedStartAt = GetNextEstimatedStartAt(s),
             IsActive = s.IsActive
         };
+
+        private static string NormalizeAppointmentReason(string? reason)
+        {
+            var value = reason?.Trim() ?? string.Empty;
+            return value == "Appointment" ? string.Empty : value;
+        }
 
         private static int GetNextAppointmentNumber(DoctorTimeSlot s)
         {
