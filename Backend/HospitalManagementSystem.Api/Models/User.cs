@@ -12,5 +12,6 @@ namespace HospitalManagementSystem.Api.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public Patient? PatientProfile { get; set; }
+        public Doctor? DoctorProfile { get; set; }
     }
 }

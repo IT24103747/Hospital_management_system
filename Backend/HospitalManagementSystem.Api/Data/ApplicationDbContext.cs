@@ -10,6 +10,7 @@ namespace HospitalManagementSystem.Api.Data
 
         public DbSet<User> Users => Set<User>();
         public DbSet<Patient> Patients => Set<Patient>();
+        public DbSet<Doctor> Doctors => Set<Doctor>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -41,6 +42,27 @@ namespace HospitalManagementSystem.Api.Data
                 entity.Property(p => p.EmergencyContactName).HasMaxLength(100);
                 entity.Property(p => p.EmergencyContactPhone).HasMaxLength(20);
                 entity.Property(p => p.ProfileImageUrl).HasMaxLength(500);
+            });
+
+            modelBuilder.Entity<Doctor>(entity =>
+            {
+                entity.HasKey(d => d.DoctorId);
+                entity.Property(d => d.FirstName).IsRequired().HasMaxLength(100);
+                entity.Property(d => d.LastName).IsRequired().HasMaxLength(100);
+                entity.Property(d => d.Email).IsRequired().HasMaxLength(200);
+                entity.HasIndex(d => d.Email).IsUnique();
+                entity.Property(d => d.NIC).IsRequired().HasMaxLength(20);
+                entity.HasIndex(d => d.NIC).IsUnique();
+                entity.Property(d => d.SLMCLicenseNumber).IsRequired().HasMaxLength(50);
+                entity.HasIndex(d => d.SLMCLicenseNumber).IsUnique();
+                entity.Property(d => d.Specialization).IsRequired().HasMaxLength(150);
+                entity.Property(d => d.PhoneNumber).IsRequired().HasMaxLength(20);
+                entity.Property(d => d.Status).IsRequired().HasMaxLength(20);
+
+                entity.HasOne(d => d.User)
+                      .WithOne(u => u.DoctorProfile)
+                      .HasForeignKey<Doctor>(d => d.UserId)
+                      .OnDelete(DeleteBehavior.Cascade);
             });
         }
     }

@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   Users,
@@ -9,22 +9,44 @@ import {
   Activity,
   ChevronLeft,
   ChevronRight,
+  User,
 } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
 import './Sidebar.css'
 
-const NAV_ITEMS = [
-  { label: 'Dashboard',    icon: LayoutDashboard, to: '/dashboard' },
-  { label: 'Patients',     icon: Users,           to: '/patients' },
-  { label: 'Doctors',      icon: Stethoscope,     to: '/doctors' },
-  { label: 'Appointments', icon: Calendar,        to: '/appointments' },
-]
-
-const BOTTOM_ITEMS = [
-  { label: 'Settings',    icon: Settings,  to: '/settings' },
-  { label: 'Logout',      icon: LogOut,    to: '/login',   danger: true },
-]
-
 export default function Sidebar({ collapsed, onToggle }) {
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+  const isDoctor = user?.role === 'Doctor'
+
+  const navItems = isDoctor
+    ? [
+        { label: 'Dashboard', icon: LayoutDashboard, to: '/dashboard' },
+        { label: 'My Profile', icon: User, to: '/profile' },
+        { label: 'Appointments', icon: Calendar, to: '/appointments' },
+        { label: 'Patients', icon: Users, to: '/patients' },
+      ]
+    : [
+        { label: 'Dashboard', icon: LayoutDashboard, to: '/dashboard' },
+        { label: 'Patients', icon: Users, to: '/patients' },
+        { label: 'Doctors', icon: Stethoscope, to: '/doctors' },
+        { label: 'Appointments', icon: Calendar, to: '/appointments' },
+      ]
+
+  const handleLogout = (e) => {
+    e.preventDefault()
+    logout()
+    navigate('/login')
+  }
+
+  const doctorName = isDoctor
+    ? `${user?.doctorProfile?.firstName || user?.fullName?.split(' ')[0] || ''} ${
+        user?.doctorProfile?.lastName || user?.fullName?.split(' ').slice(1).join(' ') || ''
+      }`.trim()
+    : user?.fullName || 'Admin User'
+
+  const roleText = isDoctor ? user?.doctorProfile?.specialization || 'Doctor' : 'System Admin'
+
   return (
     <aside className={`sidebar ${collapsed ? 'sidebar--collapsed' : ''}`}>
       <div className="sidebar__brand">
@@ -49,16 +71,18 @@ export default function Sidebar({ collapsed, onToggle }) {
 
       <nav className="sidebar__nav">
         {!collapsed && <p className="sidebar__section-label">MAIN MENU</p>}
-        {NAV_ITEMS.map(({ label, icon: Icon, to }) => (
+        {navItems.map(({ label, icon: Icon, to }) => (
           <NavLink
             key={to}
             to={to}
-            id={`nav-${label.toLowerCase()}`}
+            id={`nav-${label.toLowerCase().replace(/\s+/g, '-')}`}
             className={({ isActive }) =>
               `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`
             }
           >
-            <span className="sidebar__icon"><Icon size={18} strokeWidth={2} /></span>
+            <span className="sidebar__icon">
+              <Icon size={18} strokeWidth={2} />
+            </span>
             {!collapsed && <span className="sidebar__label">{label}</span>}
           </NavLink>
         ))}
@@ -66,24 +90,52 @@ export default function Sidebar({ collapsed, onToggle }) {
 
       <div className="sidebar__bottom">
         {!collapsed && <p className="sidebar__section-label">ACCOUNT</p>}
-        {BOTTOM_ITEMS.map(({ label, icon: Icon, to, danger }) => (
+        
+        {!isDoctor && (
           <NavLink
-            key={to}
-            to={to}
-            id={`nav-${label.toLowerCase()}`}
-            className={`sidebar__link ${danger ? 'sidebar__link--danger' : ''}`}
+            to="/settings"
+            id="nav-settings"
+            className={({ isActive }) =>
+              `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`
+            }
           >
-            <span className="sidebar__icon"><Icon size={18} strokeWidth={2} /></span>
-            {!collapsed && <span className="sidebar__label">{label}</span>}
+            <span className="sidebar__icon">
+              <Settings size={18} strokeWidth={2} />
+            </span>
+            {!collapsed && <span className="sidebar__label">Settings</span>}
           </NavLink>
-        ))}
+        )}
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          id="nav-logout"
+          className="sidebar__link sidebar__link--danger"
+          style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', cursor: 'pointer' }}
+        >
+          <span className="sidebar__icon">
+            <LogOut size={18} strokeWidth={2} />
+          </span>
+          {!collapsed && <span className="sidebar__label">Logout</span>}
+        </button>
 
         {!collapsed && (
           <div className="sidebar__user">
-            <div className="sidebar__avatar">A</div>
-            <div>
-              <div className="sidebar__user-name">Admin User</div>
-              <div className="sidebar__user-role">System Admin</div>
+            <div
+              className="sidebar__avatar"
+              style={
+                isDoctor
+                  ? { background: 'linear-gradient(135deg, #0ea5e9, #6366f1)', color: '#fff' }
+                  : {}
+              }
+            >
+              {isDoctor ? 'Dr' : 'A'}
+            </div>
+            <div style={{ overflow: 'hidden' }}>
+              <div className="sidebar__user-name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {isDoctor ? `Dr. ${doctorName}` : doctorName}
+              </div>
+              <div className="sidebar__user-role">{roleText}</div>
             </div>
           </div>
         )}

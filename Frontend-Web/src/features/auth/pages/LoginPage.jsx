@@ -1,23 +1,37 @@
-import { Activity, Eye, EyeOff, Lock, Mail } from 'lucide-react'
+import { Activity, AlertCircle, Eye, EyeOff, Lock, Mail } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Button from '../../../components/Button'
+import { useAuth } from '../../../context/AuthContext'
 import './LoginPage.css'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const { login } = useAuth()
+
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const [form, setForm] = useState({ email: '', password: '' })
 
-  const handleChange = e => setForm(p => ({ ...p, [e.target.name]: e.target.value }))
+  const handleChange = (e) => {
+    setError('')
+    setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+  }
 
-  const handleSubmit = async e => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
+    setError('')
     setLoading(true)
-    await new Promise(r => setTimeout(r, 1200))
+
+    const res = await login(form.email.trim(), form.password)
     setLoading(false)
-    navigate('/dashboard')
+
+    if (res.success) {
+      navigate('/dashboard')
+    } else {
+      setError(res.message)
+    }
   }
 
   return (
@@ -31,7 +45,9 @@ export default function LoginPage() {
           <div className="login-card__logo">
             <Activity size={26} strokeWidth={2.5} />
           </div>
-          <h1 className="login-card__app-name">Medi<span>Core</span></h1>
+          <h1 className="login-card__app-name">
+            Medi<span>Core</span>
+          </h1>
         </div>
 
         <div className="login-card__header">
@@ -39,9 +55,32 @@ export default function LoginPage() {
           <p className="login-card__sub">Sign in to Hospital Management System</p>
         </div>
 
+        {error && (
+          <div
+            style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#ef4444',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              fontSize: '0.86rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginBottom: '16px',
+              lineHeight: '1.4',
+            }}
+          >
+            <AlertCircle size={18} style={{ flexShrink: 0 }} />
+            <span>{error}</span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="login-form" id="login-form">
           <div className="login-field">
-            <label className="login-field__label" htmlFor="login-email">Email Address</label>
+            <label className="login-field__label" htmlFor="login-email">
+              Email Address
+            </label>
             <div className="login-field__wrap">
               <Mail size={16} className="login-field__icon" />
               <input
@@ -58,7 +97,9 @@ export default function LoginPage() {
           </div>
 
           <div className="login-field">
-            <label className="login-field__label" htmlFor="login-password">Password</label>
+            <label className="login-field__label" htmlFor="login-password">
+              Password
+            </label>
             <div className="login-field__wrap">
               <Lock size={16} className="login-field__icon" />
               <input
@@ -74,7 +115,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 className="login-field__toggle"
-                onClick={() => setShowPass(s => !s)}
+                onClick={() => setShowPass((s) => !s)}
                 aria-label="Toggle password visibility"
                 id="toggle-password"
               >
@@ -88,20 +129,16 @@ export default function LoginPage() {
               <input type="checkbox" id="remember" />
               Remember me
             </label>
-            <a href="#" className="login-form__forgot">Forgot password?</a>
+            <a href="#" className="login-form__forgot">
+              Forgot password?
+            </a>
           </div>
 
-          <Button
-            variant="primary"
-            type="submit"
-            fullWidth
-            loading={loading}
-            id="login-submit-btn"
-          >
+          <Button variant="primary" type="submit" fullWidth loading={loading} id="login-submit-btn">
             Sign In
           </Button>
 
-          <p style={{ textAlign: 'center', fontSize: '0.86rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
+          <p style={{ textAlign: 'center', fontSize: '0.86rem', color: 'var(--text-secondary)', marginTop: '12px' }}>
             Are you a Doctor?{' '}
             <Link to="/register" style={{ color: 'var(--clr-primary)', fontWeight: 600, textDecoration: 'none' }}>
               Register Here
@@ -109,9 +146,7 @@ export default function LoginPage() {
           </p>
         </form>
 
-        <p className="login-card__footer">
-          MediCore HMS · SE3090 Assignment · SLIIT
-        </p>
+        <p className="login-card__footer">MediCore HMS · SE3090 Assignment · SLIIT</p>
       </div>
     </div>
   )

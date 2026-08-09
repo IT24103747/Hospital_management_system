@@ -27,6 +27,9 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 // Dependency Injection
 builder.Services.AddScoped<IPatientRepository, PatientRepository>();
 builder.Services.AddScoped<IPatientService, PatientService>();
+builder.Services.AddScoped<IDoctorRepository, DoctorRepository>();
+builder.Services.AddScoped<IDoctorService, DoctorService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 // CORS – allow React and Flutter (dev)
 builder.Services.AddCors(options =>
@@ -36,6 +39,13 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+// Seed Database
+using (var scope = app.Services.CreateScope())
+{
+    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    DbInitializer.Initialize(context);
+}
 
 // ---------- Middleware ----------
 if (app.Environment.IsDevelopment())

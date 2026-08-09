@@ -4,6 +4,7 @@ import DashboardPage from '../features/dashboard/pages/DashboardPage'
 import PatientListPage from '../features/patients/pages/PatientListPage'
 import PatientDetailPage from '../features/patients/pages/PatientDetailPage'
 import DoctorsPage from '../features/doctors/pages/DoctorsPage'
+import DoctorProfilePage from '../features/doctors/pages/DoctorProfilePage'
 import AppointmentsPage from '../features/appointments/pages/AppointmentsPage'
 import LoginPage from '../features/auth/pages/LoginPage'
 import RegisterPage from '../features/auth/pages/RegisterPage'
@@ -21,6 +22,7 @@ export default function AppRouter() {
           <Route path="/patients" element={<PatientListPage />} />
           <Route path="/patients/:id" element={<PatientDetailPage />} />
           <Route path="/doctors" element={<DoctorsPage />} />
+          <Route path="/profile" element={<DoctorProfilePage />} />
           <Route path="/appointments" element={<AppointmentsPage />} />
         </Route>
 
