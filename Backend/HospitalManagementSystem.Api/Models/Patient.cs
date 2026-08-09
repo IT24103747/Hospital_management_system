@@ -15,8 +15,8 @@ namespace HospitalManagementSystem.Api.Models
         public string? Email { get; set; }
         public string? Address { get; set; }
         public string? BloodGroup { get; set; }
-        public string? EmergencyContactName { get; set; }
-        public string? EmergencyContactPhone { get; set; }
+        public string? EmergencyContactName { get; set; } = string.Empty;
+        public string? EmergencyContactPhone { get; set; } = string.Empty;
         public string? ProfileImageUrl { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

@@ -40,8 +40,8 @@ namespace HospitalManagementSystem.Api.Data
                 entity.Property(p => p.Gender).IsRequired().HasMaxLength(20);
                 entity.Property(p => p.BloodGroup).HasMaxLength(10);
                 entity.Property(p => p.Address).HasMaxLength(500);
-                entity.Property(p => p.EmergencyContactName).HasMaxLength(100);
-                entity.Property(p => p.EmergencyContactPhone).HasMaxLength(20);
+                entity.Property(p => p.EmergencyContactName).IsRequired(false).HasMaxLength(100);
+                entity.Property(p => p.EmergencyContactPhone).IsRequired(false).HasMaxLength(20);
                 entity.Property(p => p.ProfileImageUrl).HasMaxLength(500);
             });
 
