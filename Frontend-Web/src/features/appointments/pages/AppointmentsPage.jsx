@@ -59,6 +59,9 @@ export default function AppointmentsPage() {
   const [editTarget, setEditTarget] = useState(null)
   const [appointmentNumberOpen, setAppointmentNumberOpen] = useState(false)
   const [slotOpen, setSlotOpen] = useState(false)
+  const [editSlotTarget, setEditSlotTarget] = useState(null)
+  const [cancelSlotTarget, setCancelSlotTarget] = useState(null)
+  const [slotCancelReason, setSlotCancelReason] = useState('')
   const [cancelTarget, setCancelTarget] = useState(null)
   const [cancelReason, setCancelReason] = useState('')
   const [appointmentForm, setAppointmentForm] = useState(emptyAppointment)
@@ -80,6 +83,8 @@ export default function AppointmentsPage() {
     createAppointment,
     updateAppointment,
     createSlot,
+    updateSlot,
+    cancelSlot,
     updateStatus,
     cancelAppointment,
   } = useAppointments(filters)
@@ -252,15 +257,55 @@ export default function AppointmentsPage() {
     const resolvedDoctor = doctors.find(doctor => doctor.doctorName.toLowerCase() === doctorName.toLowerCase())
       || doctors.find(doctor => doctor.doctorName.toLowerCase().includes(doctorName.toLowerCase()))
 
-    await createSlot({
+    const payload = {
       doctorName,
       specialty: resolvedDoctor?.specialty || specialty,
       startAt: new Date(`${slotForm.date}T${slotForm.startTime}`).toISOString(),
       endAt: new Date(`${slotForm.date}T${slotForm.endTime}`).toISOString(),
       capacity: Number(slotForm.capacity),
-    })
-    setSlotOpen(false)
+      isActive: true,
+    }
+
+    if (editSlotTarget) {
+      await updateSlot(editSlotTarget.doctorTimeSlotId, payload)
+    } else {
+      await createSlot(payload)
+    }
+
+    closeSlotModal()
+  }
+
+  const openCreateSlot = () => {
+    setEditSlotTarget(null)
     setSlotForm(emptySlot)
+    setSlotOpen(true)
+  }
+
+  const openEditSlot = (slot) => {
+    setEditSlotTarget(slot)
+    setSlotForm({
+      doctorName: slot.doctorName || '',
+      specialty: slot.specialty || '',
+      date: toDateInputValue(slot.startAt),
+      startTime: toTimeInputValue(slot.startAt),
+      endTime: toTimeInputValue(slot.endAt),
+      capacity: slot.capacity || 1,
+    })
+    setSlotOpen(true)
+  }
+
+  const closeSlotModal = () => {
+    setSlotOpen(false)
+    setEditSlotTarget(null)
+    setSlotForm(emptySlot)
+  }
+
+  const handleSlotCancel = async (e) => {
+    e.preventDefault()
+    if (!cancelSlotTarget) return
+    await cancelSlot(cancelSlotTarget.doctorTimeSlotId, slotCancelReason)
+    setCancelSlotTarget(null)
+    setSlotCancelReason('')
   }
 
   const handleCancel = async (e) => {
@@ -320,11 +365,12 @@ export default function AppointmentsPage() {
         specialty: a.specialty,
       })),
     },
-    { key: 'status', label: 'Status', render: (a) => <StatusPill status={getDisplayStatus(a.status)} /> },
+    { key: 'status', label: 'Status', width: '120px', render: (a) => <StatusPill status={getDisplayStatus(a.status)} /> },
     {
       key: 'actions',
       label: '',
       align: 'right',
+      width: '150px',
       render: (a) => (
         <div className="appt-actions">
           <select
@@ -369,7 +415,7 @@ export default function AppointmentsPage() {
           </div>
           <div className="appt-header__actions">
             <Button variant="secondary" icon={RefreshCw} onClick={refetch}>Refresh</Button>
-            <Button variant="secondary" icon={CalendarClock} onClick={() => setSlotOpen(true)}>Add Slot</Button>
+            <Button variant="secondary" icon={CalendarClock} onClick={openCreateSlot}>Add Slot</Button>
             <Button variant="primary" icon={Plus} onClick={openCreateAppointment}>New Appointment</Button>
           </div>
         </div>
@@ -428,6 +474,26 @@ export default function AppointmentsPage() {
                 <small>Next #{slot.nextAppointmentNumber} at {formatTime(slot.nextEstimatedStartAt)}</small>
               )}
               <small>{slot.bookedCount}/{slot.capacity} booked · {slot.availableCount ?? slot.capacity - slot.bookedCount} available</small>
+              <div className="appt-slot__actions">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={Pencil}
+                  className="appt-slot__icon-btn"
+                  onClick={() => openEditSlot(slot)}
+                  disabled={!slot.isActive}
+                  aria-label="Edit doctor time slot"
+                />
+                <Button
+                  variant="danger"
+                  size="sm"
+                  icon={X}
+                  className="appt-slot__icon-btn"
+                  onClick={() => setCancelSlotTarget(slot)}
+                  disabled={!slot.isActive}
+                  aria-label="Cancel doctor time slot"
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -582,7 +648,14 @@ export default function AppointmentsPage() {
         </form>
       </Modal>
 
-      <Modal open={slotOpen} onClose={() => setSlotOpen(false)} title="Add Doctor Time Slot" subtitle="Add on behalf of a doctor" size="md" id="slot-form-modal">
+      <Modal
+        open={slotOpen}
+        onClose={closeSlotModal}
+        title={editSlotTarget ? 'Edit Doctor Time Slot' : 'Add Doctor Time Slot'}
+        subtitle={editSlotTarget ? 'Update doctor availability' : 'Add on behalf of a doctor'}
+        size="md"
+        id="slot-form-modal"
+      >
         <form className="appt-form" onSubmit={handleSlotSubmit}>
           <label>Doctor Name
             <input
@@ -636,8 +709,25 @@ export default function AppointmentsPage() {
             Appointment times are automatically estimated by dividing the selected time range by capacity.
           </p>
           <div className="appt-form__actions appt-form__wide">
-            <Button variant="secondary" onClick={() => setSlotOpen(false)}>Close</Button>
-            <Button type="submit" loading={saving}>Save Slot</Button>
+            <Button variant="secondary" onClick={closeSlotModal}>Close</Button>
+            <Button type="submit" loading={saving}>{editSlotTarget ? 'Update Slot' : 'Save Slot'}</Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={Boolean(cancelSlotTarget)} onClose={() => setCancelSlotTarget(null)} title="Cancel Doctor Time Slot" subtitle="Booked appointments will be cancelled" size="sm" id="cancel-slot-modal">
+        <form className="appt-form appt-form--single" onSubmit={handleSlotCancel}>
+          <label>Cancellation Message
+            <textarea
+              rows="4"
+              value={slotCancelReason}
+              onChange={e => setSlotCancelReason(e.target.value)}
+              placeholder="Example: Doctor is unavailable. Please contact the hospital to reschedule."
+            />
+          </label>
+          <div className="appt-form__actions">
+            <Button variant="secondary" onClick={() => setCancelSlotTarget(null)}>Close</Button>
+            <Button variant="danger" type="submit" loading={saving}>Cancel Slot</Button>
           </div>
         </form>
       </Modal>
@@ -721,6 +811,20 @@ function formatDateOnly(value) {
 function formatTime(value) {
   if (!value) return ''
   return new Intl.DateTimeFormat('en-LK', { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+}
+
+function toDateInputValue(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000))
+  return localDate.toISOString().slice(0, 10)
+}
+
+function toTimeInputValue(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000))
+  return localDate.toISOString().slice(11, 16)
 }
 
 function getEstimatedTimeForNumber(slot, appointmentNumber) {

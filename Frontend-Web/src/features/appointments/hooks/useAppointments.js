@@ -76,6 +76,8 @@ export function useAppointments(filters) {
     createAppointment: (data) => runMutation(() => appointmentApi.create(data)),
     updateAppointment: (id, data) => runMutation(() => appointmentApi.update(id, data)),
     createSlot: (data) => runMutation(() => appointmentApi.createSlot(data)),
+    updateSlot: (id, data) => runMutation(() => appointmentApi.updateSlot(id, data)),
+    cancelSlot: (id, reason) => runMutation(() => appointmentApi.cancelSlot(id, reason)),
     updateStatus: (id, status) => runMutation(() => appointmentApi.updateStatus(id, status)),
     cancelAppointment: (id, reason) => runMutation(() => appointmentApi.cancel(id, reason)),
     rescheduleAppointment: (id, slotId) => runMutation(() => appointmentApi.reschedule(id, slotId)),

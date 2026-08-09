@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Identity;
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
 
 // ---------- Database Connection Check ----------
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");

@@ -21,6 +21,8 @@ export const appointmentApi = {
   getSlots: (params) => apiClient.get(`/appointment/slots?${toParams(params)}`).then(r => r.data),
   getAvailableSlots: (params) => apiClient.get(`/appointment/available-slots?${toParams(params)}`).then(r => r.data),
   createSlot: (data) => apiClient.post('/appointment/slots', data).then(r => r.data),
+  updateSlot: (id, data) => apiClient.put(`/appointment/slots/${id}`, data).then(r => r.data),
+  cancelSlot: (id, reason) => apiClient.post(`/appointment/slots/${id}/cancel`, { reason }).then(r => r.data),
 }
 
 export const MOCK_SLOTS = [

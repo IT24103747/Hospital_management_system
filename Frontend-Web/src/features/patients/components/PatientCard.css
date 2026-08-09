@@ -3,10 +3,10 @@
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  padding: var(--space-lg);
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
   overflow: hidden;
   box-shadow: var(--shadow-sm);
@@ -34,19 +34,19 @@
 .patient-card__header {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
-  padding: 4px 2px;
+  gap: 10px;
+  padding: 2px;
 }
 
 .patient-card__avatar {
-  width: 52px;
-  height: 52px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 0.86rem;
   color: white;
   flex-shrink: 0;
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.18);
@@ -58,7 +58,7 @@
 }
 
 .patient-card__name {
-  font-size: 1.1rem;
+  font-size: 0.96rem;
   font-weight: 700;
   color: var(--text-primary);
   overflow: hidden;
@@ -69,22 +69,22 @@
 .patient-card__meta {
   display: inline-flex;
   margin-top: 2px;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
 }
 
 .patient-card__details {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 6px;
 }
 
 .patient-card__detail {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 52px;
-  padding: 8px 10px;
+  gap: 8px;
+  min-height: 42px;
+  padding: 7px 9px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   background: var(--bg-card);
@@ -97,9 +97,9 @@
 }
 
 .patient-card__detail svg {
-  width: 28px;
-  height: 28px;
-  padding: 7px;
+  width: 24px;
+  height: 24px;
+  padding: 6px;
   border-radius: 50%;
   background: rgba(14, 165, 233, 0.1);
   color: var(--clr-primary);
@@ -117,13 +117,13 @@
 
 .patient-card__detail-label {
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   font-weight: 600;
 }
 
 .patient-card__detail-value {
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   font-weight: 500;
   text-align: right;
   overflow: hidden;
@@ -135,7 +135,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid var(--border-default);
   margin-top: auto;
 }
@@ -155,7 +155,8 @@
 
 .patient-card__actions .btn {
   flex: 1;
-  padding: 7px 8px;
+  padding: 6px 7px;
+  font-size: 0.72rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

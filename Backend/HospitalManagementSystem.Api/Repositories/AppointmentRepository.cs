@@ -115,11 +115,20 @@ namespace HospitalManagementSystem.Api.Repositories
             return slot;
         }
 
+        public async Task<DoctorTimeSlot> UpdateSlotAsync(DoctorTimeSlot slot)
+        {
+            slot.UpdatedAt = DateTime.UtcNow;
+            _context.DoctorTimeSlots.Update(slot);
+            await _context.SaveChangesAsync();
+            return (await GetSlotByIdAsync(slot.DoctorTimeSlotId))!;
+        }
+
         public async Task<bool> SlotOverlapsAsync(string doctorName, DateTime startAt, DateTime endAt, int? excludeSlotId = null) =>
             await _context.DoctorTimeSlots.AnyAsync(s =>
                 s.DoctorName.ToLower() == doctorName.ToLower() &&
                 s.StartAt < endAt &&
                 startAt < s.EndAt &&
+                s.IsActive &&
                 (!excludeSlotId.HasValue || s.DoctorTimeSlotId != excludeSlotId.Value));
 
         private IQueryable<Appointment> BuildAppointmentQuery(string? search, string? status, string? doctorName, DateTime? date)
