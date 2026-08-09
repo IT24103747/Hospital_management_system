@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { Phone, Mail, MapPin, Edit2, Trash2 } from 'lucide-react'
+import { Phone, Mail, MapPin, Edit2, Trash2, Eye, CreditCard } from 'lucide-react'
 import { BloodGroupBadge } from '../../../components/Badge'
 import Button from '../../../components/Button'
 import { calculateAge, getInitials, nameToGradient } from '../../../lib/utils'
 import './PatientCard.css'
 
-export default function PatientCard({ patient, onEdit, onDelete }) {
+export default function PatientCard({ patient, onEdit, onDelete, onView }) {
   const [hovered, setHovered] = useState(false)
   const [gradient] = useState(() => nameToGradient(patient.firstName))
 
@@ -39,23 +39,23 @@ export default function PatientCard({ patient, onEdit, onDelete }) {
       </div>
 
       <div className="patient-card__details">
-        <div className="patient-card__detail">
-          <Phone size={13} />
-          <span>{patient.phoneNumber}</span>
-        </div>
-        <div className="patient-card__detail">
-          <Mail size={13} />
-          <span>{patient.email}</span>
-        </div>
-        <div className="patient-card__detail">
-          <MapPin size={13} />
-          <span>{patient.address}</span>
-        </div>
+        <Detail icon={CreditCard} label="NIC" value={patient.nic} />
+        <Detail icon={Phone} label="Phone" value={patient.phoneNumber} />
+        <Detail icon={Mail} label="Email" value={patient.email} />
+        <Detail icon={MapPin} label="Address" value={patient.address} />
       </div>
 
       <div className="patient-card__footer">
-        <span className="patient-card__nic">NIC: {patient.nic}</span>
         <div className="patient-card__actions">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={Eye}
+            onClick={() => onView?.(patient)}
+            id={`view-patient-${patient.patientId}`}
+          >
+            View
+          </Button>
           <Button
             variant="primary"
             size="sm"
@@ -75,6 +75,18 @@ export default function PatientCard({ patient, onEdit, onDelete }) {
             Delete
           </Button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function Detail({ icon: Icon, label, value }) {
+  return (
+    <div className="patient-card__detail">
+      <Icon size={14} />
+      <div className="patient-card__detail-content">
+        <span className="patient-card__detail-label">{label}</span>
+        <span className="patient-card__detail-value">{value || '—'}</span>
       </div>
     </div>
   )

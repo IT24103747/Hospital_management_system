@@ -13,8 +13,9 @@ const EMPTY = {
   bloodGroup: 'B+', emergencyContactName: '', emergencyContactPhone: '',
 }
 
-export default function PatientForm({ open, onClose, onSubmit, patient, loading }) {
+export default function PatientForm({ open, onClose, onSubmit, patient, loading, error }) {
   const [form, setForm] = useState(EMPTY)
+  const [validationError, setValidationError] = useState(null)
 
   useEffect(() => {
     if (patient) {
@@ -39,10 +40,16 @@ export default function PatientForm({ open, onClose, onSubmit, patient, loading 
   const handleChange = (e) => {
     const { name, value } = e.target
     setForm(prev => ({ ...prev, [name]: value }))
+    setValidationError(null)
   }
 
   const handleSubmit = (e) => {
     e.preventDefault()
+    const message = validatePatientForm(form)
+    if (message) {
+      setValidationError(message)
+      return
+    }
     onSubmit(form)
   }
 
@@ -58,6 +65,11 @@ export default function PatientForm({ open, onClose, onSubmit, patient, loading 
       id="patient-form-modal"
     >
       <form onSubmit={handleSubmit} className="patient-form" id="patient-form">
+        {(validationError || error) && (
+          <div className="patient-form__error" role="alert">
+            {validationError || error}
+          </div>
+        )}
         <div className="form-section">
           <h5 className="form-section__title">Personal Information</h5>
           <div className="form-grid form-grid--2">
@@ -100,6 +112,24 @@ export default function PatientForm({ open, onClose, onSubmit, patient, loading 
       </form>
     </Modal>
   )
+}
+
+function validatePatientForm(form) {
+  const requiredFields = [
+    ['firstName', 'First name'], ['lastName', 'Last name'], ['dateOfBirth', 'Date of birth'],
+    ['nic', 'NIC number'], ['phoneNumber', 'Phone number'], ['email', 'Email address'],
+    ['address', 'Address'], ['emergencyContactName', 'Emergency contact name'],
+    ['emergencyContactPhone', 'Emergency contact phone'],
+  ]
+
+  const missing = requiredFields.find(([field]) => !form[field]?.trim())
+  if (missing) return `${missing[1]} is required.`
+  if (new Date(form.dateOfBirth) > new Date()) return 'Date of birth cannot be in the future.'
+  if (!/^\S+@\S+\.\S+$/.test(form.email)) return 'Enter a valid email address.'
+  if (form.nic.trim().length < 6) return 'Enter a valid NIC number.'
+  if (form.phoneNumber.replace(/\D/g, '').length < 9) return 'Enter a valid phone number.'
+  if (form.emergencyContactPhone.replace(/\D/g, '').length < 9) return 'Enter a valid emergency contact phone number.'
+  return null
 }
 
 function Field({ label, name, value, onChange, type = 'text', placeholder, required }) {

@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
-import { Plus, Search, LayoutGrid, List, RefreshCw, Users, Trash2, AlertTriangle } from 'lucide-react'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Plus, Search, LayoutGrid, List, RefreshCw, Users, Trash2, AlertTriangle, ChevronLeft, ChevronRight, UserPlus, UserRound } from 'lucide-react'
 import { usePatients } from '../hooks/usePatients'
 import PatientCard from '../components/PatientCard'
 import PatientForm from '../components/PatientForm'
@@ -11,40 +12,45 @@ import { calculateAge, formatDate, getInitials, nameToGradient } from '../../../
 import './PatientListPage.css'
 
 export default function PatientListPage() {
-  const { patients, loading, error, refetch, createPatient, updatePatient, deletePatient } = usePatients()
-
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [view, setView] = useState('grid')
   const [filterGender, setFilterGender] = useState('all')
   const [filterBlood, setFilterBlood] = useState('all')
+  const [sort, setSort] = useState('createdAt:desc')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(12)
 
   const [formOpen, setFormOpen] = useState(false)
   const [editPatient, setEditPatient] = useState(null)
+  const [formError, setFormError] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const filtered = useMemo(() => {
-    return patients.filter(p => {
-      const term = search.toLowerCase()
-      const matchSearch = !term || (
-        `${p.firstName} ${p.lastName}`.toLowerCase().includes(term) ||
-        p.nic?.toLowerCase().includes(term) ||
-        p.email?.toLowerCase().includes(term) ||
-        p.phoneNumber?.includes(term)
-      )
-      const matchGender = filterGender === 'all' || p.gender === filterGender
-      const matchBlood = filterBlood === 'all' || p.bloodGroup === filterBlood
-      return matchSearch && matchGender && matchBlood
-    })
-  }, [patients, search, filterGender, filterBlood])
+  const [sortBy, sortDirection] = sort.split(':')
+  const { patients, pagination, summary, loading, error, refetch, createPatient, updatePatient, deletePatient } = usePatients({
+    search,
+    gender: filterGender === 'all' ? '' : filterGender,
+    bloodGroup: filterBlood === 'all' ? '' : filterBlood,
+    sortBy,
+    sortDirection,
+    page,
+    pageSize,
+  })
 
-  const handleOpenAdd = () => { setEditPatient(null); setFormOpen(true) }
-  const handleOpenEdit = (p) => { setEditPatient(p); setFormOpen(true) }
-  const handleCloseForm = () => { setFormOpen(false); setEditPatient(null) }
+  const updateFilter = (setter) => (event) => {
+    setter(event.target.value)
+    setPage(1)
+  }
+
+  const handleOpenAdd = () => { setEditPatient(null); setFormError(null); setFormOpen(true) }
+  const handleOpenEdit = (p) => { setEditPatient(p); setFormError(null); setFormOpen(true) }
+  const handleCloseForm = () => { setFormOpen(false); setEditPatient(null); setFormError(null) }
 
   const handleSubmit = async (data) => {
     setSaving(true)
+    setFormError(null)
     try {
       if (editPatient) {
         await updatePatient(editPatient.patientId, data)
@@ -53,6 +59,8 @@ export default function PatientListPage() {
       }
       setFormOpen(false)
       setEditPatient(null)
+    } catch (err) {
+      setFormError(err.response?.data?.message || err.response?.data?.title || 'Unable to save the patient record. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -125,7 +133,7 @@ export default function PatientListPage() {
           <div>
             <h1 className="page-title">Patient Records</h1>
             <p className="page-subtitle">
-              {patients.length} total patients · {filtered.length} shown
+              {pagination.totalCount} total patients · {patients.length} shown
             </p>
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
@@ -139,6 +147,13 @@ export default function PatientListPage() {
         </div>
       </div>
 
+      <section className="patients__overview" aria-label="Patient record summary">
+        <SummaryCard icon={Users} label="Total Patients" value={summary?.totalPatients ?? '—'} tone="primary" />
+        <SummaryCard icon={UserPlus} label="Registered This Month" value={summary?.registeredThisMonth ?? '—'} tone="success" />
+        <SummaryCard icon={UserRound} label="Female Patients" value={summary?.femaleCount ?? '—'} tone="pink" />
+        <SummaryCard icon={UserRound} label="Male Patients" value={summary?.maleCount ?? '—'} tone="blue" />
+      </section>
+
       <div className="patients__filters">
         <div className="patients__search-wrap">
           <Search size={15} className="patients__search-icon" />
@@ -148,7 +163,7 @@ export default function PatientListPage() {
             type="search"
             placeholder="Search by name, NIC, email…"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={updateFilter(setSearch)}
           />
         </div>
 
@@ -156,7 +171,7 @@ export default function PatientListPage() {
           id="filter-gender"
           className="patients__select"
           value={filterGender}
-          onChange={e => setFilterGender(e.target.value)}
+          onChange={updateFilter(setFilterGender)}
         >
           <option value="all">All Genders</option>
           <option value="Male">Male</option>
@@ -168,12 +183,21 @@ export default function PatientListPage() {
           id="filter-blood"
           className="patients__select"
           value={filterBlood}
-          onChange={e => setFilterBlood(e.target.value)}
+          onChange={updateFilter(setFilterBlood)}
         >
           <option value="all">All Blood Groups</option>
           {['A+','A-','B+','B-','AB+','AB-','O+','O-'].map(b => (
             <option key={b} value={b}>{b}</option>
           ))}
+        </select>
+
+        <select className="patients__select" value={sort} onChange={updateFilter(setSort)} aria-label="Sort patients">
+          <option value="createdAt:desc">Newest registered</option>
+          <option value="createdAt:asc">Oldest registered</option>
+          <option value="name:asc">Name A–Z</option>
+          <option value="name:desc">Name Z–A</option>
+          <option value="dob:desc">Youngest first</option>
+          <option value="dob:asc">Oldest first</option>
         </select>
 
         <div className="patients__view-toggle">
@@ -209,19 +233,20 @@ export default function PatientListPage() {
             ? Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="skeleton" style={{ height: '220px', borderRadius: '16px' }} />
               ))
-            : filtered.length === 0
+            : patients.length === 0
               ? (
                 <div className="patients__empty">
                   <Users size={40} strokeWidth={1.5} />
                   <p>No patients match your filters</p>
                 </div>
               )
-              : filtered.map(p => (
+              : patients.map(p => (
                   <PatientCard
                     key={p.patientId}
                     patient={p}
                     onEdit={handleOpenEdit}
                     onDelete={setDeleteTarget}
+                    onView={patient => navigate(`/patients/${patient.patientId}`)}
                   />
                 ))
           }
@@ -232,11 +257,37 @@ export default function PatientListPage() {
         <div className="animate-fade-in">
           <Table
             columns={columns}
-            data={filtered}
+            data={patients}
             loading={loading}
             emptyMessage="No patients match your search"
           />
         </div>
+      )}
+
+      {!loading && pagination.totalPages > 1 && (
+        <nav className="patients__pagination" aria-label="Patient list pages">
+          <span className="patients__page-summary">
+            Page {pagination.page} of {pagination.totalPages}
+          </span>
+          <div className="patients__page-actions">
+            <select
+              className="patients__page-size"
+              value={pageSize}
+              onChange={event => { setPageSize(Number(event.target.value)); setPage(1) }}
+              aria-label="Patients per page"
+            >
+              <option value={12}>12 per page</option>
+              <option value={24}>24 per page</option>
+              <option value={48}>48 per page</option>
+            </select>
+            <Button variant="secondary" size="sm" icon={ChevronLeft} disabled={pagination.page <= 1} onClick={() => setPage(current => current - 1)}>
+              Previous
+            </Button>
+            <Button variant="secondary" size="sm" icon={ChevronRight} disabled={pagination.page >= pagination.totalPages} onClick={() => setPage(current => current + 1)}>
+              Next
+            </Button>
+          </div>
+        </nav>
       )}
 
       <PatientForm
@@ -245,6 +296,7 @@ export default function PatientListPage() {
         onSubmit={handleSubmit}
         patient={editPatient}
         loading={saving}
+        error={formError}
       />
 
       <Modal
@@ -274,6 +326,18 @@ export default function PatientListPage() {
           </div>
         </div>
       </Modal>
+    </div>
+  )
+}
+
+function SummaryCard({ icon: Icon, label, value, tone }) {
+  return (
+    <div className={`patients__summary-card patients__summary-card--${tone}`}>
+      <span className="patients__summary-icon"><Icon size={18} /></span>
+      <div>
+        <span className="patients__summary-label">{label}</span>
+        <strong className="patients__summary-value">{value}</strong>
+      </div>
     </div>
   )
 }

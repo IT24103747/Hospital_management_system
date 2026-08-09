@@ -12,7 +12,9 @@ const toParams = (params = {}) => {
 
 export const patientApi = {
   getAll: (params) => apiClient.get(`/patient?${toParams(params)}`).then(r => r.data),
+  getSummary: () => apiClient.get('/patient/summary').then(r => r.data),
   getById: (id) => apiClient.get(`/patient/${id}`).then(r => r.data),
+  getAppointmentHistory: (id) => apiClient.get(`/patient/${id}/appointments`).then(r => r.data),
   create: (data) => apiClient.post('/patient', data).then(r => r.data),
   update: (id, data) => apiClient.put(`/patient/${id}`, data).then(r => r.data),
   delete: (id) => apiClient.delete(`/patient/${id}`).then(r => r.data),

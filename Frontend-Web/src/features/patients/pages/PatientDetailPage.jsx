@@ -1,20 +1,64 @@
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Phone, Mail, MapPin, Droplets, User, Calendar, Shield } from 'lucide-react'
+import { ArrowLeft, Phone, Mail, MapPin, Droplets, User, Calendar, Shield, CalendarClock, Stethoscope } from 'lucide-react'
 import Button from '../../../components/Button'
 import { BloodGroupBadge } from '../../../components/Badge'
-import { MOCK_PATIENTS } from '../services/patientApi'
+import { patientApi } from '../services/patientApi'
 import { calculateAge, formatDate, getInitials, nameToGradient } from '../../../lib/utils'
 import './PatientDetailPage.css'
 
 export default function PatientDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const patient = MOCK_PATIENTS.find(p => p.patientId === Number(id))
+  const [patient, setPatient] = useState(null)
+  const [appointments, setAppointments] = useState([])
+  const [appointmentError, setAppointmentError] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
-  if (!patient) {
+  useEffect(() => {
+    let active = true
+
+    const loadPatient = async () => {
+      setLoading(true)
+      setError(null)
+      setAppointmentError(null)
+      setAppointments([])
+      try {
+        const patientResult = await patientApi.getById(id)
+        if (active) {
+          setPatient(patientResult)
+          try {
+            const appointmentResult = await patientApi.getAppointmentHistory(id)
+            if (active) setAppointments(appointmentResult)
+          } catch {
+            if (active) setAppointmentError('Appointment history is temporarily unavailable.')
+          }
+        }
+      } catch (err) {
+        if (active) setError(err.response?.status === 404 ? 'Patient record not found.' : 'Unable to load this patient record.')
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+
+    loadPatient()
+    return () => { active = false }
+  }, [id])
+
+  if (loading) {
     return (
-      <div className="page-wrapper">
-        <p className="text-muted">Patient not found.</p>
+      <div className="page-wrapper patient-detail__state">
+        <div className="skeleton" style={{ height: '160px', borderRadius: '14px' }} />
+        <div className="skeleton" style={{ height: '260px', borderRadius: '14px' }} />
+      </div>
+    )
+  }
+
+  if (error || !patient) {
+    return (
+      <div className="page-wrapper patient-detail__state">
+        <p className="text-muted">{error || 'Patient record not found.'}</p>
         <Button variant="secondary" onClick={() => navigate('/patients')}>Back</Button>
       </div>
     )
@@ -44,6 +88,7 @@ export default function PatientDetailPage() {
             {initials}
           </div>
           <div className="patient-detail__hero-info">
+            <span className="patient-detail__eyebrow">Patient record</span>
             <h1 className="patient-detail__name">{patient.firstName} {patient.lastName}</h1>
             <p className="patient-detail__sub">
               {patient.gender} · {calculateAge(patient.dateOfBirth)} years old · {patient.nic}
@@ -75,6 +120,41 @@ export default function PatientDetailPage() {
             <InfoRow icon={Calendar} label="Last Updated" value={formatDate(patient.updatedAt)} />
           </InfoCard>
         </div>
+
+        <section className="patient-history glass-card">
+          <div className="patient-history__header">
+            <div className="patient-history__heading">
+              <div className="info-card__icon"><CalendarClock size={16} /></div>
+              <div>
+                <h3 className="info-card__title">Appointment History</h3>
+                <p className="patient-history__sub">Recent scheduled visits for this patient</p>
+              </div>
+            </div>
+            <span className="patient-history__count">{appointments.length} {appointments.length === 1 ? 'visit' : 'visits'}</span>
+          </div>
+          {appointments.length === 0 ? (
+            <p className="patient-history__empty">{appointmentError || 'No appointments have been recorded for this patient.'}</p>
+          ) : (
+            <div className="patient-history__list">
+              {appointments.map(appointment => (
+                <article className="patient-history__item" key={appointment.appointmentId}>
+                  <div className="patient-history__date">
+                    <strong>{formatDate(appointment.scheduledAt)}</strong>
+                    <span>{new Date(appointment.scheduledAt).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <div className="patient-history__visit">
+                    <div className="patient-history__doctor"><Stethoscope size={15} /><strong>{appointment.doctorName}</strong></div>
+                    <span>{appointment.specialty} · {appointment.appointmentType}</span>
+                    <small>{appointment.reason}</small>
+                  </div>
+                  <span className={`patient-history__status patient-history__status--${appointment.status.toLowerCase()}`}>
+                    {appointment.status}
+                  </span>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   )

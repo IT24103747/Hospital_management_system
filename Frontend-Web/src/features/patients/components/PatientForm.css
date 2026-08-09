@@ -1,5 +1,15 @@
 .patient-form { display: flex; flex-direction: column; gap: var(--space-xl); }
 
+.patient-form__error {
+  padding: 10px 12px;
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: var(--radius-sm);
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--clr-danger);
+  font-size: 0.84rem;
+  font-weight: 500;
+}
+
 .form-section { display: flex; flex-direction: column; gap: var(--space-md); }
 
 .form-section__title {
