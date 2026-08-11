@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:smartcare_mobile/core/theme/app_theme.dart';
+import 'package:smartcare_mobile/core/theme/theme_controller.dart';
 import 'package:smartcare_mobile/features/auth/screens/login_screen.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await ThemeController.load();
   runApp(const MediCoreMobileApp());
 }
 
@@ -12,14 +14,18 @@ class MediCoreMobileApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'MediCore',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      // Force the web's light theme — matches web app's default :root {} palette
-      themeMode: ThemeMode.light,
-      home: const LoginScreen(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: ThemeController.mode,
+      builder: (context, themeMode, _) {
+        return MaterialApp(
+          title: 'MediCore',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: themeMode,
+          home: const LoginScreen(),
+        );
+      },
     );
   }
 }
