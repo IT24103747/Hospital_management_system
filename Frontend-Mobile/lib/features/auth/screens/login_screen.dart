@@ -3,7 +3,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartcare_mobile/core/constants/app_colors.dart';
 import 'package:smartcare_mobile/core/widgets/medicore_logo.dart';
 import 'package:smartcare_mobile/layouts/dashboard_layout.dart';
-import 'package:smartcare_mobile/features/triage/screens/ai_triage_screen.dart';
 import 'package:smartcare_mobile/features/auth/screens/register_screen.dart';
 import 'package:smartcare_mobile/core/services/api_service.dart';
 
@@ -95,11 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => const DashboardLayout(
-            title: 'AI Smart Triage',
-            subtitle: 'Autonomous Symptom Analysis & Risk Classification',
-            body: AiTriageScreen(),
-          ),
+          builder: (context) => const DashboardLayout(),
         ),
       );
     } catch (e) {
