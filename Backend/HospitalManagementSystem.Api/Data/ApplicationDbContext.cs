@@ -12,6 +12,7 @@ namespace HospitalManagementSystem.Api.Data
         public DbSet<Patient> Patients => Set<Patient>();
         public DbSet<DoctorTimeSlot> DoctorTimeSlots => Set<DoctorTimeSlot>();
         public DbSet<Appointment> Appointments => Set<Appointment>();
+        public DbSet<Doctor> Doctors => Set<Doctor>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -25,6 +26,34 @@ namespace HospitalManagementSystem.Api.Data
                 entity.HasIndex(u => u.Email).IsUnique();
                 entity.Property(u => u.PasswordHash).IsRequired();
                 entity.Property(u => u.Role).IsRequired().HasMaxLength(50);
+            });
+
+            modelBuilder.Entity<Doctor>(entity =>
+            {
+                entity.ToTable(t => t.HasCheckConstraint(
+                    "CK_Doctors_RegistrationStatus",
+                    "\"RegistrationStatus\" IN ('Pending', 'Approved', 'Declined')"));
+                entity.HasKey(d => d.DoctorId);
+                entity.Property(d => d.FirstName).IsRequired().HasMaxLength(100);
+                entity.Property(d => d.LastName).IsRequired().HasMaxLength(100);
+                entity.Property(d => d.NIC).IsRequired().HasMaxLength(12);
+                entity.Property(d => d.Specialization).IsRequired().HasMaxLength(100);
+                entity.Property(d => d.SlmcLicenseNumber).IsRequired().HasMaxLength(50);
+                entity.Property(d => d.PhoneNumber).IsRequired().HasMaxLength(15);
+                entity.Property(d => d.RegistrationStatus).IsRequired().HasMaxLength(20);
+                entity.Property(d => d.DeclineReason).HasMaxLength(500);
+                entity.HasIndex(d => d.UserId).IsUnique();
+                entity.HasIndex(d => d.NIC).IsUnique();
+                entity.HasIndex(d => d.SlmcLicenseNumber).IsUnique();
+                entity.HasIndex(d => d.RegistrationStatus);
+                entity.HasOne(d => d.User)
+                    .WithOne(u => u.DoctorProfile)
+                    .HasForeignKey<Doctor>(d => d.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(d => d.ReviewedByUser)
+                    .WithMany()
+                    .HasForeignKey(d => d.ReviewedByUserId)
+                    .OnDelete(DeleteBehavior.SetNull);
             });
 
             modelBuilder.Entity<Patient>(entity =>
