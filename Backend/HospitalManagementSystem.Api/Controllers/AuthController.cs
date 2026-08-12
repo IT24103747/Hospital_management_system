@@ -92,5 +92,19 @@ public class AuthController : ControllerBase
         }
         catch (ArgumentException exception) { return BadRequest(new { message = exception.Message }); }
         catch (InvalidOperationException exception) { return Conflict(new { message = exception.Message }); }
+    [HttpPost("change-password")]
+    public async Task<IActionResult> ChangePassword(ChangePasswordDto dto)
+    {
+        var email = dto.Email.Trim().ToLowerInvariant();
+        var user = await _context.Users.SingleOrDefaultAsync(u => u.Email == email);
+        if (user is null)
+            return NotFound(new { message = "User not found." });
+
+        if (_passwordHasher.VerifyHashedPassword(user, user.PasswordHash, dto.CurrentPassword) == PasswordVerificationResult.Failed)
+            return BadRequest(new { message = "Incorrect current password." });
+
+        user.PasswordHash = _passwordHasher.HashPassword(user, dto.NewPassword);
+        await _context.SaveChangesAsync();
+        return Ok(new { message = "Password updated successfully." });
     }
 }

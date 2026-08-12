@@ -51,6 +51,25 @@ class ApiService {
     if (response.statusCode != 201) throw Exception(_errorMessage(response.body));
   }
 
+  static Future<void> changePassword({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/auth/change-password'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'email': email.trim().toLowerCase(),
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessage(response.body));
+    }
+  }
+
   static String _errorMessage(String body) {
     try {
       final decoded = jsonDecode(body);
