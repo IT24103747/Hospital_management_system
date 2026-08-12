@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartcare_mobile/core/constants/app_colors.dart';
 import 'package:smartcare_mobile/core/services/api_service.dart';
 import 'package:smartcare_mobile/models/patient.dart';
-import 'dart:io';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -14,8 +12,6 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final ImagePicker _picker = ImagePicker();
-  XFile? _idCardImage;
   Patient? _patient;
   bool _isLoading = true;
 
@@ -69,38 +65,244 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  void _pickIdCardImage(ImageSource source) async {
-    try {
-      final picked = await _picker.pickImage(source: source);
-      if (picked != null) {
-        setState(() {
-          _idCardImage = picked;
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Row(
-                children: [
-                  Icon(Icons.check_circle_rounded, color: Colors.white),
-                  SizedBox(width: 10),
-                  Text('ID/Insurance Card captured successfully!'),
-                ],
+  void _showEditProfileSheet() {
+    if (_patient == null) return;
+    
+    final phoneController = TextEditingController(text: _patient!.phoneNumber);
+    final addressController = TextEditingController(text: _patient!.address ?? '');
+    final emergencyNameController = TextEditingController(text: _patient!.emergencyContactName ?? '');
+    final emergencyPhoneController = TextEditingController(text: _patient!.emergencyContactPhone ?? '');
+    final formKey = GlobalKey<FormState>();
+    bool isSaving = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).brightness == Brightness.dark
+          ? AppColors.surfaceDark
+          : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final textStyle = TextStyle(
+              color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+            );
+
+            InputDecoration customInputDecoration({
+              required String label,
+              required IconData prefixIcon,
+            }) {
+              return InputDecoration(
+                labelText: label,
+                labelStyle: TextStyle(color: isDark ? AppColors.textMutedDark : AppColors.textSecondaryLight),
+                prefixIcon: Icon(prefixIcon, color: AppColors.primary),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: isDark ? AppColors.primaryLight : AppColors.primary),
+                ),
+                errorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.danger),
+                ),
+                focusedErrorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.danger, width: 2),
+                ),
+              );
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 10,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
               ),
-              backgroundColor: AppColors.success,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Camera picker info: $e')),
+              child: Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Edit Profile Details',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      TextFormField(
+                        controller: phoneController,
+                        style: textStyle,
+                        decoration: customInputDecoration(
+                          label: 'Phone Number',
+                          prefixIcon: Icons.phone_android_rounded,
+                        ),
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Please enter phone number';
+                          final regExp = RegExp(r'^\+?[0-9]{9,15}$');
+                          if (!regExp.hasMatch(v.replaceAll(' ', ''))) {
+                            return 'Enter a valid phone number (e.g., +94771234567)';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: addressController,
+                        style: textStyle,
+                        decoration: customInputDecoration(
+                          label: 'Address',
+                          prefixIcon: Icons.home_outlined,
+                        ),
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Please enter address';
+                          if (v.trim().length < 5) return 'Address must be at least 5 characters long';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: emergencyNameController,
+                        style: textStyle,
+                        decoration: customInputDecoration(
+                          label: 'Emergency Contact Person',
+                          prefixIcon: Icons.person_outline_rounded,
+                        ),
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Please enter emergency contact name';
+                          if (v.trim().length < 3) return 'Name must be at least 3 characters long';
+                          final regExp = RegExp(r'^[a-zA-Z\s\.]+$');
+                          if (!regExp.hasMatch(v.trim())) {
+                            return 'Name must contain letters only';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: emergencyPhoneController,
+                        style: textStyle,
+                        decoration: customInputDecoration(
+                          label: 'Emergency Phone',
+                          prefixIcon: Icons.phone_in_talk_rounded,
+                        ),
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Please enter emergency phone number';
+                          final regExp = RegExp(r'^\+?[0-9]{9,15}$');
+                          if (!regExp.hasMatch(v.replaceAll(' ', ''))) {
+                            return 'Enter a valid phone number (e.g., +94712345678)';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: isSaving
+                              ? null
+                              : () async {
+                                  if (formKey.currentState?.validate() == true) {
+                                    setSheetState(() => isSaving = true);
+                                    try {
+                                      final data = {
+                                        'patientId': _patient!.patientId,
+                                        'firstName': _patient!.firstName,
+                                        'lastName': _patient!.lastName,
+                                        'dateOfBirth': _patient!.dateOfBirth.toIso8601String(),
+                                        'gender': _patient!.gender,
+                                        'nic': _patient!.nic,
+                                        'bloodGroup': _patient!.bloodGroup,
+                                        'email': _patient!.email,
+                                        'phoneNumber': phoneController.text.trim(),
+                                        'address': addressController.text.trim(),
+                                        'emergencyContactName': emergencyNameController.text.trim(),
+                                        'emergencyContactPhone': emergencyPhoneController.text.trim(),
+                                        'profileImageUrl': _patient!.profileImageUrl,
+                                      };
+                                      await ApiService.savePatient(data, patientId: _patient!.patientId);
+                                      if (context.mounted) {
+                                        Navigator.pop(context);
+                                      }
+                                      _loadProfileData();
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: const Row(
+                                            children: [
+                                              Icon(Icons.check_circle_rounded, color: Colors.white),
+                                              SizedBox(width: 10),
+                                              Text('Profile details updated successfully!'),
+                                            ],
+                                          ),
+                                          backgroundColor: AppColors.success,
+                                          behavior: SnackBarBehavior.floating,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      );
+                                    } catch (e) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Failed to update: $e'),
+                                          backgroundColor: AppColors.danger,
+                                          behavior: SnackBarBehavior.floating,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      );
+                                    } finally {
+                                      setSheetState(() => isSaving = false);
+                                    }
+                                  }
+                                },
+                          child: isSaving
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                )
+                              : const Text(
+                                  'Save Changes',
+                                  style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         );
-      }
-    }
+      },
+    );
   }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -147,7 +349,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: 4),
                   Text(
                     _userEmail.isNotEmpty ? _userEmail : 'Patient Portal User',
-                    style: const TextStyle(color: AppColors.textSecondaryLight, fontSize: 13),
+                    style: TextStyle(color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight, fontSize: 13),
                   ),
                   const SizedBox(height: 12),
 
@@ -279,101 +481,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // ID / Insurance Camera Scanner Card
-                  Card(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(
-                            children: [
-                              Icon(Icons.camera_alt_outlined, color: AppColors.primary, size: 20),
-                              SizedBox(width: 8),
-                              Text(
-                                'Camera ID & Insurance Scanner',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                              ),
-                            ],
+                  if (_patient != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 24),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            'Scan your NIC or Health Insurance card using your phone camera for direct hospital verification.',
-                            style: TextStyle(fontSize: 12, color: AppColors.textSecondaryLight),
+                          onPressed: _showEditProfileSheet,
+                          icon: const Icon(Icons.edit_rounded, color: Colors.white),
+                          label: const Text(
+                            'Edit Profile Details',
+                            style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
                           ),
-                          const SizedBox(height: 16),
-
-                          if (_idCardImage != null)
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.file(
-                                File(_idCardImage!.path),
-                                height: 160,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                              ),
-                            )
-                          else
-                            Container(
-                              height: 110,
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: isDark ? AppColors.surfaceDarkSecondary : Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: isDark ? AppColors.borderDark : AppColors.borderLight,
-                                ),
-                              ),
-                              child: const Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.badge_outlined, size: 36, color: AppColors.textSecondaryLight),
-                                  SizedBox(height: 6),
-                                  Text(
-                                    'No ID card scanned yet',
-                                    style: TextStyle(fontSize: 12, color: AppColors.textSecondaryLight),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          const SizedBox(height: 16),
-
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () => _pickIdCardImage(ImageSource.camera),
-                                  icon: const Icon(Icons.photo_camera),
-                                  label: const Text('Camera'),
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () => _pickIdCardImage(ImageSource.gallery),
-                                  icon: const Icon(Icons.photo_library),
-                                  label: const Text('Gallery'),
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
                 ],
               ),
             ),
@@ -387,7 +514,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       children: [
         Text(
           label,
-          style: const TextStyle(color: AppColors.textSecondaryLight, fontSize: 13),
+          style: TextStyle(color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight, fontSize: 13),
         ),
         const SizedBox(width: 12),
         Expanded(
