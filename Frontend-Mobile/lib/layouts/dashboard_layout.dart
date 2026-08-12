@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartcare_mobile/core/constants/app_colors.dart';
+import 'package:smartcare_mobile/core/services/api_service.dart';
 import 'package:smartcare_mobile/core/theme/theme_controller.dart';
 import 'package:smartcare_mobile/core/widgets/medicore_logo.dart';
 import 'package:smartcare_mobile/features/auth/screens/login_screen.dart';
@@ -647,17 +648,379 @@ class _NotificationsSection extends StatelessWidget {
   }
 }
 
-class _SettingsSection extends StatelessWidget {
+class _SettingsSection extends StatefulWidget {
   const _SettingsSection();
+
+  @override
+  State<_SettingsSection> createState() => _SettingsSectionState();
+}
+
+class _SettingsSectionState extends State<_SettingsSection> {
+  String _userEmail = '';
+  bool _notifyAppointments = true;
+  bool _notifyLabReports = true;
+  bool _notifyAnnouncements = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _userEmail = prefs.getString('patient_email') ?? 'patient@medicore.lk';
+      _notifyAppointments = prefs.getBool('patient_notify_appointments') ?? true;
+      _notifyLabReports = prefs.getBool('patient_notify_lab_reports') ?? true;
+      _notifyAnnouncements = prefs.getBool('patient_notify_announcements') ?? false;
+    });
+  }
+
+  Future<void> _updateSetting(String key, dynamic value) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (value is bool) {
+      await prefs.setBool(key, value);
+    } else if (value is String) {
+      await prefs.setString(key, value);
+    }
+    _loadSettings();
+  }
+
+  void _showSnackBar(String message, Color bgColor) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              bgColor == AppColors.success
+                  ? Icons.check_circle_rounded
+                  : Icons.error_outline_rounded,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: bgColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  void _showChangePasswordSheet() {
+    final currentPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool obscureCurrent = true;
+    bool obscureNew = true;
+    bool obscureConfirm = true;
+    bool isSaving = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).brightness == Brightness.dark
+          ? AppColors.surfaceDark
+          : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final textStyle = TextStyle(
+              color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+            );
+
+            InputDecoration customInputDecoration({
+              required String label,
+              required IconData prefixIcon,
+              Widget? suffixIcon,
+            }) {
+              return InputDecoration(
+                labelText: label,
+                labelStyle: TextStyle(color: isDark ? AppColors.textMutedDark : AppColors.textSecondaryLight),
+                prefixIcon: Icon(prefixIcon, color: AppColors.primary),
+                suffixIcon: suffixIcon,
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: isDark ? AppColors.primaryLight : AppColors.primary),
+                ),
+                errorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.danger),
+                ),
+                focusedErrorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.danger, width: 2),
+                ),
+              );
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 10,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Change Password',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    TextFormField(
+                      controller: currentPasswordController,
+                      obscureText: obscureCurrent,
+                      style: textStyle,
+                      decoration: customInputDecoration(
+                        label: 'Current Password',
+                        prefixIcon: Icons.lock_outline_rounded,
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            obscureCurrent ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                            color: isDark ? AppColors.textMutedDark : AppColors.textSecondaryLight,
+                          ),
+                          onPressed: () => setSheetState(() => obscureCurrent = !obscureCurrent),
+                        ),
+                      ),
+                      validator: (v) => v == null || v.isEmpty ? 'Please enter current password' : null,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: newPasswordController,
+                      obscureText: obscureNew,
+                      style: textStyle,
+                      decoration: customInputDecoration(
+                        label: 'New Password',
+                        prefixIcon: Icons.lock_reset_rounded,
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            obscureNew ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                            color: isDark ? AppColors.textMutedDark : AppColors.textSecondaryLight,
+                          ),
+                          onPressed: () => setSheetState(() => obscureNew = !obscureNew),
+                        ),
+                      ),
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return 'Please enter new password';
+                        if (v.length < 8) return 'Password must be at least 8 characters';
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: confirmPasswordController,
+                      obscureText: obscureConfirm,
+                      style: textStyle,
+                      decoration: customInputDecoration(
+                        label: 'Confirm New Password',
+                        prefixIcon: Icons.lock_clock_outlined,
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            obscureConfirm ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                            color: isDark ? AppColors.textMutedDark : AppColors.textSecondaryLight,
+                          ),
+                          onPressed: () => setSheetState(() => obscureConfirm = !obscureConfirm),
+                        ),
+                      ),
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return 'Please confirm new password';
+                        if (v != newPasswordController.text) return 'Passwords do not match';
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: isSaving
+                            ? null
+                            : () async {
+                                if (formKey.currentState?.validate() == true) {
+                                  setSheetState(() => isSaving = true);
+                                  try {
+                                    await ApiService.changePassword(
+                                      email: _userEmail,
+                                      currentPassword: currentPasswordController.text,
+                                      newPassword: newPasswordController.text,
+                                    );
+                                    if (context.mounted) {
+                                      Navigator.pop(context);
+                                    }
+                                    _showSnackBar('Password changed successfully!', AppColors.success);
+                                  } catch (e) {
+                                    _showSnackBar(e.toString().replaceAll('Exception: ', ''), AppColors.danger);
+                                  } finally {
+                                    setSheetState(() => isSaving = false);
+                                  }
+                                }
+                              },
+                        child: isSaving
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              )
+                            : const Text(
+                                'Update Password',
+                                style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showNotificationSettingsSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).brightness == Brightness.dark
+          ? AppColors.surfaceDark
+          : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final textStyle = TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+            );
+            final subtitleStyle = TextStyle(
+              fontSize: 12,
+              color: isDark ? AppColors.textMutedDark : AppColors.textSecondaryLight,
+            );
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Text(
+                    'Notification Settings',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    activeThumbColor: AppColors.primary,
+                    title: Text('Appointment Reminders', style: textStyle),
+                    subtitle: Text('Receive alerts for upcoming consultations and schedule updates', style: subtitleStyle),
+                    value: _notifyAppointments,
+                    onChanged: (val) {
+                      setSheetState(() => _notifyAppointments = val);
+                      _updateSetting('patient_notify_appointments', val);
+                    },
+                  ),
+                  const Divider(),
+                  SwitchListTile(
+                    activeThumbColor: AppColors.primary,
+                    title: Text('Lab Reports Alert', style: textStyle),
+                    subtitle: Text('Get notified as soon as diagnostics/reports are published', style: subtitleStyle),
+                    value: _notifyLabReports,
+                    onChanged: (val) {
+                      setSheetState(() => _notifyLabReports = val);
+                      _updateSetting('patient_notify_lab_reports', val);
+                    },
+                  ),
+                  const Divider(),
+                  SwitchListTile(
+                    activeThumbColor: AppColors.primary,
+                    title: Text('Hospital Announcements', style: textStyle),
+                    subtitle: Text('Stay informed about holiday closures, camps, and clinic details', style: subtitleStyle),
+                    value: _notifyAnnouncements,
+                    onChanged: (val) {
+                      setSheetState(() => _notifyAnnouncements = val);
+                      _updateSetting('patient_notify_announcements', val);
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return _PageScaffold(
       children: [
-        const _SettingsTile(Icons.lock_outline_rounded, 'Change password', 'Update your account password'),
-        const _SettingsTile(Icons.notifications_none_rounded, 'Notification settings', 'Appointment, report, and system alerts'),
-        const _SettingsTile(Icons.privacy_tip_outlined, 'Privacy settings', 'Control medical data access'),
-        const _SettingsTile(Icons.language_outlined, 'Language', 'English'),
+        _SettingsTile(
+          Icons.lock_outline_rounded,
+          'Change password',
+          'Update your account password',
+          onTap: _showChangePasswordSheet,
+        ),
+        _SettingsTile(
+          Icons.notifications_none_rounded,
+          'Notification settings',
+          'Appointment, report, and system alerts',
+          onTap: _showNotificationSettingsSheet,
+        ),
         ValueListenableBuilder<ThemeMode>(
           valueListenable: ThemeController.mode,
           builder: (context, themeMode, _) {
@@ -665,7 +1028,6 @@ class _SettingsSection extends StatelessWidget {
             return _ThemeModeTile(isDarkMode: isDarkMode);
           },
         ),
-        const _SettingsTile(Icons.fingerprint_rounded, 'Biometric login', 'Use device security when available'),
       ],
     );
   }
@@ -927,6 +1289,7 @@ class _AppointmentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return _SurfaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -939,8 +1302,14 @@ class _AppointmentCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(doctor, style: const TextStyle(fontWeight: FontWeight.w900)),
-                    Text(specialty, style: const TextStyle(color: AppColors.textMutedLight, fontSize: 12)),
+                    Text(
+                      doctor,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                      ),
+                    ),
+                    Text(specialty, style: TextStyle(color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight, fontSize: 12)),
                   ],
                 ),
               ),
@@ -977,15 +1346,35 @@ class _MiniMetric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(color: AppColors.bgLight, borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.surfaceDarkSecondary : AppColors.bgLight,
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: AppColors.textMutedLight, fontSize: 10, fontWeight: FontWeight.w800)),
+          Text(
+            label,
+            style: TextStyle(
+              color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+            ),
+          ),
         ],
       ),
     );
@@ -1038,12 +1427,21 @@ class _SearchBarCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return _SurfaceCard(
       child: Row(
         children: [
-          const Icon(Icons.search_rounded, color: AppColors.textMutedLight),
+          Icon(Icons.search_rounded, color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight),
           const SizedBox(width: 10),
-          Expanded(child: Text(hint, style: const TextStyle(color: AppColors.textMutedLight, fontSize: 13))),
+          Expanded(
+            child: Text(
+              hint,
+              style: TextStyle(
+                color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+                fontSize: 13,
+              ),
+            ),
+          ),
           const Icon(Icons.tune_rounded, color: AppColors.primary),
         ],
       ),
@@ -1058,6 +1456,7 @@ class _FilterChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -1066,7 +1465,10 @@ class _FilterChips extends StatelessWidget {
         return Chip(
           label: Text(label),
           backgroundColor: selected ? AppColors.primary.withValues(alpha: 0.12) : null,
-          labelStyle: TextStyle(color: selected ? AppColors.primary : AppColors.textSecondaryLight, fontWeight: FontWeight.w700),
+          labelStyle: TextStyle(
+            color: selected ? AppColors.primary : (isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight),
+            fontWeight: FontWeight.w700,
+          ),
         );
       }).toList(),
     );
@@ -1090,6 +1492,7 @@ class _DoctorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return _SurfaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1102,7 +1505,14 @@ class _DoctorCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
+                    Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                        color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                      ),
+                    ),
                     Text(specialty, style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w800)),
                   ],
                 ),
@@ -1121,9 +1531,21 @@ class _DoctorCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Text(details, style: const TextStyle(color: AppColors.textSecondaryLight, fontSize: 12)),
+          Text(
+            details,
+            style: TextStyle(
+              color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+              fontSize: 12,
+            ),
+          ),
           const SizedBox(height: 4),
-          Text(schedule, style: const TextStyle(color: AppColors.textMutedLight, fontSize: 12)),
+          Text(
+            schedule,
+            style: TextStyle(
+              color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+              fontSize: 12,
+            ),
+          ),
           const SizedBox(height: 12),
           const Row(
             children: [
@@ -1246,13 +1668,20 @@ class _ThemeModeTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'App appearance',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      color: isDarkMode ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                    ),
                   ),
-                  const Text(
+                  Text(
                     'Choose the mode you want',
-                    style: TextStyle(color: AppColors.textMutedLight, fontSize: 12),
+                    style: TextStyle(
+                      color: isDarkMode ? AppColors.textMutedDark : AppColors.textMutedLight,
+                      fontSize: 12,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -1324,7 +1753,11 @@ class _ThemeChoiceButton extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, color: selected ? AppColors.primary : AppColors.textMutedLight, size: 16),
+                  Icon(
+                    icon,
+                    color: selected ? AppColors.primary : (isDark ? AppColors.textMutedDark : AppColors.textMutedLight),
+                    size: 16,
+                  ),
                   const SizedBox(width: 5),
                   Text(
                     label,
@@ -1349,29 +1782,63 @@ class _SettingsTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
+  final VoidCallback? onTap;
 
-  const _SettingsTile(this.icon, this.title, this.subtitle);
+  const _SettingsTile(this.icon, this.title, this.subtitle, {this.onTap});
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: _SurfaceCard(
-        child: Row(
-          children: [
-            CircleAvatar(backgroundColor: AppColors.primary.withValues(alpha: 0.12), child: Icon(icon, color: AppColors.primary)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
-                  Text(subtitle, style: const TextStyle(color: AppColors.textMutedLight, fontSize: 12)),
-                ],
-              ),
+      child: Material(
+        color: isDark ? AppColors.surfaceDark : AppColors.bgLightCard,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
             ),
-            const Icon(Icons.chevron_right_rounded, color: AppColors.textMutedLight),
-          ],
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+                  child: Icon(icon, color: AppColors.primary),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
