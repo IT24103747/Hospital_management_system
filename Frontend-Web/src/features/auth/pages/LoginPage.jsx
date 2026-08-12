@@ -3,9 +3,12 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Button from '../../../components/Button'
 import './LoginPage.css'
+import { login } from '../services/authApi'
+import { useAuth } from '../AuthContext'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const { signIn } = useAuth()
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -24,11 +27,10 @@ export default function LoginPage() {
 
     setLoading(true)
     try {
-      await new Promise(r => setTimeout(r, 800))
-      localStorage.setItem('hms_token', 'demo-token')
-      navigate('/dashboard')
-    } catch {
-      setError('Unable to sign in right now. Please try again.')
+      const user = signIn(await login(form))
+      navigate(user.role === 'Doctor' ? '/doctor/dashboard' : user.role === 'Admin' ? '/dashboard' : '/login')
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Unable to sign in right now. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -123,7 +125,7 @@ export default function LoginPage() {
 
           <p style={{ textAlign: 'center', fontSize: '0.86rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
             Are you a Doctor?{' '}
-            <Link to="/register" style={{ color: 'var(--clr-primary)', fontWeight: 600, textDecoration: 'none' }}>
+            <Link to="/doctor/register" style={{ color: 'var(--clr-primary)', fontWeight: 600, textDecoration: 'none' }}>
               Register Here
             </Link>
           </p>

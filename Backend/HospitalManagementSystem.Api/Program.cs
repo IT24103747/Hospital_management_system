@@ -4,10 +4,21 @@ using HospitalManagementSystem.Api.Repositories;
 using HospitalManagementSystem.Api.Services;
 using HospitalManagementSystem.Api.Models;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using System.Text;
+using System.Security.Cryptography;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
+var jwtSecret = builder.Configuration["Jwt:Secret"];
+if (string.IsNullOrWhiteSpace(jwtSecret))
+{
+    jwtSecret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+    builder.Configuration["Jwt:Secret"] = jwtSecret;
+}
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
@@ -26,7 +37,29 @@ builder.Services.AddSwaggerGen(c =>
         Version = "v1",
         Description = "SE3090 Assignment 1 – Patient Management API"
     });
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization", Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "JWT",
+        In = ParameterLocation.Header, Description = "Enter the JWT received from the login endpoint."
+    });
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        [new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }] = []
+    });
 });
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true, ValidateAudience = true, ValidateLifetime = true, ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? "MediCore.Api",
+            ValidAudience = builder.Configuration["Jwt:Audience"] ?? "MediCore.Client",
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret))
+        };
+    });
+builder.Services.AddAuthorization();
 
 // PostgreSQL + EF Core
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -38,6 +71,8 @@ builder.Services.AddScoped<IPatientService, PatientService>();
 builder.Services.AddScoped<IAppointmentRepository, AppointmentRepository>();
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
+builder.Services.AddScoped<IDoctorService, DoctorService>();
+builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 
 // CORS – allow React and Flutter (dev)
 builder.Services.AddCors(options =>
@@ -66,6 +101,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseCors("DevCors");
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
@@ -80,16 +116,32 @@ app.Run();
 
 static async Task SeedSampleDataAsync(ApplicationDbContext db)
 {
-    if (!await db.Users.AnyAsync())
+    const string adminEmail = "admin@medicore.lk";
+    if (!await db.Users.AnyAsync(user => user.Email == adminEmail))
+    {
+        var passwordHasher = new PasswordHasher<User>();
+        var admin = new User { FullName = "System Administrator", Email = adminEmail, Role = "Admin" };
+        admin.PasswordHash = passwordHasher.HashPassword(admin, "Admin1234");
+        db.Users.Add(admin);
+        await db.SaveChangesAsync();
+    }
+
+    if (!await db.Users.AnyAsync(user => user.Email == "amal.perera@email.com"))
     {
         var passwordHasher = new PasswordHasher<User>();
         var user1 = new User { FullName = "Amal Perera", Email = "amal.perera@email.com", Role = "Patient" };
         user1.PasswordHash = passwordHasher.HashPassword(user1, "Patient123!");
-        
-        var user2 = new User { FullName = "Nimesha Silva", Email = "nimesha.silva@email.com", Role = "Patient" };
-        user2.PasswordHash = passwordHasher.HashPassword(user2, "Patient123!");
+        db.Users.Add(user1);
+        await db.SaveChangesAsync();
+    }
 
-        db.Users.AddRange(user1, user2);
+    if (!await db.Users.AnyAsync(user => user.Email == "nimesha.silva@email.com"))
+    {
+        var passwordHasher = new PasswordHasher<User>();
+        var user = new User { FullName = "Nimesha Silva", Email = "nimesha.silva@email.com", Role = "Patient" };
+        user.PasswordHash = passwordHasher.HashPassword(user, "Patient123!");
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
     }
 
     if (!await db.Patients.AnyAsync())
@@ -128,6 +180,8 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
                 UpdatedAt = new DateTime(2024, 1, 15, 10, 30, 0, DateTimeKind.Utc)
             }
         );
+
+        await db.SaveChangesAsync();
     }
 
     if (!await db.DoctorTimeSlots.AnyAsync())
@@ -156,15 +210,35 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
                 UpdatedAt = new DateTime(2026, 8, 8, 4, 15, 0, DateTimeKind.Utc)
             }
         );
+
+        await db.SaveChangesAsync();
     }
 
     if (!await db.Appointments.AnyAsync())
     {
+        var amalPatient = await db.Patients.SingleOrDefaultAsync(patient =>
+            patient.Email == "amal.perera@email.com");
+        var nimeshaPatient = await db.Patients.SingleOrDefaultAsync(patient =>
+            patient.Email == "nimesha.silva@email.com");
+        var generalMedicineSlot = await db.DoctorTimeSlots.SingleOrDefaultAsync(slot =>
+            slot.DoctorName == "Dr. Priyantha Jayawardena" &&
+            slot.StartAt == new DateTime(2026, 8, 8, 9, 0, 0, DateTimeKind.Utc));
+        var cardiologySlot = await db.DoctorTimeSlots.SingleOrDefaultAsync(slot =>
+            slot.DoctorName == "Dr. Chamari Gunaratne" &&
+            slot.StartAt == new DateTime(2026, 8, 8, 14, 0, 0, DateTimeKind.Utc));
+
+        if (amalPatient is null || nimeshaPatient is null ||
+            generalMedicineSlot is null || cardiologySlot is null)
+        {
+            throw new InvalidOperationException(
+                "Cannot seed sample appointments because their patients or doctor time slots are missing.");
+        }
+
         db.Appointments.AddRange(
             new HospitalManagementSystem.Api.Models.Appointment
             {
-                DoctorTimeSlotId = 1,
-                PatientId = 1,
+                DoctorTimeSlotId = generalMedicineSlot.DoctorTimeSlotId,
+                PatientId = amalPatient.PatientId,
                 AppointmentNumber = 1,
                 EstimatedStartAt = new DateTime(2026, 8, 8, 9, 0, 0, DateTimeKind.Utc),
                 PatientName = "Amal Perera",
@@ -178,8 +252,8 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
             },
             new HospitalManagementSystem.Api.Models.Appointment
             {
-                DoctorTimeSlotId = 2,
-                PatientId = 2,
+                DoctorTimeSlotId = cardiologySlot.DoctorTimeSlotId,
+                PatientId = nimeshaPatient.PatientId,
                 AppointmentNumber = 1,
                 EstimatedStartAt = new DateTime(2026, 8, 8, 14, 0, 0, DateTimeKind.Utc),
                 PatientName = "Nimesha Silva",

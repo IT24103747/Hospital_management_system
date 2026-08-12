@@ -5,12 +5,14 @@ import {
   Stethoscope,
   Calendar,
   Settings,
+  UserRound,
   LogOut,
   Activity,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
 import './Sidebar.css'
+import { useAuth } from '../features/auth/AuthContext'
 
 const NAV_ITEMS = [
   { label: 'Dashboard',    icon: LayoutDashboard, to: '/dashboard' },
@@ -25,6 +27,11 @@ const BOTTOM_ITEMS = [
 ]
 
 export default function Sidebar({ collapsed, onToggle }) {
+  const { user, signOut } = useAuth()
+  const navItems = user?.role === 'Doctor'
+    ? [{ label: 'Dashboard', icon: LayoutDashboard, to: '/doctor/dashboard' }, { label: 'View Profile', icon: UserRound, to: '/doctor/profile' }]
+    : NAV_ITEMS
+  const bottomItems = user?.role === 'Doctor' ? [] : BOTTOM_ITEMS.filter(item => item.label !== 'Logout')
   return (
     <aside className={`sidebar ${collapsed ? 'sidebar--collapsed' : ''}`}>
       <div className="sidebar__brand">
@@ -49,7 +56,7 @@ export default function Sidebar({ collapsed, onToggle }) {
 
       <nav className="sidebar__nav">
         {!collapsed && <p className="sidebar__section-label">MAIN MENU</p>}
-        {NAV_ITEMS.map(({ label, icon: Icon, to }) => (
+        {navItems.map(({ label, icon: Icon, to }) => (
           <NavLink
             key={to}
             to={to}
@@ -66,7 +73,7 @@ export default function Sidebar({ collapsed, onToggle }) {
 
       <div className="sidebar__bottom">
         {!collapsed && <p className="sidebar__section-label">ACCOUNT</p>}
-        {BOTTOM_ITEMS.map(({ label, icon: Icon, to, danger }) => (
+        {bottomItems.map(({ label, icon: Icon, to, danger }) => (
           <NavLink
             key={to}
             to={to}
@@ -77,13 +84,14 @@ export default function Sidebar({ collapsed, onToggle }) {
             {!collapsed && <span className="sidebar__label">{label}</span>}
           </NavLink>
         ))}
+        <button type="button" onClick={signOut} className="sidebar__link sidebar__link--danger" id="nav-logout"><span className="sidebar__icon"><LogOut size={18}/></span>{!collapsed && <span className="sidebar__label">Logout</span>}</button>
 
         {!collapsed && (
           <div className="sidebar__user">
-            <div className="sidebar__avatar">A</div>
+            <div className="sidebar__avatar">{user?.fullName?.[0] || 'U'}</div>
             <div>
-              <div className="sidebar__user-name">Admin User</div>
-              <div className="sidebar__user-role">System Admin</div>
+              <div className="sidebar__user-name">{user?.role === 'Doctor' ? `Dr. ${user.fullName}` : user?.fullName}</div>
+              <div className="sidebar__user-role">{user?.role}</div>
             </div>
           </div>
         )}

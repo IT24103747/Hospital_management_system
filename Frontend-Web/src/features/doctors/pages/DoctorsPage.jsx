@@ -1,69 +1,49 @@
-import { Plus, Search } from 'lucide-react'
+import { Check, Search, UserCheck, UserX, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import Button from '../../../components/Button'
+import { approveDoctor, declineDoctor, getDoctorRegistrations } from '../services/doctorApi'
 import './DoctorsPage.css'
 
-const MOCK_DOCTORS = [
-  { id: 1, name: 'Dr. Priyantha Jayawardena', specialty: 'Cardiologist', department: 'Cardiology', experience: '15 yrs', patients: 234, available: true, color: ['#0ea5e9','#6366f1'] },
-  { id: 2, name: 'Dr. Sumedha Bandara', specialty: 'Neurologist', department: 'Neurology', experience: '12 yrs', patients: 189, available: true, color: ['#10b981','#0ea5e9'] },
-  { id: 3, name: 'Dr. Menaka Weerasinghe', specialty: 'Pediatrician', department: 'Pediatrics', experience: '8 yrs', patients: 312, available: false, color: ['#f59e0b','#ef4444'] },
-  { id: 4, name: 'Dr. Ruwan Herath', specialty: 'Orthopedic Surgeon', department: 'Orthopedics', experience: '20 yrs', patients: 142, available: true, color: ['#8b5cf6','#ec4899'] },
-  { id: 5, name: 'Dr. Chamari Gunaratne', specialty: 'Dermatologist', department: 'Dermatology', experience: '6 yrs', patients: 276, available: true, color: ['#06b6d4','#10b981'] },
-  { id: 6, name: 'Dr. Nishantha Amarasinghe', specialty: 'Ophthalmologist', department: 'Ophthalmology', experience: '11 yrs', patients: 198, available: false, color: ['#0ea5e9','#10b981'] },
-]
-
 export default function DoctorsPage() {
-  return (
-    <div className="page-wrapper">
-      <div className="page-header">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="page-title">Doctors</h1>
-            <p className="page-subtitle">Medical staff directory · {MOCK_DOCTORS.length} doctors</p>
-          </div>
-          <Button variant="primary" icon={Plus} id="add-doctor-btn">Add Doctor</Button>
-        </div>
-      </div>
+  const [doctors, setDoctors] = useState([])
+  const [status, setStatus] = useState('Pending')
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-      <div className="doctors__search-wrap" style={{ marginBottom: '28px' }}>
-        <Search size={15} style={{ color: 'var(--text-muted)' }} />
-        <input className="patients__search" placeholder="Search doctors by name or specialty…" id="doctor-search" />
-      </div>
+  const load = async () => {
+    setLoading(true); setError('')
+    try { setDoctors(await getDoctorRegistrations(status)) }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Unable to load doctor requests.') }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [status])
+  const visible = useMemo(() => doctors.filter(d => `${d.fullName} ${d.email} ${d.specialization} ${d.slmcLicenseNumber}`.toLowerCase().includes(search.toLowerCase())), [doctors, search])
 
-      <div className="doctors__grid stagger-children animate-fade-in">
-        {MOCK_DOCTORS.map(doc => (
-          <div key={doc.id} className="doctor-card glass-card" id={`doctor-${doc.id}`}>
-            <div className="doctor-card__top">
-              <div
-                className="doctor-card__avatar"
-                style={{ background: `linear-gradient(135deg, ${doc.color[0]}, ${doc.color[1]})` }}
-              >
-                {doc.name.split(' ').filter(w => !w.startsWith('Dr')).map(w => w[0]).join('').slice(0,2)}
-              </div>
-              <span className={`doctor-card__status ${doc.available ? 'doctor-card__status--available' : 'doctor-card__status--busy'}`}>
-                <span className="doctor-card__dot" />
-                {doc.available ? 'Available' : 'Busy'}
-              </span>
-            </div>
-            <h4 className="doctor-card__name">{doc.name}</h4>
-            <p className="doctor-card__specialty">{doc.specialty}</p>
-            <div className="doctor-card__stats">
-              <div className="doctor-card__stat">
-                <span className="doctor-card__stat-val">{doc.patients}</span>
-                <span className="doctor-card__stat-lbl">Patients</span>
-              </div>
-              <div className="doctor-card__stat">
-                <span className="doctor-card__stat-val">{doc.experience}</span>
-                <span className="doctor-card__stat-lbl">Experience</span>
-              </div>
-              <div className="doctor-card__stat">
-                <span className="doctor-card__stat-val">{doc.department.slice(0,4)}</span>
-                <span className="doctor-card__stat-lbl">Dept</span>
-              </div>
-            </div>
-            <Button variant="outline" size="sm" fullWidth id={`book-${doc.id}`}>Book Appointment</Button>
-          </div>
-        ))}
-      </div>
+  const review = async (doctor, approve) => {
+    const reason = approve ? '' : window.prompt('Optional reason for declining this registration:', '')
+    if (!approve && reason === null) return
+    try { approve ? await approveDoctor(doctor.doctorId) : await declineDoctor(doctor.doctorId, reason); await load() }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Unable to review request.') }
+  }
+
+  return <div className="page-wrapper">
+    <div className="page-header"><h1 className="page-title">Doctor Management</h1><p className="page-subtitle">Review doctor registrations and manage approved medical staff</p></div>
+    <div className="doctor-toolbar">
+      <div className="doctors__search-wrap"><Search size={15} /><input className="patients__search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search doctors" /></div>
+      <div className="doctor-tabs">{['Pending','Approved','Declined'].map(value => <button key={value} onClick={() => setStatus(value)} className={status === value ? 'active' : ''}>{value}</button>)}</div>
     </div>
-  )
+    {error && <p className="form-error">{error}</p>}
+    {loading ? <p>Loading doctor registrations...</p> : visible.length === 0 ? <div className="doctor-empty">No {status.toLowerCase()} doctor registrations.</div> :
+      <div className="doctor-request-grid">{visible.map(doctor => <article className="doctor-request glass-card" key={doctor.doctorId}>
+        <div className="doctor-request__heading"><div className="doctor-card__avatar">{doctor.firstName[0]}{doctor.lastName[0]}</div><div><h3>Dr. {doctor.fullName}</h3><span className={`request-status status-${doctor.registrationStatus.toLowerCase()}`}>{doctor.registrationStatus}</span></div></div>
+        <dl><Info label="Email" value={doctor.email}/><Info label="NIC" value={doctor.nic}/><Info label="Phone" value={doctor.phoneNumber}/><Info label="Specialization" value={doctor.specialization}/><Info label="SLMC License" value={doctor.slmcLicenseNumber}/><Info label="Submitted" value={new Date(doctor.createdAt).toLocaleString()}/></dl>
+        {doctor.declineReason && <p className="decline-reason"><strong>Reason:</strong> {doctor.declineReason}</p>}
+        {doctor.registrationStatus === 'Pending' && <div className="doctor-request__actions"><Button variant="primary" icon={Check} onClick={() => review(doctor, true)}>Approve</Button><Button variant="danger" icon={X} onClick={() => review(doctor, false)}>Decline</Button></div>}
+        {doctor.registrationStatus === 'Approved' && <div className="review-result"><UserCheck size={18}/> Login enabled</div>}
+        {doctor.registrationStatus === 'Declined' && <div className="review-result declined"><UserX size={18}/> Login disabled</div>}
+      </article>)}</div>}
+  </div>
 }
+
+function Info({ label, value }) { return <div><dt>{label}</dt><dd>{value}</dd></div> }

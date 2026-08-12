@@ -1,0 +1,78 @@
+.doctor-profile-card {
+  max-width: 900px;
+  padding: var(--space-xl);
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.profile-field span {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.profile-field input {
+  padding: 11px 13px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.profile-field--locked input {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.profile-field--editable input {
+  background: var(--bg-surface);
+  border-color: var(--clr-primary);
+  cursor: text;
+}
+
+.profile-field--editable input:focus {
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.14);
+}
+
+.profile-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 24px;
+  margin-top: 24px;
+  border-top: 1px solid var(--border-default);
+}
+
+.profile-message {
+  margin-top: 18px;
+  font-size: 0.86rem;
+}
+
+.profile-message--error { color: var(--clr-danger); }
+.profile-message--success { color: var(--clr-success); }
+
+.profile-panel {
+  padding: var(--space-xl);
+  color: var(--clr-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.profile-panel p { color: var(--text-secondary); }
+
+@media (max-width: 650px) {
+  .profile-grid { grid-template-columns: 1fr; }
+  .profile-actions { flex-direction: column; }
+  .profile-actions .btn { width: 100%; }
+}

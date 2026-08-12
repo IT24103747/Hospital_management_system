@@ -7,24 +7,37 @@ import DoctorsPage from '../features/doctors/pages/DoctorsPage'
 import AppointmentsPage from '../features/appointments/pages/AppointmentsPage'
 import LoginPage from '../features/auth/pages/LoginPage'
 import RegisterPage from '../features/auth/pages/RegisterPage'
+import ProtectedRoute from '../features/auth/ProtectedRoute'
+import DoctorDashboardPage from '../features/doctors/pages/DoctorDashboardPage'
+import DoctorProfilePage from '../features/doctors/pages/DoctorProfilePage'
 
 export default function AppRouter() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/doctor/register" element={<RegisterPage />} />
+        <Route path="/register" element={<Navigate to="/doctor/register" replace />} />
 
-        <Route element={<DashboardLayout />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/patients" element={<PatientListPage />} />
-          <Route path="/patients/:id" element={<PatientDetailPage />} />
-          <Route path="/doctors" element={<DoctorsPage />} />
-          <Route path="/appointments" element={<AppointmentsPage />} />
+        <Route element={<ProtectedRoute roles={['Admin']} />}>
+          <Route element={<DashboardLayout />}>
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/patients" element={<PatientListPage />} />
+            <Route path="/patients/:id" element={<PatientDetailPage />} />
+            <Route path="/doctors" element={<DoctorsPage />} />
+            <Route path="/appointments" element={<AppointmentsPage />} />
+          </Route>
         </Route>
 
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route element={<ProtectedRoute roles={['Doctor']} />}>
+          <Route element={<DashboardLayout />}>
+            <Route path="/doctor/dashboard" element={<DoctorDashboardPage />} />
+            <Route path="/doctor/profile" element={<DoctorProfilePage />} />
+          </Route>
+        </Route>
+
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
   )

@@ -179,3 +179,13 @@ body.dark .login-page__blob { opacity: 0.25; }
   color: var(--text-muted);
   margin-top: var(--space-sm);
 }
+
+.doctor-registration-page { overflow-y: auto; }
+.doctor-registration-card { max-width: 780px; margin: 24px 0; }
+.registration-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); }
+.registration-input { padding-left: 14px; }
+.registration-success { text-align: center; display: flex; flex-direction: column; gap: var(--space-lg); color: var(--clr-success); }
+.registration-success p { max-width: 540px; margin: auto; }
+.form-error { color: var(--clr-danger); font-size: .85rem; }
+.registration-back { display: flex; justify-content: center; align-items: center; gap: 6px; font-size: .85rem; }
+@media (max-width: 640px) { .registration-grid { grid-template-columns: 1fr; } .registration-grid > div:empty { display: none; } }

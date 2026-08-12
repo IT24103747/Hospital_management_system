@@ -15,25 +15,39 @@ public class AuthController : ControllerBase
     private readonly ApplicationDbContext _context;
     private readonly IPasswordHasher<User> _passwordHasher;
     private readonly IPatientService _patientService;
+    private readonly IDoctorService _doctorService;
+    private readonly IJwtTokenService _jwtTokenService;
 
-    public AuthController(ApplicationDbContext context, IPasswordHasher<User> passwordHasher, IPatientService patientService)
+    public AuthController(ApplicationDbContext context, IPasswordHasher<User> passwordHasher, IPatientService patientService,
+        IDoctorService doctorService, IJwtTokenService jwtTokenService)
     {
         _context = context;
         _passwordHasher = passwordHasher;
         _patientService = patientService;
+        _doctorService = doctorService;
+        _jwtTokenService = jwtTokenService;
     }
 
     [HttpPost("login")]
     public async Task<ActionResult<LoginResponseDto>> Login(LoginDto dto)
     {
         var email = dto.Email.Trim().ToLowerInvariant();
-        var user = await _context.Users.SingleOrDefaultAsync(u => u.Email == email);
+        var user = await _context.Users.Include(u => u.DoctorProfile).SingleOrDefaultAsync(u => u.Email == email);
         if (user is null ||
-            !string.Equals(user.Role, "Patient", StringComparison.OrdinalIgnoreCase) ||
             _passwordHasher.VerifyHashedPassword(user, user.PasswordHash, dto.Password) == PasswordVerificationResult.Failed)
             return Unauthorized(new { message = "Invalid email or password." });
 
-        return Ok(new LoginResponseDto { UserId = user.UserId, FullName = user.FullName, Email = user.Email, Role = user.Role });
+        if (user.Role == "Doctor" && user.DoctorProfile?.RegistrationStatus != DoctorRegistrationStatuses.Approved)
+        {
+            var message = user.DoctorProfile?.RegistrationStatus == DoctorRegistrationStatuses.Declined
+                ? "Your doctor registration was declined. Contact the administrator for assistance."
+                : "Your doctor registration is awaiting administrator approval.";
+            return StatusCode(StatusCodes.Status403Forbidden, new { message, status = user.DoctorProfile?.RegistrationStatus ?? "Pending" });
+        }
+
+        var token = _jwtTokenService.Create(user, user.DoctorProfile?.DoctorId);
+        return Ok(new LoginResponseDto { Token = token.Token, ExpiresAt = token.ExpiresAt, UserId = user.UserId,
+            DoctorId = user.DoctorProfile?.DoctorId, FullName = user.FullName, Email = user.Email, Role = user.Role });
     }
 
     [HttpPost("register")]
@@ -50,7 +64,9 @@ public class AuthController : ControllerBase
             user.PasswordHash = _passwordHasher.HashPassword(user, dto.Password);
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
-            return Created("api/auth/login", new LoginResponseDto { UserId = user.UserId, FullName = user.FullName, Email = user.Email, Role = user.Role });
+            var token = _jwtTokenService.Create(user, null);
+            return Created("api/auth/login", new LoginResponseDto { Token = token.Token, ExpiresAt = token.ExpiresAt,
+                UserId = user.UserId, FullName = user.FullName, Email = user.Email, Role = user.Role });
         }
         catch (InvalidOperationException exception)
         {
@@ -62,6 +78,20 @@ public class AuthController : ControllerBase
         }
     }
 
+    [HttpPost("doctor-register")]
+    public async Task<ActionResult<DoctorRegistrationResponseDto>> RegisterDoctor(RegisterDoctorDto dto)
+    {
+        try
+        {
+            await _doctorService.RegisterAsync(dto);
+            return StatusCode(StatusCodes.Status201Created, new DoctorRegistrationResponseDto
+            {
+                Message = "Your registration request was submitted for administrator approval.",
+                Status = DoctorRegistrationStatuses.Pending
+            });
+        }
+        catch (ArgumentException exception) { return BadRequest(new { message = exception.Message }); }
+        catch (InvalidOperationException exception) { return Conflict(new { message = exception.Message }); }
     [HttpPost("change-password")]
     public async Task<IActionResult> ChangePassword(ChangePasswordDto dto)
     {

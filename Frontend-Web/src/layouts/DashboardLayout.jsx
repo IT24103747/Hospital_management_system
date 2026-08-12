@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import { Bell, Search, Sun, Moon } from 'lucide-react'
 import './DashboardLayout.css'
+import { useAuth } from '../features/auth/AuthContext'
 
 const PAGE_TITLES = {
   '/dashboard':    { title: 'Dashboard',    subtitle: 'Welcome back, Admin' },
@@ -13,6 +14,7 @@ const PAGE_TITLES = {
 }
 
 export default function DashboardLayout() {
+  const { user } = useAuth()
   const [collapsed, setCollapsed] = useState(false)
   const location = useLocation()
 
@@ -40,7 +42,10 @@ export default function DashboardLayout() {
   }
 
   const pathKey = '/' + location.pathname.split('/')[1]
-  const pageMeta = PAGE_TITLES[pathKey] || { title: 'MediCore', subtitle: '' }
+  const doctorMeta = location.pathname === '/doctor/profile'
+    ? { title: 'Profile', subtitle: 'Manage your professional profile' }
+    : { title: 'Doctor Dashboard', subtitle: `Welcome Dr. ${user?.fullName || ''}` }
+  const pageMeta = user?.role === 'Doctor' ? doctorMeta : (PAGE_TITLES[pathKey] || { title: 'MediCore', subtitle: '' })
 
   return (
     <div className={`layout ${collapsed ? 'layout--collapsed' : ''}`}>
@@ -56,7 +61,7 @@ export default function DashboardLayout() {
           </div>
 
           <div className="topbar__right">
-            <div className="topbar__search" id="topbar-search">
+            {user?.role !== 'Doctor' && <div className="topbar__search" id="topbar-search">
               <Search size={15} className="topbar__search-icon" />
               <input
                 type="search"
@@ -64,7 +69,7 @@ export default function DashboardLayout() {
                 className="topbar__search-input"
                 id="global-search"
               />
-            </div>
+            </div>}
 
             <button
               className="topbar__icon-btn"
@@ -81,7 +86,7 @@ export default function DashboardLayout() {
             </button>
 
             <button className="topbar__avatar" id="profile-btn" aria-label="Profile">
-              A
+              {user?.fullName?.[0] || 'U'}
             </button>
           </div>
         </header>
