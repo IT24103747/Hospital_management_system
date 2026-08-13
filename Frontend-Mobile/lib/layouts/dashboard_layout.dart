@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartcare_mobile/core/constants/app_colors.dart';
 import 'package:smartcare_mobile/core/services/api_service.dart';
+import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
 import 'package:smartcare_mobile/core/theme/theme_controller.dart';
 import 'package:smartcare_mobile/core/widgets/medicore_logo.dart';
 import 'package:smartcare_mobile/features/auth/screens/login_screen.dart';
 import 'package:smartcare_mobile/features/profile/screens/profile_screen.dart';
+import 'package:smartcare_mobile/features/triage/screens/ai_triage_screen.dart';
 
 enum _PatientSection {
   home,
@@ -54,10 +56,12 @@ class _DashboardLayoutState extends State<DashboardLayout> {
     final email = prefs.getString('patient_email');
     if (!mounted) return;
 
-    final resolvedName = name?.trim().isNotEmpty == true ? name!.trim() : _userName;
+    final resolvedName =
+        name?.trim().isNotEmpty == true ? name!.trim() : _userName;
     setState(() {
       _userName = resolvedName;
-      _userEmail = email?.trim().isNotEmpty == true ? email!.trim() : _userEmail;
+      _userEmail =
+          email?.trim().isNotEmpty == true ? email!.trim() : _userEmail;
       _userInitials = _initialsFor(resolvedName);
     });
   }
@@ -102,11 +106,14 @@ class _DashboardLayoutState extends State<DashboardLayout> {
   String get _subtitle => switch (_activeSection) {
         _PatientSection.home => 'Your patient dashboard',
         _PatientSection.profile => 'Personal and emergency information',
-        _PatientSection.appointments => 'Book, reschedule, cancel, and view visits',
+        _PatientSection.appointments =>
+          'Book, reschedule, cancel, and view visits',
         _PatientSection.doctors => 'Find specialists and available schedules',
         _PatientSection.records => 'History, reports, prescriptions, and notes',
-        _PatientSection.assistant => 'Simple explanations and guided health questions',
-        _PatientSection.notifications => 'Hospital updates and appointment reminders',
+        _PatientSection.assistant =>
+          'Simple explanations and guided health questions',
+        _PatientSection.notifications =>
+          'Hospital updates and appointment reminders',
         _PatientSection.settings => 'Account, privacy, language, and security',
         _PatientSection.support => 'FAQs, hospital contact, and technical help',
       };
@@ -117,7 +124,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _PatientSection.appointments => const _AppointmentsSection(),
         _PatientSection.doctors => const _DoctorsSection(),
         _PatientSection.records => const _MedicalRecordsSection(),
-        _PatientSection.assistant => const _AssistantSection(),
+        _PatientSection.assistant => const AiTriageScreen(embedded: true),
         _PatientSection.notifications => const _NotificationsSection(),
         _PatientSection.settings => const _SettingsSection(),
         _PatientSection.support => const _SupportSection(),
@@ -135,7 +142,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
     await prefs.remove('patient_user_id');
     await prefs.remove('patient_full_name');
     await prefs.remove('patient_email');
-    await prefs.remove('hms_token');
+    await SecureTokenStorage.clearToken();
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
@@ -151,7 +158,9 @@ class _DashboardLayoutState extends State<DashboardLayout> {
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.bgDark : AppColors.bgLight,
-      drawer: isDesktop ? null : Drawer(width: 286, child: _sidebar(isDesktop: false)),
+      drawer: isDesktop
+          ? null
+          : Drawer(width: 286, child: _sidebar(isDesktop: false)),
       body: Row(
         children: [
           if (isDesktop) _sidebar(isDesktop: true),
@@ -176,7 +185,8 @@ class _DashboardLayoutState extends State<DashboardLayout> {
       decoration: BoxDecoration(
         color: isDark ? AppColors.surfaceDark : AppColors.bgLightCard,
         border: Border(
-          bottom: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+          bottom: BorderSide(
+              color: isDark ? AppColors.borderDark : AppColors.borderLight),
         ),
       ),
       child: Row(
@@ -199,7 +209,9 @@ class _DashboardLayoutState extends State<DashboardLayout> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                    color: isDark
+                        ? AppColors.textPrimaryDark
+                        : AppColors.textPrimaryLight,
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
                   ),
@@ -210,7 +222,9 @@ class _DashboardLayoutState extends State<DashboardLayout> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+                    color: isDark
+                        ? AppColors.textMutedDark
+                        : AppColors.textMutedLight,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
@@ -228,7 +242,10 @@ class _DashboardLayoutState extends State<DashboardLayout> {
             backgroundColor: AppColors.primary,
             child: Text(
               _userInitials,
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800),
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800),
             ),
           ),
         ],
@@ -273,7 +290,8 @@ class _DashboardLayoutState extends State<DashboardLayout> {
                 ],
               ),
             ),
-            Divider(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+            Divider(
+                color: isDark ? AppColors.borderDark : AppColors.borderLight),
             Expanded(
               child: ListView(
                 physics: const BouncingScrollPhysics(),
@@ -281,19 +299,27 @@ class _DashboardLayoutState extends State<DashboardLayout> {
                 children: [
                   _sectionLabel('Main Menu'),
                   _navItem(Icons.home_rounded, 'Home', _PatientSection.home),
-                  _navItem(Icons.person_outline_rounded, 'My Profile', _PatientSection.profile),
-                  _navItem(Icons.calendar_month_outlined, 'Appointments', _PatientSection.appointments),
-                  _navItem(Icons.medical_services_outlined, 'Doctors', _PatientSection.doctors),
-                  _navItem(Icons.folder_copy_outlined, 'Medical Records', _PatientSection.records),
-                  _navItem(Icons.psychology_alt_outlined, 'AI Health Assistant', _PatientSection.assistant),
+                  _navItem(Icons.person_outline_rounded, 'My Profile',
+                      _PatientSection.profile),
+                  _navItem(Icons.calendar_month_outlined, 'Appointments',
+                      _PatientSection.appointments),
+                  _navItem(Icons.medical_services_outlined, 'Doctors',
+                      _PatientSection.doctors),
+                  _navItem(Icons.folder_copy_outlined, 'Medical Records',
+                      _PatientSection.records),
+                  _navItem(Icons.psychology_alt_outlined, 'AI Health Assistant',
+                      _PatientSection.assistant),
                   const SizedBox(height: 12),
                   _sectionLabel('Account'),
-                  _navItem(Icons.settings_outlined, 'Settings', _PatientSection.settings),
-                  _navItem(Icons.help_outline_rounded, 'Help & Support', _PatientSection.support),
+                  _navItem(Icons.settings_outlined, 'Settings',
+                      _PatientSection.settings),
+                  _navItem(Icons.help_outline_rounded, 'Help & Support',
+                      _PatientSection.support),
                 ],
               ),
             ),
-            Divider(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+            Divider(
+                color: isDark ? AppColors.borderDark : AppColors.borderLight),
             Padding(
               padding: footerPadding,
               child: Column(
@@ -303,9 +329,14 @@ class _DashboardLayoutState extends State<DashboardLayout> {
                   Container(
                     padding: EdgeInsets.all(isDesktop ? 12 : 10),
                     decoration: BoxDecoration(
-                      color: isDark ? AppColors.surfaceDarkSecondary : AppColors.bgLightCard,
+                      color: isDark
+                          ? AppColors.surfaceDarkSecondary
+                          : AppColors.bgLightCard,
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+                      border: Border.all(
+                          color: isDark
+                              ? AppColors.borderDark
+                              : AppColors.borderLight),
                     ),
                     child: Row(
                       children: [
@@ -331,7 +362,9 @@ class _DashboardLayoutState extends State<DashboardLayout> {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                                  color: isDark
+                                      ? AppColors.textPrimaryDark
+                                      : AppColors.textPrimaryLight,
                                   fontSize: isDesktop ? 13 : 12,
                                   fontWeight: FontWeight.w800,
                                 ),
@@ -342,7 +375,9 @@ class _DashboardLayoutState extends State<DashboardLayout> {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+                                  color: isDark
+                                      ? AppColors.textMutedDark
+                                      : AppColors.textMutedLight,
                                   fontSize: isDesktop ? 11 : 10,
                                 ),
                               ),
@@ -364,7 +399,8 @@ class _DashboardLayoutState extends State<DashboardLayout> {
   Widget _sectionLabel(String label) {
     final isDesktop = MediaQuery.of(context).size.width >= 900;
     return Padding(
-      padding: EdgeInsets.fromLTRB(isDesktop ? 14 : 12, 0, 12, isDesktop ? 8 : 5),
+      padding:
+          EdgeInsets.fromLTRB(isDesktop ? 14 : 12, 0, 12, isDesktop ? 8 : 5),
       child: Text(
         label.toUpperCase(),
         style: TextStyle(
@@ -387,17 +423,22 @@ class _DashboardLayoutState extends State<DashboardLayout> {
     return Padding(
       padding: EdgeInsets.only(bottom: isDesktop ? 6 : 3),
       child: Material(
-        color: isSelected ? AppColors.primary.withValues(alpha: isDark ? 0.18 : 0.12) : Colors.transparent,
+        color: isSelected
+            ? AppColors.primary.withValues(alpha: isDark ? 0.18 : 0.12)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(isDesktop ? 12 : 10),
         child: InkWell(
           borderRadius: BorderRadius.circular(isDesktop ? 12 : 10),
           onTap: () => _selectSection(section, closeDrawer: true),
           child: Container(
             constraints: BoxConstraints(minHeight: isDesktop ? 52 : 42),
-            padding: EdgeInsets.symmetric(horizontal: isDesktop ? 14 : 12, vertical: isDesktop ? 10 : 7),
+            padding: EdgeInsets.symmetric(
+                horizontal: isDesktop ? 14 : 12, vertical: isDesktop ? 10 : 7),
             decoration: BoxDecoration(
               border: isSelected
-                  ? Border(left: BorderSide(color: AppColors.primary, width: isDesktop ? 4 : 3))
+                  ? Border(
+                      left: BorderSide(
+                          color: AppColors.primary, width: isDesktop ? 4 : 3))
                   : null,
             ),
             child: Row(
@@ -412,9 +453,12 @@ class _DashboardLayoutState extends State<DashboardLayout> {
                     style: TextStyle(
                       color: isSelected
                           ? AppColors.primary
-                          : (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight),
+                          : (isDark
+                              ? AppColors.textPrimaryDark
+                              : AppColors.textPrimaryLight),
                       fontSize: isDesktop ? 15 : 13.5,
-                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                      fontWeight:
+                          isSelected ? FontWeight.w800 : FontWeight.w600,
                     ),
                   ),
                 ),
@@ -436,10 +480,12 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         onTap: _logout,
         child: Container(
           constraints: BoxConstraints(minHeight: isDesktop ? 52 : 42),
-          padding: EdgeInsets.symmetric(horizontal: isDesktop ? 14 : 12, vertical: isDesktop ? 10 : 7),
+          padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 14 : 12, vertical: isDesktop ? 10 : 7),
           child: Row(
             children: [
-              Icon(Icons.logout_rounded, color: AppColors.danger, size: isDesktop ? 22 : 19),
+              Icon(Icons.logout_rounded,
+                  color: AppColors.danger, size: isDesktop ? 22 : 19),
               SizedBox(width: isDesktop ? 16 : 12),
               Expanded(
                 child: Text(
@@ -473,7 +519,8 @@ class _HomeSection extends StatelessWidget {
       children: [
         _HeroCard(
           title: 'Good morning, $firstName',
-          subtitle: 'Your next appointment is Dr. Kasun Silva on Aug 15 at 10:30 AM.',
+          subtitle:
+              'Your next appointment is Dr. Kasun Silva on Aug 15 at 10:30 AM.',
           icon: Icons.waving_hand_rounded,
           actions: const ['View Appointment', 'Book Appointment'],
         ),
@@ -482,17 +529,25 @@ class _HomeSection extends StatelessWidget {
         const SizedBox(height: 12),
         const _FeatureGrid(
           tiles: [
-            _FeatureTileData(Icons.medical_information_outlined, 'Doctor information', 'Cardiology consultation', AppColors.primary),
-            _FeatureTileData(Icons.description_outlined, 'Recent report', 'Blood test uploaded', AppColors.success),
-            _FeatureTileData(Icons.notifications_active_outlined, 'Notifications', '3 new updates', AppColors.warning),
-            _FeatureTileData(Icons.psychology_alt_outlined, 'AI Assistant', 'Ask about reports', AppColors.accent),
+            _FeatureTileData(
+                Icons.medical_information_outlined,
+                'Doctor information',
+                'Cardiology consultation',
+                AppColors.primary),
+            _FeatureTileData(Icons.description_outlined, 'Recent report',
+                'Blood test uploaded', AppColors.success),
+            _FeatureTileData(Icons.notifications_active_outlined,
+                'Notifications', '3 new updates', AppColors.warning),
+            _FeatureTileData(Icons.psychology_alt_outlined, 'AI Assistant',
+                'Ask about reports', AppColors.accent),
           ],
         ),
         const SizedBox(height: 16),
         const _InfoPanel(
           icon: Icons.health_and_safety_outlined,
           title: 'Important health reminder',
-          subtitle: 'Take prescribed medicine after breakfast and keep your appointment documents ready.',
+          subtitle:
+              'Take prescribed medicine after breakfast and keep your appointment documents ready.',
           trailing: 'Today',
         ),
       ],
@@ -509,7 +564,8 @@ class _AppointmentsSection extends StatelessWidget {
       children: [
         _HeroCard(
           title: 'Book a doctor visit',
-          subtitle: 'Select Doctor, choose Date, pick an Available Time, then Confirm Appointment.',
+          subtitle:
+              'Select Doctor, choose Date, pick an Available Time, then Confirm Appointment.',
           icon: Icons.calendar_month_outlined,
           actions: ['Book Appointment', 'View History'],
         ),
@@ -536,10 +592,14 @@ class _AppointmentsSection extends StatelessWidget {
         SizedBox(height: 12),
         _FeatureGrid(
           tiles: [
-            _FeatureTileData(Icons.edit_calendar_outlined, 'Reschedule', 'Change date or time', AppColors.primary),
-            _FeatureTileData(Icons.cancel_outlined, 'Cancel', 'Cancel safely', AppColors.danger),
-            _FeatureTileData(Icons.person_search_outlined, 'View doctor', 'Profile and schedule', AppColors.accent),
-            _FeatureTileData(Icons.history_rounded, 'History', 'Past visits', AppColors.success),
+            _FeatureTileData(Icons.edit_calendar_outlined, 'Reschedule',
+                'Change date or time', AppColors.primary),
+            _FeatureTileData(Icons.cancel_outlined, 'Cancel', 'Cancel safely',
+                AppColors.danger),
+            _FeatureTileData(Icons.person_search_outlined, 'View doctor',
+                'Profile and schedule', AppColors.accent),
+            _FeatureTileData(Icons.history_rounded, 'History', 'Past visits',
+                AppColors.success),
           ],
         ),
       ],
@@ -556,7 +616,13 @@ class _DoctorsSection extends StatelessWidget {
       children: [
         _SearchBarCard(hint: 'Search doctors or specialization'),
         SizedBox(height: 14),
-        _FilterChips(labels: ['All', 'Cardiology', 'General', 'Pediatrics', 'Orthopedics']),
+        _FilterChips(labels: [
+          'All',
+          'Cardiology',
+          'General',
+          'Pediatrics',
+          'Orthopedics'
+        ]),
         SizedBox(height: 16),
         _DoctorCard(
           name: 'Dr. Kasun Silva',
@@ -587,47 +653,41 @@ class _MedicalRecordsSection extends StatelessWidget {
       children: [
         _HeroCard(
           title: 'Your health record hub',
-          subtitle: 'Medical history, reports, prescriptions, doctor notes, and uploaded documents stay together.',
+          subtitle:
+              'Medical history, reports, prescriptions, doctor notes, and uploaded documents stay together.',
           icon: Icons.folder_copy_outlined,
           actions: ['Upload Document', 'Share Summary'],
         ),
         SizedBox(height: 16),
-        _RecordCategory(icon: Icons.history_edu_outlined, title: 'Medical History', items: ['Previous diagnoses', 'Previous treatments', 'Past visits']),
-        _RecordCategory(icon: Icons.science_outlined, title: 'Lab Reports', items: ['Blood tests', 'X-rays', 'Scan reports', 'Results']),
-        _RecordCategory(icon: Icons.medication_outlined, title: 'Prescriptions', items: ['Current medicines', 'Dosage', 'Instructions', 'Previous prescriptions']),
-        _RecordCategory(icon: Icons.note_alt_outlined, title: 'Doctor Notes', items: ['Consultation notes', 'Treatment recommendations']),
-        _RecordCategory(icon: Icons.file_copy_outlined, title: 'Documents', items: ['Uploaded documents', 'Medical certificates']),
-      ],
-    );
-  }
-}
-
-class _AssistantSection extends StatelessWidget {
-  const _AssistantSection();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _PageScaffold(
-      children: [
-        _HeroCard(
-          title: 'AI Health Assistant',
-          subtitle: 'Ask questions, understand reports, prepare doctor questions, and get appointment help.',
-          icon: Icons.psychology_alt_outlined,
-          actions: ['Ask AI', 'Explain Report'],
-        ),
-        SizedBox(height: 16),
-        _ChatBubble(text: 'What does my blood test report mean?', isPatient: true),
-        _ChatBubble(
-          text: 'I can explain common values in simple language. Abnormal findings should be discussed with your doctor.',
-          isPatient: false,
-        ),
-        SizedBox(height: 12),
-        _InfoPanel(
-          icon: Icons.verified_user_outlined,
-          title: 'Medical safety',
-          subtitle: 'AI guidance is informational and does not replace diagnosis or treatment from a doctor.',
-          trailing: 'Important',
-        ),
+        _RecordCategory(
+            icon: Icons.history_edu_outlined,
+            title: 'Medical History',
+            items: [
+              'Previous diagnoses',
+              'Previous treatments',
+              'Past visits'
+            ]),
+        _RecordCategory(
+            icon: Icons.science_outlined,
+            title: 'Lab Reports',
+            items: ['Blood tests', 'X-rays', 'Scan reports', 'Results']),
+        _RecordCategory(
+            icon: Icons.medication_outlined,
+            title: 'Prescriptions',
+            items: [
+              'Current medicines',
+              'Dosage',
+              'Instructions',
+              'Previous prescriptions'
+            ]),
+        _RecordCategory(
+            icon: Icons.note_alt_outlined,
+            title: 'Doctor Notes',
+            items: ['Consultation notes', 'Treatment recommendations']),
+        _RecordCategory(
+            icon: Icons.file_copy_outlined,
+            title: 'Documents',
+            items: ['Uploaded documents', 'Medical certificates']),
       ],
     );
   }
@@ -640,10 +700,23 @@ class _NotificationsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return const _PageScaffold(
       children: [
-        _NotificationTile(Icons.alarm_on_outlined, 'Appointment Reminder', 'You have an appointment with Dr. Silva tomorrow at 10:30 AM.', 'New'),
-        _NotificationTile(Icons.check_circle_outline_rounded, 'Appointment Confirmed', 'Your cardiology visit has been confirmed.', 'Today'),
-        _NotificationTile(Icons.science_outlined, 'New Lab Report', 'A blood test report is available in Medical Records.', 'Yesterday'),
-        _NotificationTile(Icons.campaign_outlined, 'Hospital Announcement', 'The outpatient desk closes early on public holidays.', 'Info'),
+        _NotificationTile(
+            Icons.alarm_on_outlined,
+            'Appointment Reminder',
+            'You have an appointment with Dr. Silva tomorrow at 10:30 AM.',
+            'New'),
+        _NotificationTile(
+            Icons.check_circle_outline_rounded,
+            'Appointment Confirmed',
+            'Your cardiology visit has been confirmed.',
+            'Today'),
+        _NotificationTile(
+            Icons.science_outlined,
+            'New Lab Report',
+            'A blood test report is available in Medical Records.',
+            'Yesterday'),
+        _NotificationTile(Icons.campaign_outlined, 'Hospital Announcement',
+            'The outpatient desk closes early on public holidays.', 'Info'),
       ],
     );
   }
@@ -672,9 +745,11 @@ class _SettingsSectionState extends State<_SettingsSection> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _userEmail = prefs.getString('patient_email') ?? 'patient@medicore.lk';
-      _notifyAppointments = prefs.getBool('patient_notify_appointments') ?? true;
+      _notifyAppointments =
+          prefs.getBool('patient_notify_appointments') ?? true;
       _notifyLabReports = prefs.getBool('patient_notify_lab_reports') ?? true;
-      _notifyAnnouncements = prefs.getBool('patient_notify_announcements') ?? false;
+      _notifyAnnouncements =
+          prefs.getBool('patient_notify_announcements') ?? false;
     });
   }
 
@@ -704,7 +779,8 @@ class _SettingsSectionState extends State<_SettingsSection> {
             Expanded(
               child: Text(
                 message,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w600),
               ),
             ),
           ],
@@ -741,7 +817,9 @@ class _SettingsSectionState extends State<_SettingsSection> {
           builder: (context, setSheetState) {
             final isDark = Theme.of(context).brightness == Brightness.dark;
             final textStyle = TextStyle(
-              color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+              color: isDark
+                  ? AppColors.textPrimaryDark
+                  : AppColors.textPrimaryLight,
             );
 
             InputDecoration customInputDecoration({
@@ -751,16 +829,24 @@ class _SettingsSectionState extends State<_SettingsSection> {
             }) {
               return InputDecoration(
                 labelText: label,
-                labelStyle: TextStyle(color: isDark ? AppColors.textMutedDark : AppColors.textSecondaryLight),
+                labelStyle: TextStyle(
+                    color: isDark
+                        ? AppColors.textMutedDark
+                        : AppColors.textSecondaryLight),
                 prefixIcon: Icon(prefixIcon, color: AppColors.primary),
                 suffixIcon: suffixIcon,
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+                  borderSide: BorderSide(
+                      color: isDark
+                          ? AppColors.borderDark
+                          : AppColors.borderLight),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: isDark ? AppColors.primaryLight : AppColors.primary),
+                  borderSide: BorderSide(
+                      color:
+                          isDark ? AppColors.primaryLight : AppColors.primary),
                 ),
                 errorBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -768,7 +854,8 @@ class _SettingsSectionState extends State<_SettingsSection> {
                 ),
                 focusedErrorBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppColors.danger, width: 2),
+                  borderSide:
+                      const BorderSide(color: AppColors.danger, width: 2),
                 ),
               );
             }
@@ -790,7 +877,9 @@ class _SettingsSectionState extends State<_SettingsSection> {
                       height: 4,
                       margin: const EdgeInsets.symmetric(vertical: 10),
                       decoration: BoxDecoration(
-                        color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                        color: isDark
+                            ? Colors.grey.shade700
+                            : Colors.grey.shade300,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -800,7 +889,9 @@ class _SettingsSectionState extends State<_SettingsSection> {
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                        color: isDark
+                            ? AppColors.textPrimaryDark
+                            : AppColors.textPrimaryLight,
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -813,13 +904,20 @@ class _SettingsSectionState extends State<_SettingsSection> {
                         prefixIcon: Icons.lock_outline_rounded,
                         suffixIcon: IconButton(
                           icon: Icon(
-                            obscureCurrent ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                            color: isDark ? AppColors.textMutedDark : AppColors.textSecondaryLight,
+                            obscureCurrent
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                            color: isDark
+                                ? AppColors.textMutedDark
+                                : AppColors.textSecondaryLight,
                           ),
-                          onPressed: () => setSheetState(() => obscureCurrent = !obscureCurrent),
+                          onPressed: () => setSheetState(
+                              () => obscureCurrent = !obscureCurrent),
                         ),
                       ),
-                      validator: (v) => v == null || v.isEmpty ? 'Please enter current password' : null,
+                      validator: (v) => v == null || v.isEmpty
+                          ? 'Please enter current password'
+                          : null,
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
@@ -831,15 +929,22 @@ class _SettingsSectionState extends State<_SettingsSection> {
                         prefixIcon: Icons.lock_reset_rounded,
                         suffixIcon: IconButton(
                           icon: Icon(
-                            obscureNew ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                            color: isDark ? AppColors.textMutedDark : AppColors.textSecondaryLight,
+                            obscureNew
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                            color: isDark
+                                ? AppColors.textMutedDark
+                                : AppColors.textSecondaryLight,
                           ),
-                          onPressed: () => setSheetState(() => obscureNew = !obscureNew),
+                          onPressed: () =>
+                              setSheetState(() => obscureNew = !obscureNew),
                         ),
                       ),
                       validator: (v) {
-                        if (v == null || v.isEmpty) return 'Please enter new password';
-                        if (v.length < 8) return 'Password must be at least 8 characters';
+                        if (v == null || v.isEmpty)
+                          return 'Please enter new password';
+                        if (v.length < 8)
+                          return 'Password must be at least 8 characters';
                         return null;
                       },
                     ),
@@ -853,15 +958,22 @@ class _SettingsSectionState extends State<_SettingsSection> {
                         prefixIcon: Icons.lock_clock_outlined,
                         suffixIcon: IconButton(
                           icon: Icon(
-                            obscureConfirm ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                            color: isDark ? AppColors.textMutedDark : AppColors.textSecondaryLight,
+                            obscureConfirm
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                            color: isDark
+                                ? AppColors.textMutedDark
+                                : AppColors.textSecondaryLight,
                           ),
-                          onPressed: () => setSheetState(() => obscureConfirm = !obscureConfirm),
+                          onPressed: () => setSheetState(
+                              () => obscureConfirm = !obscureConfirm),
                         ),
                       ),
                       validator: (v) {
-                        if (v == null || v.isEmpty) return 'Please confirm new password';
-                        if (v != newPasswordController.text) return 'Passwords do not match';
+                        if (v == null || v.isEmpty)
+                          return 'Please confirm new password';
+                        if (v != newPasswordController.text)
+                          return 'Passwords do not match';
                         return null;
                       },
                     ),
@@ -872,7 +984,8 @@ class _SettingsSectionState extends State<_SettingsSection> {
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
                         ),
                         onPressed: isSaving
                             ? null
@@ -882,15 +995,22 @@ class _SettingsSectionState extends State<_SettingsSection> {
                                   try {
                                     await ApiService.changePassword(
                                       email: _userEmail,
-                                      currentPassword: currentPasswordController.text,
+                                      currentPassword:
+                                          currentPasswordController.text,
                                       newPassword: newPasswordController.text,
                                     );
                                     if (context.mounted) {
                                       Navigator.pop(context);
                                     }
-                                    _showSnackBar('Password changed successfully!', AppColors.success);
+                                    _showSnackBar(
+                                        'Password changed successfully!',
+                                        AppColors.success);
                                   } catch (e) {
-                                    _showSnackBar(e.toString().replaceAll('Exception: ', ''), AppColors.danger);
+                                    _showSnackBar(
+                                        e
+                                            .toString()
+                                            .replaceAll('Exception: ', ''),
+                                        AppColors.danger);
                                   } finally {
                                     setSheetState(() => isSaving = false);
                                   }
@@ -900,11 +1020,15 @@ class _SettingsSectionState extends State<_SettingsSection> {
                             ? const SizedBox(
                                 width: 24,
                                 height: 24,
-                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                    color: Colors.white, strokeWidth: 2),
                               )
                             : const Text(
                                 'Update Password',
-                                style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold),
                               ),
                       ),
                     ),
@@ -934,11 +1058,15 @@ class _SettingsSectionState extends State<_SettingsSection> {
             final textStyle = TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+              color: isDark
+                  ? AppColors.textPrimaryDark
+                  : AppColors.textPrimaryLight,
             );
             final subtitleStyle = TextStyle(
               fontSize: 12,
-              color: isDark ? AppColors.textMutedDark : AppColors.textSecondaryLight,
+              color: isDark
+                  ? AppColors.textMutedDark
+                  : AppColors.textSecondaryLight,
             );
 
             return Padding(
@@ -951,7 +1079,8 @@ class _SettingsSectionState extends State<_SettingsSection> {
                     height: 4,
                     margin: const EdgeInsets.only(bottom: 16),
                     decoration: BoxDecoration(
-                      color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                      color:
+                          isDark ? Colors.grey.shade700 : Colors.grey.shade300,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -960,14 +1089,18 @@ class _SettingsSectionState extends State<_SettingsSection> {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                      color: isDark
+                          ? AppColors.textPrimaryDark
+                          : AppColors.textPrimaryLight,
                     ),
                   ),
                   const SizedBox(height: 16),
                   SwitchListTile(
                     activeThumbColor: AppColors.primary,
                     title: Text('Appointment Reminders', style: textStyle),
-                    subtitle: Text('Receive alerts for upcoming consultations and schedule updates', style: subtitleStyle),
+                    subtitle: Text(
+                        'Receive alerts for upcoming consultations and schedule updates',
+                        style: subtitleStyle),
                     value: _notifyAppointments,
                     onChanged: (val) {
                       setSheetState(() => _notifyAppointments = val);
@@ -978,7 +1111,9 @@ class _SettingsSectionState extends State<_SettingsSection> {
                   SwitchListTile(
                     activeThumbColor: AppColors.primary,
                     title: Text('Lab Reports Alert', style: textStyle),
-                    subtitle: Text('Get notified as soon as diagnostics/reports are published', style: subtitleStyle),
+                    subtitle: Text(
+                        'Get notified as soon as diagnostics/reports are published',
+                        style: subtitleStyle),
                     value: _notifyLabReports,
                     onChanged: (val) {
                       setSheetState(() => _notifyLabReports = val);
@@ -989,7 +1124,9 @@ class _SettingsSectionState extends State<_SettingsSection> {
                   SwitchListTile(
                     activeThumbColor: AppColors.primary,
                     title: Text('Hospital Announcements', style: textStyle),
-                    subtitle: Text('Stay informed about holiday closures, camps, and clinic details', style: subtitleStyle),
+                    subtitle: Text(
+                        'Stay informed about holiday closures, camps, and clinic details',
+                        style: subtitleStyle),
                     value: _notifyAnnouncements,
                     onChanged: (val) {
                       setSheetState(() => _notifyAnnouncements = val);
@@ -1043,15 +1180,20 @@ class _SupportSection extends StatelessWidget {
       children: [
         _HeroCard(
           title: 'Help & Support',
-          subtitle: 'Get help with the app, hospital services, emergencies, and account access.',
+          subtitle:
+              'Get help with the app, hospital services, emergencies, and account access.',
           icon: Icons.help_outline_rounded,
           actions: ['Contact Hospital', 'Report Problem'],
         ),
         SizedBox(height: 16),
-        _SettingsTile(Icons.question_answer_outlined, 'FAQs', 'Common patient portal questions'),
-        _SettingsTile(Icons.support_agent_rounded, 'Technical support', 'App issues and login problems'),
-        _SettingsTile(Icons.emergency_outlined, 'Emergency information', 'Urgent contact and hospital details'),
-        _SettingsTile(Icons.info_outline_rounded, 'About application', 'MediCore Patient Portal'),
+        _SettingsTile(Icons.question_answer_outlined, 'FAQs',
+            'Common patient portal questions'),
+        _SettingsTile(Icons.support_agent_rounded, 'Technical support',
+            'App issues and login problems'),
+        _SettingsTile(Icons.emergency_outlined, 'Emergency information',
+            'Urgent contact and hospital details'),
+        _SettingsTile(Icons.info_outline_rounded, 'About application',
+            'MediCore Patient Portal'),
       ],
     );
   }
@@ -1114,12 +1256,20 @@ class _HeroCard extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             title,
-            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, height: 1.1),
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+                height: 1.1),
           ),
           const SizedBox(height: 8),
           Text(
             subtitle,
-            style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600, height: 1.35),
+            style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                height: 1.35),
           ),
           const SizedBox(height: 16),
           Wrap(
@@ -1146,7 +1296,11 @@ class _WhitePill extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Text(label, style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w800)),
+      child: Text(label,
+          style: const TextStyle(
+              color: AppColors.primary,
+              fontSize: 12,
+              fontWeight: FontWeight.w800)),
     );
   }
 }
@@ -1158,7 +1312,11 @@ class _SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900));
+    return Text(title,
+        style: Theme.of(context)
+            .textTheme
+            .titleMedium
+            ?.copyWith(fontWeight: FontWeight.w900));
   }
 }
 
@@ -1206,9 +1364,17 @@ class _FeatureTile extends StatelessWidget {
             child: Icon(tile.icon, color: tile.color, size: 20),
           ),
           const Spacer(),
-          Text(tile.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900)),
+          Text(tile.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style:
+                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w900)),
           const SizedBox(height: 2),
-          Text(tile.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.textMutedLight, fontSize: 11)),
+          Text(tile.subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: AppColors.textMutedLight, fontSize: 11)),
         ],
       ),
     );
@@ -1228,7 +1394,8 @@ class _SurfaceCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: isDark ? AppColors.surfaceDark : AppColors.bgLightCard,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+        border: Border.all(
+            color: isDark ? AppColors.borderDark : AppColors.borderLight),
       ),
       child: child,
     );
@@ -1253,20 +1420,32 @@ class _InfoPanel extends StatelessWidget {
     return _SurfaceCard(
       child: Row(
         children: [
-          CircleAvatar(backgroundColor: AppColors.primary.withValues(alpha: 0.12), child: Icon(icon, color: AppColors.primary)),
+          CircleAvatar(
+              backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+              child: Icon(icon, color: AppColors.primary)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 3),
-                Text(subtitle, style: const TextStyle(color: AppColors.textMutedLight, fontSize: 12, height: 1.35)),
+                Text(subtitle,
+                    style: const TextStyle(
+                        color: AppColors.textMutedLight,
+                        fontSize: 12,
+                        height: 1.35)),
               ],
             ),
           ),
           const SizedBox(width: 8),
-          Text(trailing, style: const TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.w900)),
+          Text(trailing,
+              style: const TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900)),
         ],
       ),
     );
@@ -1297,7 +1476,10 @@ class _AppointmentCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const CircleAvatar(backgroundColor: Color(0xFFE0F2FE), child: Icon(Icons.medical_services_outlined, color: AppColors.primary)),
+              const CircleAvatar(
+                  backgroundColor: Color(0xFFE0F2FE),
+                  child: Icon(Icons.medical_services_outlined,
+                      color: AppColors.primary)),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -1307,10 +1489,17 @@ class _AppointmentCard extends StatelessWidget {
                       doctor,
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
-                        color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                        color: isDark
+                            ? AppColors.textPrimaryDark
+                            : AppColors.textPrimaryLight,
                       ),
                     ),
-                    Text(specialty, style: TextStyle(color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight, fontSize: 12)),
+                    Text(specialty,
+                        style: TextStyle(
+                            color: isDark
+                                ? AppColors.textMutedDark
+                                : AppColors.textMutedLight,
+                            fontSize: 12)),
                   ],
                 ),
               ),
@@ -1360,7 +1549,8 @@ class _MiniMetric extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+              color:
+                  isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
               fontSize: 10,
               fontWeight: FontWeight.w800,
             ),
@@ -1373,7 +1563,9 @@ class _MiniMetric extends StatelessWidget {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w800,
-              color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+              color: isDark
+                  ? AppColors.textPrimaryDark
+                  : AppColors.textPrimaryLight,
             ),
           ),
         ],
@@ -1395,7 +1587,11 @@ class _StatusBadge extends StatelessWidget {
         color: AppColors.success.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(label, style: const TextStyle(color: AppColors.success, fontSize: 11, fontWeight: FontWeight.w900)),
+      child: Text(label,
+          style: const TextStyle(
+              color: AppColors.success,
+              fontSize: 11,
+              fontWeight: FontWeight.w900)),
     );
   }
 }
@@ -1416,7 +1612,9 @@ class _OutlineAction extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.32)),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w900)),
+      child: Text(label,
+          style: TextStyle(
+              color: color, fontSize: 12, fontWeight: FontWeight.w900)),
     );
   }
 }
@@ -1432,13 +1630,16 @@ class _SearchBarCard extends StatelessWidget {
     return _SurfaceCard(
       child: Row(
         children: [
-          Icon(Icons.search_rounded, color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight),
+          Icon(Icons.search_rounded,
+              color:
+                  isDark ? AppColors.textMutedDark : AppColors.textMutedLight),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               hint,
               style: TextStyle(
-                color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+                color:
+                    isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
                 fontSize: 13,
               ),
             ),
@@ -1465,9 +1666,14 @@ class _FilterChips extends StatelessWidget {
         final selected = label == labels.first;
         return Chip(
           label: Text(label),
-          backgroundColor: selected ? AppColors.primary.withValues(alpha: 0.12) : null,
+          backgroundColor:
+              selected ? AppColors.primary.withValues(alpha: 0.12) : null,
           labelStyle: TextStyle(
-            color: selected ? AppColors.primary : (isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight),
+            color: selected
+                ? AppColors.primary
+                : (isDark
+                    ? AppColors.textSecondaryDark
+                    : AppColors.textSecondaryLight),
             fontWeight: FontWeight.w700,
           ),
         );
@@ -1500,7 +1706,10 @@ class _DoctorCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const CircleAvatar(radius: 24, backgroundColor: Color(0xFFE0F2FE), child: Icon(Icons.person_rounded, color: AppColors.primary)),
+              const CircleAvatar(
+                  radius: 24,
+                  backgroundColor: Color(0xFFE0F2FE),
+                  child: Icon(Icons.person_rounded, color: AppColors.primary)),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -1511,21 +1720,31 @@ class _DoctorCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w900,
-                        color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                        color: isDark
+                            ? AppColors.textPrimaryDark
+                            : AppColors.textPrimaryLight,
                       ),
                     ),
-                    Text(specialty, style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w800)),
+                    Text(specialty,
+                        style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800)),
                   ],
                 ),
               ),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.star_rounded, color: AppColors.warning, size: 16),
+                  const Icon(Icons.star_rounded,
+                      color: AppColors.warning, size: 16),
                   const SizedBox(width: 2),
                   Text(
                     rating,
-                    style: const TextStyle(color: AppColors.warning, fontSize: 12, fontWeight: FontWeight.w900),
+                    style: const TextStyle(
+                        color: AppColors.warning,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900),
                   ),
                 ],
               ),
@@ -1535,7 +1754,9 @@ class _DoctorCard extends StatelessWidget {
           Text(
             details,
             style: TextStyle(
-              color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+              color: isDark
+                  ? AppColors.textSecondaryDark
+                  : AppColors.textSecondaryLight,
               fontSize: 12,
             ),
           ),
@@ -1543,7 +1764,8 @@ class _DoctorCard extends StatelessWidget {
           Text(
             schedule,
             style: TextStyle(
-              color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+              color:
+                  isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
               fontSize: 12,
             ),
           ),
@@ -1582,9 +1804,13 @@ class _RecordCategory extends StatelessWidget {
           children: [
             Row(
               children: [
-                CircleAvatar(backgroundColor: AppColors.primary.withValues(alpha: 0.12), child: Icon(icon, color: AppColors.primary)),
+                CircleAvatar(
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+                    child: Icon(icon, color: AppColors.primary)),
                 const SizedBox(width: 12),
-                Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w900)),
               ],
             ),
             const SizedBox(height: 10),
@@ -1621,7 +1847,10 @@ class _ChatBubble extends StatelessWidget {
         ),
         child: Text(
           text,
-          style: TextStyle(color: isPatient ? Colors.white : AppColors.textPrimaryLight, fontSize: 13, height: 1.35),
+          style: TextStyle(
+              color: isPatient ? Colors.white : AppColors.textPrimaryLight,
+              fontSize: 13,
+              height: 1.35),
         ),
       ),
     );
@@ -1640,7 +1869,8 @@ class _NotificationTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: _InfoPanel(icon: icon, title: title, subtitle: message, trailing: tag),
+      child: _InfoPanel(
+          icon: icon, title: title, subtitle: message, trailing: tag),
     );
   }
 }
@@ -1674,13 +1904,17 @@ class _ThemeModeTile extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w900,
-                      color: isDarkMode ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                      color: isDarkMode
+                          ? AppColors.textPrimaryDark
+                          : AppColors.textPrimaryLight,
                     ),
                   ),
                   Text(
                     'Choose the mode you want',
                     style: TextStyle(
-                      color: isDarkMode ? AppColors.textMutedDark : AppColors.textMutedLight,
+                      color: isDarkMode
+                          ? AppColors.textMutedDark
+                          : AppColors.textMutedLight,
                       fontSize: 12,
                     ),
                   ),
@@ -1745,7 +1979,9 @@ class _ThemeChoiceButton extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: selected ? AppColors.primary : (isDark ? AppColors.borderDark : AppColors.borderLight),
+              color: selected
+                  ? AppColors.primary
+                  : (isDark ? AppColors.borderDark : AppColors.borderLight),
             ),
           ),
           child: Center(
@@ -1756,7 +1992,11 @@ class _ThemeChoiceButton extends StatelessWidget {
                 children: [
                   Icon(
                     icon,
-                    color: selected ? AppColors.primary : (isDark ? AppColors.textMutedDark : AppColors.textMutedLight),
+                    color: selected
+                        ? AppColors.primary
+                        : (isDark
+                            ? AppColors.textMutedDark
+                            : AppColors.textMutedLight),
                     size: 16,
                   ),
                   const SizedBox(width: 5),
@@ -1764,7 +2004,11 @@ class _ThemeChoiceButton extends StatelessWidget {
                     label,
                     maxLines: 1,
                     style: TextStyle(
-                      color: selected ? AppColors.primary : (isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight),
+                      color: selected
+                          ? AppColors.primary
+                          : (isDark
+                              ? AppColors.textSecondaryDark
+                              : AppColors.textSecondaryLight),
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
                     ),
@@ -1802,7 +2046,8 @@ class _SettingsTile extends StatelessWidget {
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+              border: Border.all(
+                  color: isDark ? AppColors.borderDark : AppColors.borderLight),
             ),
             child: Row(
               children: [
@@ -1820,13 +2065,17 @@ class _SettingsTile extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w900,
-                          color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                          color: isDark
+                              ? AppColors.textPrimaryDark
+                              : AppColors.textPrimaryLight,
                         ),
                       ),
                       Text(
                         subtitle,
                         style: TextStyle(
-                          color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+                          color: isDark
+                              ? AppColors.textMutedDark
+                              : AppColors.textMutedLight,
                           fontSize: 12,
                         ),
                       ),
@@ -1835,7 +2084,9 @@ class _SettingsTile extends StatelessWidget {
                 ),
                 Icon(
                   Icons.chevron_right_rounded,
-                  color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+                  color: isDark
+                      ? AppColors.textMutedDark
+                      : AppColors.textMutedLight,
                 ),
               ],
             ),
@@ -1871,7 +2122,11 @@ class _HeaderIconButton extends StatelessWidget {
 }
 
 String _initialsFor(String name) {
-  final parts = name.trim().split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+  final parts = name
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((part) => part.isNotEmpty)
+      .toList();
   if (parts.isEmpty) return 'PU';
   final first = parts.first[0].toUpperCase();
   final second = parts.length > 1 ? parts.last[0].toUpperCase() : '';

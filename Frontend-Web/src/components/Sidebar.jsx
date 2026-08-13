@@ -8,6 +8,7 @@ import {
   UserRound,
   LogOut,
   Activity,
+  ShieldAlert,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
@@ -29,8 +30,8 @@ const BOTTOM_ITEMS = [
 export default function Sidebar({ collapsed, onToggle }) {
   const { user, signOut } = useAuth()
   const navItems = user?.role === 'Doctor'
-    ? [{ label: 'Dashboard', icon: LayoutDashboard, to: '/doctor/dashboard' }, { label: 'View Profile', icon: UserRound, to: '/doctor/profile' }]
-    : NAV_ITEMS
+    ? [{ label: 'Dashboard', icon: LayoutDashboard, to: '/doctor/dashboard' }, { label: 'Triage Review', icon: ShieldAlert, to: '/doctor/triage-review' }, { label: 'View Profile', icon: UserRound, to: '/doctor/profile' }]
+    : [...NAV_ITEMS, { label: 'Triage Review', icon: ShieldAlert, to: '/triage/review' }]
   const bottomItems = user?.role === 'Doctor' ? [] : BOTTOM_ITEMS.filter(item => item.label !== 'Logout')
   return (
     <aside className={`sidebar ${collapsed ? 'sidebar--collapsed' : ''}`}>
