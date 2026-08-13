@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
 import 'package:smartcare_mobile/models/patient.dart';
 import 'package:smartcare_mobile/models/vitals.dart';
 import 'package:smartcare_mobile/models/triage_workflow.dart';
@@ -16,8 +16,7 @@ class ApiService {
           : 'http://localhost:5000/api';
 
   static Future<Map<String, String>> _authHeaders() async {
-    final preferences = await SharedPreferences.getInstance();
-    final token = preferences.getString('hms_token');
+    final token = await SecureTokenStorage.readToken();
     return {
       'Content-Type': 'application/json',
       if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',

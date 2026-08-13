@@ -3,6 +3,7 @@ import 'package:smartcare_mobile/core/constants/app_colors.dart';
 import 'package:smartcare_mobile/core/services/api_service.dart';
 import 'package:smartcare_mobile/features/clinic_finder/screens/emergency_clinic_screen.dart';
 import 'package:smartcare_mobile/models/triage_workflow.dart';
+import 'package:smartcare_mobile/models/vitals.dart';
 
 class AiTriageScreen extends StatefulWidget {
   const AiTriageScreen({super.key});
@@ -13,6 +14,8 @@ class AiTriageScreen extends StatefulWidget {
 
 class _AiTriageScreenState extends State<AiTriageScreen> {
   final _symptomController = TextEditingController();
+  final _heartRateController = TextEditingController();
+  final _temperatureController = TextEditingController();
   bool _isSubmitting = false;
   TriageWorkflow? _workflow;
 
@@ -25,7 +28,9 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
     setState(() => _isSubmitting = true);
     try {
       final workflow = await ApiService.startTriageWorkflow(
-          symptoms: _symptomController.text);
+        symptoms: _symptomController.text,
+        vitals: _optionalVitals(),
+      );
       if (mounted) setState(() => _workflow = workflow);
     } catch (error) {
       if (mounted)
@@ -36,6 +41,23 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  Vitals? _optionalVitals() {
+    if (_heartRateController.text.trim().isEmpty &&
+        _temperatureController.text.trim().isEmpty) return null;
+    final heartRate = int.tryParse(_heartRateController.text.trim());
+    final temperature = double.tryParse(_temperatureController.text.trim());
+    if (heartRate == null || temperature == null)
+      throw const FormatException(
+          'Optional vital signs must be valid numbers.');
+    return Vitals(
+        patientId: 0,
+        systolicBp: 120,
+        diastolicBp: 80,
+        heartRateBpm: heartRate,
+        temperatureCelcius: temperature,
+        oxygenSaturationSpo2: 98);
   }
 
   Future<void> _refreshStatus() async {
@@ -57,6 +79,8 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
   @override
   void dispose() {
     _symptomController.dispose();
+    _heartRateController.dispose();
+    _temperatureController.dispose();
     super.dispose();
   }
 
@@ -87,6 +111,26 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
               decoration: const InputDecoration(
                   hintText:
                       'Describe symptoms in your own words. Do not include passwords or account details.')),
+          const SizedBox(height: 12),
+          const Text('Optional patient-reported vitals',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+                child: TextFormField(
+                    controller: _heartRateController,
+                    keyboardType: TextInputType.number,
+                    decoration:
+                        const InputDecoration(labelText: 'Heart rate (bpm)'))),
+            const SizedBox(width: 12),
+            Expanded(
+                child: TextFormField(
+                    controller: _temperatureController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration:
+                        const InputDecoration(labelText: 'Temperature (°C)'))),
+          ]),
           const SizedBox(height: 16),
           SizedBox(
               height: 52,

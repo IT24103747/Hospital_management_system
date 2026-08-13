@@ -5,6 +5,7 @@ import 'package:smartcare_mobile/core/widgets/medicore_logo.dart';
 import 'package:smartcare_mobile/layouts/dashboard_layout.dart';
 import 'package:smartcare_mobile/features/auth/screens/register_screen.dart';
 import 'package:smartcare_mobile/core/services/api_service.dart';
+import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -56,7 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // Save user session in SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       if (response.containsKey('token')) {
-        await prefs.setString('hms_token', response['token'].toString());
+        await SecureTokenStorage.saveToken(response['token'].toString());
       }
       if (response.containsKey('userId')) {
         await prefs.setInt('patient_user_id', response['userId'] as int);
