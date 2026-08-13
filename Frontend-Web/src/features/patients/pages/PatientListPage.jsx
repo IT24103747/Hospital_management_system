@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, LayoutGrid, List, RefreshCw, Users, Trash2, AlertTriangle, ChevronLeft, ChevronRight, UserPlus, UserRound } from 'lucide-react'
+import { Plus, Search, LayoutGrid, List, RefreshCw, Users, Trash2, AlertTriangle, ChevronLeft, ChevronRight, UserPlus, UserRound, Eye } from 'lucide-react'
 import { usePatients } from '../hooks/usePatients'
 import PatientCard from '../components/PatientCard'
 import PatientForm from '../components/PatientForm'
@@ -119,7 +119,8 @@ export default function PatientListPage() {
       align: 'right',
       render: (p) => (
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-          <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(p)} id={`table-edit-${p.patientId}`}>Edit</Button>
+          <Button variant="secondary" size="sm" icon={Eye} onClick={() => navigate(`/patients/${p.patientId}`)} id={`table-view-${p.patientId}`}>View</Button>
+          <Button variant="primary" size="sm" onClick={() => handleOpenEdit(p)} id={`table-edit-${p.patientId}`}>Edit</Button>
           <Button variant="danger" size="sm" onClick={() => setDeleteTarget(p)} id={`table-delete-${p.patientId}`}>Delete</Button>
         </div>
       ),
