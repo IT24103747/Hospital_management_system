@@ -44,7 +44,9 @@ export default function DashboardLayout() {
   const pathKey = '/' + location.pathname.split('/')[1]
   const doctorMeta = location.pathname === '/doctor/profile'
     ? { title: 'Profile', subtitle: 'Manage your professional profile' }
-    : { title: 'Doctor Dashboard', subtitle: `Welcome Dr. ${user?.fullName || ''}` }
+    : location.pathname === '/doctor/triage-review'
+      ? { title: 'SafeTriage Review', subtitle: 'Clinical decision-support oversight' }
+      : { title: 'Doctor Dashboard', subtitle: `Welcome Dr. ${user?.fullName || ''}` }
   const pageMeta = user?.role === 'Doctor' ? doctorMeta : (PAGE_TITLES[pathKey] || { title: 'MediCore', subtitle: '' })
 
   return (
