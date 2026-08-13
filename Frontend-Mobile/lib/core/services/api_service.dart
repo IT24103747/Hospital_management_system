@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartcare_mobile/models/patient.dart';
 import 'package:smartcare_mobile/models/vitals.dart';
-import 'package:smartcare_mobile/models/triage_result.dart';
+import 'package:smartcare_mobile/models/triage_workflow.dart';
 
 class ApiService {
   // Android emulators use 10.0.2.2 to reach the development machine.
@@ -189,61 +189,41 @@ class ApiService {
     throw Exception(_errorMessage(response.body));
   }
 
-  static Future<TriageResult> performAiTriage({
-    required int patientId,
+  static Future<TriageWorkflow> startTriageWorkflow({
     required String symptoms,
-    Vitals? recentVitals,
+    Vitals? vitals,
   }) async {
-    await Future.delayed(const Duration(seconds: 2));
-
-    final text = symptoms.toLowerCase();
-    TriageRiskLevel level = TriageRiskLevel.routine;
-    int score = 3;
-    String department = 'General OPD';
-    String summary =
-        'Patient presents mild symptoms. Standard OPD consultation advised.';
-    List<String> actions = [
-      'Schedule a routine OPD appointment within 48 hours.',
-      'Stay hydrated and monitor vitals daily.',
-    ];
-
-    if (text.contains('chest pain') ||
-        text.contains('breath') ||
-        text.contains('unconscious') ||
-        text.contains('stroke')) {
-      level = TriageRiskLevel.critical;
-      score = 9;
-      department = 'Cardiology & Emergency ER';
-      summary =
-          'CRITICAL: Symptoms suggest acute cardiovascular or respiratory distress. Immediate triage required.';
-      actions = [
-        'Proceed immediately to the nearest Emergency Clinic.',
-        'Alert Duty ER Officer for priority bed allocation.',
-        'Avoid physical exertion.',
-      ];
-    } else if (text.contains('fever') ||
-        text.contains('vomiting') ||
-        text.contains('bleeding') ||
-        text.contains('fracture')) {
-      level = TriageRiskLevel.urgent;
-      score = 7;
-      department = 'Urgent Care / Internal Medicine';
-      summary =
-          'URGENT: Patient exhibits moderate risk requiring same-day clinical evaluation.';
-      actions = [
-        'Visit Urgent Care clinic within 4 hours.',
-        'Keep record of temperature spikes.',
-      ];
-    }
-
-    return TriageResult(
-      patientId: patientId,
-      symptomsText: symptoms,
-      riskLevel: level,
-      urgencyScore: score,
-      recommendedDepartment: department,
-      aiSummary: summary,
-      recommendedActions: actions,
+    final response = await http.post(
+      Uri.parse('$baseUrl/triage-workflows'),
+      headers: await _authHeaders(),
+      body: jsonEncode({
+        'symptoms': symptoms.trim(),
+        if (vitals != null)
+          'vitals': {
+            'temperatureCelsius': vitals.temperatureCelcius,
+            'heartRateBpm': vitals.heartRateBpm,
+            'systolicBloodPressure': vitals.systolicBp,
+            'diastolicBloodPressure': vitals.diastolicBp,
+            'oxygenSaturationPercent': vitals.oxygenSaturationSpo2,
+            'observedAt': vitals.recordedAt.toIso8601String(),
+            'source': 'patient-reported',
+          },
+      }),
     );
+    if (response.statusCode == 201) {
+      return TriageWorkflow.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<TriageWorkflow> getTriageWorkflow(int workflowId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/triage-workflows/$workflowId'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode == 200) {
+      return TriageWorkflow.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_errorMessage(response.body));
   }
 }
