@@ -41,6 +41,16 @@ public sealed class TriageWorkflowController : ControllerBase
         return workflow is null ? NotFound() : Ok(workflow);
     }
 
+    [HttpPost("{id:int}/continue")]
+    [Authorize(Roles = "Patient")]
+    public async Task<IActionResult> Continue(int id, [FromBody] ContinueTriageWorkflowDto request)
+    {
+        var patient = await CurrentPatient();
+        if (patient is null) return NotFound(new { message = "No patient profile found for this account." });
+        var workflow = await _workflows.ContinueForPatientAsync(id, patient.PatientId, request);
+        return workflow is null ? NotFound(new { message = "A workflow waiting for your input was not found." }) : Ok(workflow);
+    }
+
     [HttpGet("{id:int}/clinical-review")]
     [Authorize(Roles = "Admin,Doctor")]
     public async Task<IActionResult> GetForReview(int id)

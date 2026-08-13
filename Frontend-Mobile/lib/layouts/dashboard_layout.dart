@@ -7,6 +7,7 @@ import 'package:smartcare_mobile/core/theme/theme_controller.dart';
 import 'package:smartcare_mobile/core/widgets/medicore_logo.dart';
 import 'package:smartcare_mobile/features/auth/screens/login_screen.dart';
 import 'package:smartcare_mobile/features/profile/screens/profile_screen.dart';
+import 'package:smartcare_mobile/features/triage/screens/ai_triage_screen.dart';
 
 enum _PatientSection {
   home,
@@ -123,7 +124,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _PatientSection.appointments => const _AppointmentsSection(),
         _PatientSection.doctors => const _DoctorsSection(),
         _PatientSection.records => const _MedicalRecordsSection(),
-        _PatientSection.assistant => const _AssistantSection(),
+        _PatientSection.assistant => const AiTriageScreen(embedded: true),
         _PatientSection.notifications => const _NotificationsSection(),
         _PatientSection.settings => const _SettingsSection(),
         _PatientSection.support => const _SupportSection(),
@@ -687,41 +688,6 @@ class _MedicalRecordsSection extends StatelessWidget {
             icon: Icons.file_copy_outlined,
             title: 'Documents',
             items: ['Uploaded documents', 'Medical certificates']),
-      ],
-    );
-  }
-}
-
-class _AssistantSection extends StatelessWidget {
-  const _AssistantSection();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _PageScaffold(
-      children: [
-        _HeroCard(
-          title: 'AI Health Assistant',
-          subtitle:
-              'Ask questions, understand reports, prepare doctor questions, and get appointment help.',
-          icon: Icons.psychology_alt_outlined,
-          actions: ['Ask AI', 'Explain Report'],
-        ),
-        SizedBox(height: 16),
-        _ChatBubble(
-            text: 'What does my blood test report mean?', isPatient: true),
-        _ChatBubble(
-          text:
-              'I can explain common values in simple language. Abnormal findings should be discussed with your doctor.',
-          isPatient: false,
-        ),
-        SizedBox(height: 12),
-        _InfoPanel(
-          icon: Icons.verified_user_outlined,
-          title: 'Medical safety',
-          subtitle:
-              'AI guidance is informational and does not replace diagnosis or treatment from a doctor.',
-          trailing: 'Important',
-        ),
       ],
     );
   }

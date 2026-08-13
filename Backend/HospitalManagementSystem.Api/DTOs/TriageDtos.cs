@@ -6,6 +6,7 @@ public class StartTriageWorkflowDto
 {
     [Required, MinLength(3), MaxLength(4000)] public string Symptoms { get; set; } = string.Empty;
     public TriageVitalsDto? Vitals { get; set; }
+    public bool IsFollowUp { get; set; }
 }
 
 public class TriageVitalsDto
@@ -25,6 +26,11 @@ public class ReviewTriageWorkflowDto
     [MaxLength(1000)] public string? Note { get; set; }
 }
 
+public class ContinueTriageWorkflowDto
+{
+    [Required, MinLength(1), MaxLength(4000)] public string Answers { get; set; } = string.Empty;
+}
+
 public class TriageWorkflowDto
 {
     public int WorkflowId { get; set; }
@@ -34,12 +40,23 @@ public class TriageWorkflowDto
     public string UncertaintyState { get; set; } = string.Empty;
     public bool RequiresHumanReview { get; set; }
     public string PatientMessage { get; set; } = string.Empty;
+    public TriageGuidanceDto? Guidance { get; set; }
     public IReadOnlyList<string> RiskFactors { get; set; } = [];
     public IReadOnlyList<string> RedFlags { get; set; } = [];
     public IReadOnlyList<string> MissingInformation { get; set; } = [];
     public IReadOnlyList<TriagePlanStepDto> Plan { get; set; } = [];
     public string RuleSetVersion { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+}
+
+public class TriageGuidanceDto
+{
+    public string Heading { get; set; } = string.Empty;
+    public string Summary { get; set; } = string.Empty;
+    public IReadOnlyList<string> Actions { get; set; } = [];
+    public IReadOnlyList<string> SeekHelpIf { get; set; } = [];
+    public IReadOnlyList<string> FollowUpQuestions { get; set; } = [];
+    public string EvidenceSource { get; set; } = string.Empty;
 }
 
 public class TriagePlanStepDto { public string Agent { get; set; } = string.Empty; public string Status { get; set; } = string.Empty; public string Purpose { get; set; } = string.Empty; }

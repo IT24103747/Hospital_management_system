@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
 import 'package:smartcare_mobile/models/patient.dart';
-import 'package:smartcare_mobile/models/vitals.dart';
 import 'package:smartcare_mobile/models/triage_workflow.dart';
 
 class ApiService {
@@ -190,25 +189,20 @@ class ApiService {
 
   static Future<TriageWorkflow> startTriageWorkflow({
     required String symptoms,
-    Vitals? vitals,
+    Map<String, dynamic>? vitals,
+    bool isFollowUp = false,
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/triage-workflows'),
-      headers: await _authHeaders(),
-      body: jsonEncode({
-        'symptoms': symptoms.trim(),
-        if (vitals != null)
-          'vitals': {
-            'temperatureCelsius': vitals.temperatureCelcius,
-            'heartRateBpm': vitals.heartRateBpm,
-            'systolicBloodPressure': vitals.systolicBp,
-            'diastolicBloodPressure': vitals.diastolicBp,
-            'oxygenSaturationPercent': vitals.oxygenSaturationSpo2,
-            'observedAt': vitals.recordedAt.toIso8601String(),
-            'source': 'patient-reported',
-          },
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/triage-workflows'),
+          headers: await _authHeaders(),
+          body: jsonEncode({
+            'symptoms': symptoms.trim(),
+            'isFollowUp': isFollowUp,
+            if (vitals != null) 'vitals': vitals,
+          }),
+        )
+        .timeout(const Duration(seconds: 85));
     if (response.statusCode == 201) {
       return TriageWorkflow.fromJson(jsonDecode(response.body));
     }
@@ -220,6 +214,21 @@ class ApiService {
       Uri.parse('$baseUrl/triage-workflows/$workflowId'),
       headers: await _authHeaders(),
     );
+    if (response.statusCode == 200) {
+      return TriageWorkflow.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<TriageWorkflow> continueTriageWorkflow({
+    required int workflowId,
+    required String answers,
+  }) async {
+    final response = await http
+        .post(Uri.parse('$baseUrl/triage-workflows/$workflowId/continue'),
+            headers: await _authHeaders(),
+            body: jsonEncode({'answers': answers}))
+        .timeout(const Duration(seconds: 85));
     if (response.statusCode == 200) {
       return TriageWorkflow.fromJson(jsonDecode(response.body));
     }

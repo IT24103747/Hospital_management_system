@@ -30,6 +30,21 @@ public class TriageWorkflowServiceTests
     }
 
     [Fact]
+    public async Task StartForPatientAsync_ChestPain_UsesUrgentRouteAndDoesNotCallTheGuidanceAgent()
+    {
+        await using var db = CreateDb();
+        var service = CreateService(db);
+
+        var result = await service.StartForPatientAsync(1, new StartTriageWorkflowDto { Symptoms = "I have chest pain." });
+
+        Assert.Equal(TriageLevels.Urgent, result.TriageLevel);
+        Assert.Equal(TriageWorkflowStatuses.PendingClinicalReview, result.Status);
+        Assert.True(result.RequiresHumanReview);
+        Assert.Null(result.Guidance);
+        Assert.Contains("Do not wait", result.PatientMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task StartForPatientAsync_ImpossibleVital_FailsSafelyWithoutTriageClaim()
     {
         await using var db = CreateDb();
@@ -58,6 +73,22 @@ public class TriageWorkflowServiceTests
         Assert.Equal(TriageWorkflowStatuses.Completed, result.Status);
         Assert.Equal(TriageLevels.InsufficientInformation, result.TriageLevel);
         Assert.Contains("cannot determine a diagnosis", result.PatientMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task StartForPatientAsync_RunnyNose_ReturnsControlledGeneralGuidanceWithoutDiagnosis()
+    {
+        await using var db = CreateDb();
+        var service = CreateService(db);
+
+        var result = await service.StartForPatientAsync(1, new StartTriageWorkflowDto { Symptoms = "I have a runny nose." });
+
+        Assert.NotNull(result.Guidance);
+        Assert.Contains("runny", result.Guidance!.Heading, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(result.Guidance.Actions);
+        Assert.NotEmpty(result.Guidance.SeekHelpIf);
+        Assert.Contains("NHS", result.Guidance.EvidenceSource, StringComparison.Ordinal);
+        Assert.Equal("Completed", result.Plan[0].Status);
     }
 
     [Fact]
@@ -146,6 +177,20 @@ public class TriageWorkflowServiceTests
         Assert.True(result.RequiresHumanReview);
     }
 
+    [Fact]
+    public async Task StartForPatientAsync_UsesStructuredExtractionOutputWithoutAllowingItToSetTriage()
+    {
+        await using var db = CreateDb();
+        var service = new TriageWorkflowService(db, NullLogger<TriageWorkflowService>.Instance,
+            new FakeExtractionAgent());
+
+        var result = await service.StartForPatientAsync(1, new StartTriageWorkflowDto { Symptoms = "I feel dizzy today." });
+
+        Assert.Contains(result.RiskFactors, item => item.Contains("dizziness", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(TriageLevels.NonUrgent, result.TriageLevel);
+        Assert.False(result.RequiresHumanReview);
+    }
+
     private static ApplicationDbContext CreateDb()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
@@ -156,4 +201,10 @@ public class TriageWorkflowServiceTests
 
     private static TriageWorkflowService CreateService(ApplicationDbContext db) =>
         new(db, NullLogger<TriageWorkflowService>.Instance);
+
+    private sealed class FakeExtractionAgent : IClinicalInformationExtractionAgent
+    {
+        public Task<ClinicalExtractionResult> ExtractAsync(string patientReportedSymptoms, bool includeFollowUpQuestions = true, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ClinicalExtractionResult(["dizziness"], ["duration if absent"], new PatientGuidance("You reported dizziness.", ["Record when it occurs."], ["Seek immediate help if symptoms become severe or rapidly worsen."], ["When did this begin?"]), "Completed"));
+    }
 }

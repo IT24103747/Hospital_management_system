@@ -74,6 +74,10 @@ builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<IDoctorService, DoctorService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ITriageWorkflowService, TriageWorkflowService>();
+builder.Services.AddHttpClient<IClinicalInformationExtractionAgent, OllamaClinicalInformationExtractionAgent>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["SafeTriage:OllamaUrl"] ?? "http://127.0.0.1:11434/");
+});
 
 // CORS – allow React and Flutter (dev)
 builder.Services.AddCors(options =>

@@ -39,7 +39,7 @@ public class TriageWorkflowEvent
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
-public static class TriageWorkflowStatuses { public const string InProgress = "InProgress"; public const string Completed = "Completed"; public const string PendingClinicalReview = "PendingClinicalReview"; public const string FailedSafely = "FailedSafely"; }
+public static class TriageWorkflowStatuses { public const string InProgress = "InProgress"; public const string PendingPatientInput = "PendingPatientInput"; public const string Completed = "Completed"; public const string PendingClinicalReview = "PendingClinicalReview"; public const string FailedSafely = "FailedSafely"; }
 public static class TriageApprovalStatuses { public const string NotRequired = "NotRequired"; public const string Pending = "Pending"; public const string Approved = "Approved"; public const string Rejected = "Rejected"; public const string RevisionRequested = "RevisionRequested"; }
 public static class TriageLevels { public const string Emergency = "Emergency"; public const string Urgent = "Urgent"; public const string NonUrgent = "NonUrgent"; public const string InsufficientInformation = "InsufficientInformation"; }
 public static class TriageUncertaintyStates { public const string SufficientInformation = "SufficientInformation"; public const string LimitedInformation = "LimitedInformation"; public const string ConflictingInformation = "ConflictingInformation"; public const string OutsideValidatedScope = "OutsideValidatedScope"; public const string HumanReviewRequired = "HumanReviewRequired"; }
