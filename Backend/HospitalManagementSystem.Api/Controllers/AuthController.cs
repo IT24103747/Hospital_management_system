@@ -92,6 +92,8 @@ public class AuthController : ControllerBase
         }
         catch (ArgumentException exception) { return BadRequest(new { message = exception.Message }); }
         catch (InvalidOperationException exception) { return Conflict(new { message = exception.Message }); }
+    }
+
     [HttpPost("change-password")]
     public async Task<IActionResult> ChangePassword(ChangePasswordDto dto)
     {
