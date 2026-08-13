@@ -45,19 +45,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
       }
 
-      // Fetch correct patient record from backend by email (email is unique per patient)
-      if (email != null && email.trim().isNotEmpty) {
-        final fetched = await ApiService.getPatientByEmail(email);
-        if (fetched != null && mounted) {
-          final parts = '${fetched.firstName} ${fetched.lastName}'.trim().split(' ');
-          String initials = parts.first[0].toUpperCase();
-          if (parts.length > 1) initials += parts.last[0].toUpperCase();
-          setState(() {
-            _patient = fetched;
-            _userName = '${fetched.firstName} ${fetched.lastName}';
-            _userInitials = initials;
-          });
-        }
+      final fetched = await ApiService.getMyProfile();
+      if (fetched != null && mounted) {
+        final parts =
+            '${fetched.firstName} ${fetched.lastName}'.trim().split(' ');
+        String initials = parts.first[0].toUpperCase();
+        if (parts.length > 1) initials += parts.last[0].toUpperCase();
+        setState(() {
+          _patient = fetched;
+          _userName = '${fetched.firstName} ${fetched.lastName}';
+          _userInitials = initials;
+        });
       }
     } catch (_) {
     } finally {
@@ -67,11 +65,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _showEditProfileSheet() {
     if (_patient == null) return;
-    
+
     final phoneController = TextEditingController(text: _patient!.phoneNumber);
-    final addressController = TextEditingController(text: _patient!.address ?? '');
-    final emergencyNameController = TextEditingController(text: _patient!.emergencyContactName ?? '');
-    final emergencyPhoneController = TextEditingController(text: _patient!.emergencyContactPhone ?? '');
+    final addressController =
+        TextEditingController(text: _patient!.address ?? '');
+    final emergencyNameController =
+        TextEditingController(text: _patient!.emergencyContactName ?? '');
+    final emergencyPhoneController =
+        TextEditingController(text: _patient!.emergencyContactPhone ?? '');
     final formKey = GlobalKey<FormState>();
     bool isSaving = false;
 
@@ -89,7 +90,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           builder: (context, setSheetState) {
             final isDark = Theme.of(context).brightness == Brightness.dark;
             final textStyle = TextStyle(
-              color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+              color: isDark
+                  ? AppColors.textPrimaryDark
+                  : AppColors.textPrimaryLight,
             );
 
             InputDecoration customInputDecoration({
@@ -98,15 +101,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
             }) {
               return InputDecoration(
                 labelText: label,
-                labelStyle: TextStyle(color: isDark ? AppColors.textMutedDark : AppColors.textSecondaryLight),
+                labelStyle: TextStyle(
+                    color: isDark
+                        ? AppColors.textMutedDark
+                        : AppColors.textSecondaryLight),
                 prefixIcon: Icon(prefixIcon, color: AppColors.primary),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+                  borderSide: BorderSide(
+                      color: isDark
+                          ? AppColors.borderDark
+                          : AppColors.borderLight),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: isDark ? AppColors.primaryLight : AppColors.primary),
+                  borderSide: BorderSide(
+                      color:
+                          isDark ? AppColors.primaryLight : AppColors.primary),
                 ),
                 errorBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -114,7 +125,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 focusedErrorBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppColors.danger, width: 2),
+                  borderSide:
+                      const BorderSide(color: AppColors.danger, width: 2),
                 ),
               );
             }
@@ -137,7 +149,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         height: 4,
                         margin: const EdgeInsets.symmetric(vertical: 10),
                         decoration: BoxDecoration(
-                          color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                          color: isDark
+                              ? Colors.grey.shade700
+                              : Colors.grey.shade300,
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
@@ -147,7 +161,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                          color: isDark
+                              ? AppColors.textPrimaryDark
+                              : AppColors.textPrimaryLight,
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -159,7 +175,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           prefixIcon: Icons.phone_android_rounded,
                         ),
                         validator: (v) {
-                          if (v == null || v.isEmpty) return 'Please enter phone number';
+                          if (v == null || v.isEmpty)
+                            return 'Please enter phone number';
                           final regExp = RegExp(r'^\+?[0-9]{9,15}$');
                           if (!regExp.hasMatch(v.replaceAll(' ', ''))) {
                             return 'Enter a valid phone number (e.g., +94771234567)';
@@ -176,8 +193,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           prefixIcon: Icons.home_outlined,
                         ),
                         validator: (v) {
-                          if (v == null || v.isEmpty) return 'Please enter address';
-                          if (v.trim().length < 5) return 'Address must be at least 5 characters long';
+                          if (v == null || v.isEmpty)
+                            return 'Please enter address';
+                          if (v.trim().length < 5)
+                            return 'Address must be at least 5 characters long';
                           return null;
                         },
                       ),
@@ -190,8 +209,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           prefixIcon: Icons.person_outline_rounded,
                         ),
                         validator: (v) {
-                          if (v == null || v.isEmpty) return 'Please enter emergency contact name';
-                          if (v.trim().length < 3) return 'Name must be at least 3 characters long';
+                          if (v == null || v.isEmpty)
+                            return 'Please enter emergency contact name';
+                          if (v.trim().length < 3)
+                            return 'Name must be at least 3 characters long';
                           final regExp = RegExp(r'^[a-zA-Z\s\.]+$');
                           if (!regExp.hasMatch(v.trim())) {
                             return 'Name must contain letters only';
@@ -208,7 +229,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           prefixIcon: Icons.phone_in_talk_rounded,
                         ),
                         validator: (v) {
-                          if (v == null || v.isEmpty) return 'Please enter emergency phone number';
+                          if (v == null || v.isEmpty)
+                            return 'Please enter emergency phone number';
                           final regExp = RegExp(r'^\+?[0-9]{9,15}$');
                           if (!regExp.hasMatch(v.replaceAll(' ', ''))) {
                             return 'Enter a valid phone number (e.g., +94712345678)';
@@ -223,55 +245,72 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primary,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
                           ),
                           onPressed: isSaving
                               ? null
                               : () async {
-                                  if (formKey.currentState?.validate() == true) {
+                                  if (formKey.currentState?.validate() ==
+                                      true) {
                                     setSheetState(() => isSaving = true);
                                     try {
                                       final data = {
                                         'patientId': _patient!.patientId,
                                         'firstName': _patient!.firstName,
                                         'lastName': _patient!.lastName,
-                                        'dateOfBirth': _patient!.dateOfBirth.toIso8601String(),
+                                        'dateOfBirth': _patient!.dateOfBirth
+                                            .toIso8601String(),
                                         'gender': _patient!.gender,
                                         'nic': _patient!.nic,
                                         'bloodGroup': _patient!.bloodGroup,
                                         'email': _patient!.email,
-                                        'phoneNumber': phoneController.text.trim(),
-                                        'address': addressController.text.trim(),
-                                        'emergencyContactName': emergencyNameController.text.trim(),
-                                        'emergencyContactPhone': emergencyPhoneController.text.trim(),
-                                        'profileImageUrl': _patient!.profileImageUrl,
+                                        'phoneNumber':
+                                            phoneController.text.trim(),
+                                        'address':
+                                            addressController.text.trim(),
+                                        'emergencyContactName':
+                                            emergencyNameController.text.trim(),
+                                        'emergencyContactPhone':
+                                            emergencyPhoneController.text
+                                                .trim(),
+                                        'profileImageUrl':
+                                            _patient!.profileImageUrl,
                                       };
-                                      await ApiService.savePatient(data, patientId: _patient!.patientId);
+                                      await ApiService.updateMyProfile(data);
                                       if (context.mounted) {
                                         Navigator.pop(context);
                                       }
                                       _loadProfileData();
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
                                         SnackBar(
                                           content: const Row(
                                             children: [
-                                              Icon(Icons.check_circle_rounded, color: Colors.white),
+                                              Icon(Icons.check_circle_rounded,
+                                                  color: Colors.white),
                                               SizedBox(width: 10),
-                                              Text('Profile details updated successfully!'),
+                                              Text(
+                                                  'Profile details updated successfully!'),
                                             ],
                                           ),
                                           backgroundColor: AppColors.success,
                                           behavior: SnackBarBehavior.floating,
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                          shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10)),
                                         ),
                                       );
                                     } catch (e) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
                                         SnackBar(
                                           content: Text('Failed to update: $e'),
                                           backgroundColor: AppColors.danger,
                                           behavior: SnackBarBehavior.floating,
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                          shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10)),
                                         ),
                                       );
                                     } finally {
@@ -283,11 +322,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ? const SizedBox(
                                   width: 24,
                                   height: 24,
-                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                      color: Colors.white, strokeWidth: 2),
                                 )
                               : const Text(
                                   'Save Changes',
-                                  style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold),
                                 ),
                         ),
                       ),
@@ -302,15 +345,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          ? const Center(
+              child: CircularProgressIndicator(color: AppColors.primary))
           : SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.all(20.0),
@@ -339,17 +381,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    _patient != null ? '${_patient!.firstName} ${_patient!.lastName}' : _userName,
+                    _patient != null
+                        ? '${_patient!.firstName} ${_patient!.lastName}'
+                        : _userName,
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
-                      color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                      color: isDark
+                          ? AppColors.textPrimaryDark
+                          : AppColors.textPrimaryLight,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     _userEmail.isNotEmpty ? _userEmail : 'Patient Portal User',
-                    style: TextStyle(color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight, fontSize: 13),
+                    style: TextStyle(
+                        color: isDark
+                            ? AppColors.textSecondaryDark
+                            : AppColors.textSecondaryLight,
+                        fontSize: 13),
                   ),
                   const SizedBox(height: 12),
 
@@ -358,14 +408,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: AppColors.primary.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.badge_outlined, size: 16, color: AppColors.primary),
+                            const Icon(Icons.badge_outlined,
+                                size: 16, color: AppColors.primary),
                             const SizedBox(width: 6),
                             Text(
                               'NIC: ${_patient?.nic ?? '199512345678'}',
@@ -380,14 +432,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(width: 8),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: AppColors.danger.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.water_drop_rounded, size: 16, color: AppColors.danger),
+                            const Icon(Icons.water_drop_rounded,
+                                size: 16, color: AppColors.danger),
                             const SizedBox(width: 6),
                             Text(
                               'Blood: ${_patient?.bloodGroup ?? 'O+'}',
@@ -408,7 +462,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Card(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+                      side: BorderSide(
+                          color: isDark
+                              ? AppColors.borderDark
+                              : AppColors.borderLight),
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
@@ -417,20 +474,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           const Row(
                             children: [
-                              Icon(Icons.folder_shared_outlined, color: AppColors.primary, size: 20),
+                              Icon(Icons.folder_shared_outlined,
+                                  color: AppColors.primary, size: 20),
                               SizedBox(width: 8),
                               Text(
                                 'Personal Identity & Details',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 15),
                               ),
                             ],
                           ),
                           const Divider(height: 24),
-                          _buildProfileRow('Phone Number:', _patient?.phoneNumber ?? '+94 77 123 4567', isDark),
+                          _buildProfileRow(
+                              'Phone Number:',
+                              _patient?.phoneNumber ?? '+94 77 123 4567',
+                              isDark),
                           const SizedBox(height: 10),
-                          _buildProfileRow('Gender:', _patient?.gender ?? 'Male', isDark),
+                          _buildProfileRow(
+                              'Gender:', _patient?.gender ?? 'Male', isDark),
                           const SizedBox(height: 10),
-                          _buildProfileRow('Address:', _patient?.address ?? '45 Galle Rd, Colombo 03', isDark),
+                          _buildProfileRow(
+                              'Address:',
+                              _patient?.address ?? '45 Galle Rd, Colombo 03',
+                              isDark),
                         ],
                       ),
                     ),
@@ -441,7 +507,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Card(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+                      side: BorderSide(
+                          color: isDark
+                              ? AppColors.borderDark
+                              : AppColors.borderLight),
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
@@ -450,18 +519,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           const Row(
                             children: [
-                              Icon(Icons.phone_in_talk_rounded, color: AppColors.danger, size: 20),
+                              Icon(Icons.phone_in_talk_rounded,
+                                  color: AppColors.danger, size: 20),
                               SizedBox(width: 8),
                               Text(
                                 'Emergency Contact',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 15),
                               ),
                             ],
                           ),
                           const Divider(height: 24),
                           _buildProfileRow(
                             'Contact Person:',
-                            (_patient?.emergencyContactName != null && _patient!.emergencyContactName!.isNotEmpty)
+                            (_patient?.emergencyContactName != null &&
+                                    _patient!.emergencyContactName!.isNotEmpty)
                                 ? _patient!.emergencyContactName!
                                 : 'Primary Emergency Contact',
                             isDark,
@@ -469,7 +541,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           const SizedBox(height: 10),
                           _buildProfileRow(
                             'Phone:',
-                            (_patient?.emergencyContactPhone != null && _patient!.emergencyContactPhone!.isNotEmpty)
+                            (_patient?.emergencyContactPhone != null &&
+                                    _patient!.emergencyContactPhone!.isNotEmpty)
                                 ? _patient!.emergencyContactPhone!
                                 : '+94 71 234 5678',
                             isDark,
@@ -490,13 +563,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primary,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
                           ),
                           onPressed: _showEditProfileSheet,
-                          icon: const Icon(Icons.edit_rounded, color: Colors.white),
+                          icon: const Icon(Icons.edit_rounded,
+                              color: Colors.white),
                           label: const Text(
                             'Edit Profile Details',
-                            style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold),
                           ),
                         ),
                       ),
@@ -507,14 +585,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildProfileRow(String label, String value, bool isDark, {bool isPrimaryText = false}) {
+  Widget _buildProfileRow(String label, String value, bool isDark,
+      {bool isPrimaryText = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: TextStyle(color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight, fontSize: 13),
+          style: TextStyle(
+              color: isDark
+                  ? AppColors.textSecondaryDark
+                  : AppColors.textSecondaryLight,
+              fontSize: 13),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -526,7 +609,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               fontSize: 13,
               color: isPrimaryText
                   ? AppColors.primary
-                  : (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight),
+                  : (isDark
+                      ? AppColors.textPrimaryDark
+                      : AppColors.textPrimaryLight),
             ),
           ),
         ),

@@ -135,6 +135,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
     await prefs.remove('patient_user_id');
     await prefs.remove('patient_full_name');
     await prefs.remove('patient_email');
+    await prefs.remove('hms_token');
     if (!mounted) return;
     Navigator.pushReplacement(
       context,

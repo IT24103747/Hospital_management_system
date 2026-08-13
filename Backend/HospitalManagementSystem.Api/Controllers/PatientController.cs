@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using HospitalManagementSystem.Api.DTOs;
 using HospitalManagementSystem.Api.Services;
@@ -6,6 +8,7 @@ namespace HospitalManagementSystem.Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class PatientController : ControllerBase
     {
         private readonly IPatientService _service;
@@ -19,6 +22,7 @@ namespace HospitalManagementSystem.Api.Controllers
 
         // GET /api/patient?search=john&gender=Female&bloodGroup=O%2B&sortBy=name&sortDirection=asc&page=1&pageSize=10
         [HttpGet]
+        [Authorize(Roles = "Admin,Doctor")]
         [ProducesResponseType(typeof(PagedResult<PatientDto>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetAll(
             [FromQuery] string? search,
@@ -35,17 +39,20 @@ namespace HospitalManagementSystem.Api.Controllers
 
         // GET /api/patient/summary
         [HttpGet("summary")]
+        [Authorize(Roles = "Admin,Doctor")]
         [ProducesResponseType(typeof(PatientSummaryDto), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetSummary() => Ok(await _service.GetSummaryAsync());
 
-        // GET /api/patient/me?email=user@example.com
+        // GET /api/patient/me
         [HttpGet("me")]
+        [Authorize(Roles = "Patient")]
         [ProducesResponseType(typeof(PatientDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> GetByEmail([FromQuery] string email)
+        public async Task<IActionResult> GetMyProfile()
         {
+            var email = User.FindFirstValue(ClaimTypes.Email);
             if (string.IsNullOrWhiteSpace(email))
-                return BadRequest(new { message = "Email is required." });
+                return Unauthorized(new { message = "The access token does not contain a user email." });
 
             var patient = await _service.GetPatientByEmailAsync(email);
             if (patient is null)
@@ -54,8 +61,39 @@ namespace HospitalManagementSystem.Api.Controllers
             return Ok(patient);
         }
 
+        // PUT /api/patient/me
+        [HttpPut("me")]
+        [Authorize(Roles = "Patient")]
+        [ProducesResponseType(typeof(PatientDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateMyProfile([FromBody] UpdatePatientDto dto)
+        {
+            var email = User.FindFirstValue(ClaimTypes.Email);
+            if (string.IsNullOrWhiteSpace(email))
+                return Unauthorized(new { message = "The access token does not contain a user email." });
+
+            if (!string.Equals(dto.Email?.Trim(), email, StringComparison.OrdinalIgnoreCase))
+                return BadRequest(new { message = "Patient email cannot be changed from this endpoint." });
+
+            var patient = await _service.GetPatientByEmailAsync(email);
+            if (patient is null)
+                return NotFound(new { message = "No patient profile found for this account." });
+
+            try
+            {
+                var updated = await _service.UpdatePatientAsync(patient.PatientId, dto);
+                return Ok(updated);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning("Conflict updating own patient profile: {Message}", ex.Message);
+                return Conflict(new { message = ex.Message });
+            }
+        }
+
         // GET /api/patient/{id}
         [HttpGet("{id:int}")]
+        [Authorize(Roles = "Admin,Doctor")]
         [ProducesResponseType(typeof(PatientDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetById(int id)
@@ -71,6 +109,7 @@ namespace HospitalManagementSystem.Api.Controllers
 
         // GET /api/patient/{id}/appointments
         [HttpGet("{id:int}/appointments")]
+        [Authorize(Roles = "Admin,Doctor")]
         [ProducesResponseType(typeof(IEnumerable<PatientAppointmentHistoryDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetAppointmentHistory(int id)
@@ -84,6 +123,7 @@ namespace HospitalManagementSystem.Api.Controllers
 
         // POST /api/patient
         [HttpPost]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(typeof(PatientDto), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -106,6 +146,7 @@ namespace HospitalManagementSystem.Api.Controllers
 
         // PUT /api/patient/{id}
         [HttpPut("{id:int}")]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(typeof(PatientDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -131,6 +172,7 @@ namespace HospitalManagementSystem.Api.Controllers
 
         // DELETE /api/patient/{id}
         [HttpDelete("{id:int}")]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Delete(int id)
