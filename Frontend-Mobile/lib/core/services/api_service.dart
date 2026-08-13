@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartcare_mobile/models/patient.dart';
 import 'package:smartcare_mobile/models/vitals.dart';
 import 'package:smartcare_mobile/models/triage_result.dart';
@@ -14,6 +15,15 @@ class ApiService {
           ? 'http://10.0.2.2:5000/api'
           : 'http://localhost:5000/api';
 
+  static Future<Map<String, String>> _authHeaders() async {
+    final preferences = await SharedPreferences.getInstance();
+    final token = preferences.getString('hms_token');
+    return {
+      'Content-Type': 'application/json',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
+  }
+
   static Future<List<Patient>> getPatients({String search = ''}) async {
     final query = <String, String>{
       'page': '1',
@@ -23,7 +33,7 @@ class ApiService {
       if (search.trim().isNotEmpty) 'search': search.trim(),
     };
     final uri = Uri.parse('$baseUrl/patient').replace(queryParameters: query);
-    final response = await http.get(uri);
+    final response = await http.get(uri, headers: await _authHeaders());
     if (response.statusCode != 200) {
       throw Exception('Unable to load patient records.');
     }
@@ -34,7 +44,8 @@ class ApiService {
         .toList();
   }
 
-  static Future<Map<String, dynamic>> login({required String email, required String password}) async {
+  static Future<Map<String, dynamic>> login(
+      {required String email, required String password}) async {
     final response = await http.post(
       Uri.parse('$baseUrl/auth/login'),
       headers: {'Content-Type': 'application/json'},
@@ -47,8 +58,11 @@ class ApiService {
   }
 
   static Future<void> register(Map<String, dynamic> patient) async {
-    final response = await http.post(Uri.parse('$baseUrl/auth/register'), headers: {'Content-Type': 'application/json'}, body: jsonEncode(patient));
-    if (response.statusCode != 201) throw Exception(_errorMessage(response.body));
+    final response = await http.post(Uri.parse('$baseUrl/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(patient));
+    if (response.statusCode != 201)
+      throw Exception(_errorMessage(response.body));
   }
 
   static Future<void> changePassword({
@@ -74,7 +88,8 @@ class ApiService {
     try {
       final decoded = jsonDecode(body);
       if (decoded is Map<String, dynamic>) {
-        if (decoded.containsKey('message')) return decoded['message'].toString();
+        if (decoded.containsKey('message'))
+          return decoded['message'].toString();
         if (decoded.containsKey('title')) return decoded['title'].toString();
         if (decoded.containsKey('errors')) {
           final errors = decoded['errors'];
@@ -93,23 +108,23 @@ class ApiService {
     }
   }
 
-  static Future<Patient?> getPatientByEmail(String email) async {
+  static Future<Patient?> getMyProfile() async {
     try {
-      final uri = Uri.parse('$baseUrl/patient/me')
-          .replace(queryParameters: {'email': email.trim().toLowerCase()});
-      final response = await http.get(uri);
+      final response = await http.get(Uri.parse('$baseUrl/patient/me'),
+          headers: await _authHeaders());
       if (response.statusCode == 200) {
         return Patient.fromJson(jsonDecode(response.body));
       }
     } catch (e) {
-      debugPrint('ApiService getPatientByEmail Error: $e');
+      debugPrint('ApiService getMyProfile Error: $e');
     }
     return null;
   }
 
   static Future<Patient?> getPatientById(int id) async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/patient/$id'));
+      final response = await http.get(Uri.parse('$baseUrl/patient/$id'),
+          headers: await _authHeaders());
       if (response.statusCode == 200) {
         return Patient.fromJson(jsonDecode(response.body));
       }
@@ -123,7 +138,7 @@ class ApiService {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/patient'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await _authHeaders(),
         body: jsonEncode(data),
       );
       if (response.statusCode == 201 || response.statusCode == 200) {
@@ -137,16 +152,13 @@ class ApiService {
 
   static Future<Patient> savePatient(Map<String, dynamic> data,
       {int? patientId}) async {
-    final uri = Uri.parse(patientId == null
-        ? '$baseUrl/patient'
-        : '$baseUrl/patient/$patientId');
+    final uri = Uri.parse(
+        patientId == null ? '$baseUrl/patient' : '$baseUrl/patient/$patientId');
     final response = patientId == null
         ? await http.post(uri,
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode(data))
+            headers: await _authHeaders(), body: jsonEncode(data))
         : await http.put(uri,
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode(data));
+            headers: await _authHeaders(), body: jsonEncode(data));
     if (response.statusCode == 200 || response.statusCode == 201) {
       return Patient.fromJson(
           jsonDecode(response.body) as Map<String, dynamic>);
@@ -157,11 +169,24 @@ class ApiService {
   }
 
   static Future<void> deletePatient(int patientId) async {
-    final response =
-        await http.delete(Uri.parse('$baseUrl/patient/$patientId'));
+    final response = await http.delete(Uri.parse('$baseUrl/patient/$patientId'),
+        headers: await _authHeaders());
     if (response.statusCode != 204) {
       throw Exception('Unable to delete patient.');
     }
+  }
+
+  static Future<Patient> updateMyProfile(Map<String, dynamic> data) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/patient/me'),
+      headers: await _authHeaders(),
+      body: jsonEncode(data),
+    );
+    if (response.statusCode == 200) {
+      return Patient.fromJson(
+          jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw Exception(_errorMessage(response.body));
   }
 
   static Future<TriageResult> performAiTriage({
