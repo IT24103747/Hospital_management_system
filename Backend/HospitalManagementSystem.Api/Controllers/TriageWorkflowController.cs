@@ -49,6 +49,20 @@ public sealed class TriageWorkflowController : ControllerBase
         return workflow is null ? NotFound() : Ok(workflow);
     }
 
+    [HttpGet("clinical-review/pending")]
+    [Authorize(Roles = "Admin,Doctor")]
+    [ProducesResponseType(typeof(IReadOnlyList<TriageWorkflowDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetPendingReviews() => Ok(await _workflows.GetPendingClinicalReviewsAsync());
+
+    [HttpGet("{id:int}/audit-events")]
+    [Authorize(Roles = "Admin,Doctor")]
+    [ProducesResponseType(typeof(IReadOnlyList<TriageWorkflowEventDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetAuditEvents(int id)
+    {
+        var events = await _workflows.GetAuditEventsAsync(id);
+        return events is null ? NotFound() : Ok(events);
+    }
+
     [HttpPost("{id:int}/review")]
     [Authorize(Roles = "Admin,Doctor")]
     public async Task<IActionResult> Review(int id, [FromBody] ReviewTriageWorkflowDto request)

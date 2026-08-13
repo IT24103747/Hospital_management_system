@@ -43,3 +43,10 @@ public class TriageWorkflowDto
 }
 
 public class TriagePlanStepDto { public string Agent { get; set; } = string.Empty; public string Status { get; set; } = string.Empty; public string Purpose { get; set; } = string.Empty; }
+
+public class TriageWorkflowEventDto
+{
+    public string Stage { get; set; } = string.Empty;
+    public string EventType { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}

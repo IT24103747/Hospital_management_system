@@ -105,6 +105,26 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         return workflow is null ? null : Map(workflow);
     }
 
+    public async Task<IReadOnlyList<TriageWorkflowDto>> GetPendingClinicalReviewsAsync()
+    {
+        var workflows = await _db.TriageWorkflows.AsNoTracking()
+            .Where(x => x.ApprovalStatus == TriageApprovalStatuses.Pending)
+            .OrderBy(x => x.CreatedAt)
+            .ToListAsync();
+        return workflows.Select(workflow => Map(workflow)).ToList();
+    }
+
+    public async Task<IReadOnlyList<TriageWorkflowEventDto>?> GetAuditEventsAsync(int workflowId)
+    {
+        var exists = await _db.TriageWorkflows.AsNoTracking().AnyAsync(x => x.TriageWorkflowId == workflowId);
+        if (!exists) return null;
+        return await _db.TriageWorkflowEvents.AsNoTracking()
+            .Where(x => x.TriageWorkflowId == workflowId)
+            .OrderBy(x => x.CreatedAt)
+            .Select(x => new TriageWorkflowEventDto { Stage = x.Stage, EventType = x.EventType, CreatedAt = x.CreatedAt })
+            .ToListAsync();
+    }
+
     public async Task<TriageWorkflowDto?> ReviewAsync(int workflowId, int reviewerUserId, ReviewTriageWorkflowDto request)
     {
         var workflow = await _db.TriageWorkflows.SingleOrDefaultAsync(x => x.TriageWorkflowId == workflowId);
