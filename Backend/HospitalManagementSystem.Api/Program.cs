@@ -73,6 +73,7 @@ builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<IDoctorService, DoctorService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<ITriageWorkflowService, TriageWorkflowService>();
 
 // CORS – allow React and Flutter (dev)
 builder.Services.AddCors(options =>

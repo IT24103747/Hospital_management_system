@@ -13,6 +13,8 @@ namespace HospitalManagementSystem.Api.Data
         public DbSet<DoctorTimeSlot> DoctorTimeSlots => Set<DoctorTimeSlot>();
         public DbSet<Appointment> Appointments => Set<Appointment>();
         public DbSet<Doctor> Doctors => Set<Doctor>();
+        public DbSet<TriageWorkflow> TriageWorkflows => Set<TriageWorkflow>();
+        public DbSet<TriageWorkflowEvent> TriageWorkflowEvents => Set<TriageWorkflowEvent>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -120,6 +122,34 @@ namespace HospitalManagementSystem.Api.Data
                     .WithMany()
                     .HasForeignKey(a => a.PatientId)
                     .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<TriageWorkflow>(entity =>
+            {
+                entity.HasKey(workflow => workflow.TriageWorkflowId);
+                entity.Property(workflow => workflow.Status).IsRequired().HasMaxLength(40);
+                entity.Property(workflow => workflow.ApprovalStatus).IsRequired().HasMaxLength(40);
+                entity.Property(workflow => workflow.TriageLevel).IsRequired().HasMaxLength(40);
+                entity.Property(workflow => workflow.UncertaintyState).IsRequired().HasMaxLength(60);
+                entity.Property(workflow => workflow.Symptoms).IsRequired().HasMaxLength(4000);
+                entity.Property(workflow => workflow.PlanJson).IsRequired();
+                entity.Property(workflow => workflow.ResultJson).IsRequired();
+                entity.Property(workflow => workflow.RuleSetVersion).IsRequired().HasMaxLength(100);
+                entity.Property(workflow => workflow.WorkflowVersion).IsRequired().HasMaxLength(100);
+                entity.HasIndex(workflow => new { workflow.PatientId, workflow.CreatedAt });
+                entity.HasIndex(workflow => new { workflow.Status, workflow.ApprovalStatus });
+                entity.HasOne(workflow => workflow.Patient).WithMany().HasForeignKey(workflow => workflow.PatientId).OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(workflow => workflow.ReviewedByUser).WithMany().HasForeignKey(workflow => workflow.ReviewedByUserId).OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<TriageWorkflowEvent>(entity =>
+            {
+                entity.HasKey(evt => evt.TriageWorkflowEventId);
+                entity.Property(evt => evt.Stage).IsRequired().HasMaxLength(100);
+                entity.Property(evt => evt.EventType).IsRequired().HasMaxLength(100);
+                entity.Property(evt => evt.DetailsJson).IsRequired();
+                entity.HasIndex(evt => new { evt.TriageWorkflowId, evt.CreatedAt });
+                entity.HasOne(evt => evt.TriageWorkflow).WithMany().HasForeignKey(evt => evt.TriageWorkflowId).OnDelete(DeleteBehavior.Cascade);
             });
         }
     }
