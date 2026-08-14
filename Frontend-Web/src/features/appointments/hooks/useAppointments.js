@@ -1,19 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
-import { appointmentApi, MOCK_DOCTORS } from '../services/appointmentApi'
+import { appointmentApi } from '../services/appointmentApi'
 import { patientApi, MOCK_PATIENTS } from '../../patients/services/patientApi'
+import { getDoctorRegistrations } from '../../doctors/services/doctorApi'
 
 export function useAppointments(filters) {
   const [appointments, setAppointments] = useState([])
   const [slots, setSlots] = useState([])
   const [doctors, setDoctors] = useState([])
+  const [specializations, setSpecializations] = useState([])
   const [patients, setPatients] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [doctorError, setDoctorError] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setDoctorError(null)
     try {
       const [appointmentResult, slotResult] = await Promise.all([
         appointmentApi.getAll({ ...filters, pageSize: 50 }),
@@ -23,11 +27,30 @@ export function useAppointments(filters) {
       setAppointments(appointmentResult.data || appointmentResult)
       setSlots(normalizedSlots)
 
+      let loadedDoctors = []
       try {
         const doctorResult = await appointmentApi.getDoctors()
-        setDoctors(doctorResult?.length ? doctorResult : getDoctorsFromSlots(normalizedSlots))
+        if (doctorResult?.length) {
+          loadedDoctors = doctorResult
+        } else {
+          const registrationResult = await getDoctorRegistrations('Approved')
+          loadedDoctors = mapDoctorRegistrations(registrationResult)
+        }
       } catch {
-        setDoctors(getDoctorsFromSlots(normalizedSlots))
+        try {
+          const registrationResult = await getDoctorRegistrations('Approved')
+          loadedDoctors = mapDoctorRegistrations(registrationResult)
+        } catch {
+          setDoctorError('Unable to load approved doctors.')
+        }
+      }
+      setDoctors(loadedDoctors)
+
+      try {
+        const specializationResult = await appointmentApi.getSpecializations()
+        setSpecializations(normalizeSpecializations(specializationResult?.length ? specializationResult : loadedDoctors.map(doctor => doctor.specialty)))
+      } catch {
+        setSpecializations(normalizeSpecializations(loadedDoctors.map(doctor => doctor.specialty)))
       }
 
       try {
@@ -40,7 +63,8 @@ export function useAppointments(filters) {
       setError(err.response?.data?.message || err.message || 'Failed to load appointments')
       setAppointments([])
       setSlots([])
-      setDoctors(MOCK_DOCTORS)
+      setDoctors([])
+      setSpecializations([])
       setPatients(MOCK_PATIENTS)
     } finally {
       setLoading(false)
@@ -68,10 +92,12 @@ export function useAppointments(filters) {
     appointments,
     slots,
     doctors,
+    specializations,
     patients,
     loading,
     saving,
     error,
+    doctorError,
     refetch: load,
     createAppointment: (data) => runMutation(() => appointmentApi.create(data)),
     updateAppointment: (id, data) => runMutation(() => appointmentApi.update(id, data)),
@@ -84,14 +110,14 @@ export function useAppointments(filters) {
   }
 }
 
-function getDoctorsFromSlots(slots) {
-  const byName = new Map()
-  slots.forEach(slot => {
-    if (slot?.doctorName && !byName.has(slot.doctorName)) {
-      byName.set(slot.doctorName, slot.specialty || '')
-    }
-  })
+function mapDoctorRegistrations(doctors = []) {
+  return doctors.map(doctor => ({
+    doctorId: doctor.doctorId,
+    doctorName: doctor.fullName ? `Dr. ${doctor.fullName}` : `Dr. ${[doctor.firstName, doctor.lastName].filter(Boolean).join(' ')}`.trim(),
+    specialty: doctor.specialization || doctor.specialty || '',
+  })).filter(doctor => doctor.doctorId && doctor.doctorName !== 'Dr.')
+}
 
-  const doctors = Array.from(byName, ([doctorName, specialty]) => ({ doctorName, specialty }))
-  return doctors.length ? doctors : MOCK_DOCTORS
+function normalizeSpecializations(values = []) {
+  return Array.from(new Set(values.map(value => String(value || '').trim()).filter(Boolean))).sort()
 }

@@ -202,7 +202,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Patient Registration'),
+        toolbarHeight: 46,
+        title: const Text('Patient Registration', style: TextStyle(fontSize: 17)),
         elevation: 0,
         backgroundColor: Colors.transparent,
       ),
@@ -211,7 +212,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           children: [
             // Custom Stepper Header Bar
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               child: Column(
                 children: [
                   Row(
@@ -223,7 +224,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       _buildStepIndicator(2, 'Security'),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   LinearProgressIndicator(
                     value: (_currentStep + 1) / 3,
                     backgroundColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.1),
@@ -238,30 +239,35 @@ class _RegisterScreenState extends State<RegisterScreen> {
             Expanded(
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.all(24.0),
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: isDark ? AppColors.borderDark : AppColors.borderLight,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 10),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 380),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: isDark ? AppColors.borderDark : AppColors.borderLight,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                            blurRadius: 14,
+                            offset: const Offset(0, 7),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: IndexedStack(
-                    index: _currentStep,
-                    children: [
-                      _buildStep1Personal(isDark),
-                      _buildStep2Medical(isDark),
-                      _buildStep3Security(isDark),
-                    ],
+                      child: IndexedStack(
+                        index: _currentStep,
+                        children: [
+                          _buildStep1Personal(isDark),
+                          _buildStep2Medical(isDark),
+                          _buildStep3Security(isDark),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -269,7 +275,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
             // Navigation Bottom Controls
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               decoration: BoxDecoration(
                 color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
                 border: Border(
@@ -284,7 +290,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     OutlinedButton(
                       onPressed: _isLoading ? null : () => setState(() => _currentStep--),
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       child: const Text('Back'),
@@ -293,7 +299,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ],
                   Expanded(
                     child: SizedBox(
-                      height: 50,
+                      height: 46,
                       child: ElevatedButton(
                         onPressed: _isLoading ? null : _nextStep,
                         style: ElevatedButton.styleFrom(
@@ -311,7 +317,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 children: [
                                   Text(
                                     _currentStep == 2 ? 'Complete Registration' : 'Continue',
-                                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                                   ),
                                   const SizedBox(width: 8),
                                   Icon(
@@ -341,8 +347,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       children: [
         AnimatedContainer(
           duration: const Duration(milliseconds: 250),
-          width: 32,
-          height: 32,
+          width: 28,
+          height: 28,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: isDone
@@ -356,21 +362,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           child: Center(
             child: isDone
-                ? const Icon(Icons.check, color: Colors.white, size: 18)
+                ? const Icon(Icons.check, color: Colors.white, size: 16)
                 : Text(
                     '${stepIndex + 1}',
                     style: TextStyle(
                       color: isActive ? Colors.white : AppColors.textSecondaryLight,
                       fontWeight: FontWeight.bold,
+                      fontSize: 12,
                     ),
                   ),
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 3),
         Text(
           title,
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
             color: isActive
                 ? AppColors.primary
@@ -387,7 +394,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Expanded(
       child: Container(
         height: 2,
-        margin: const EdgeInsets.only(bottom: 16, left: 8, right: 8),
+        margin: const EdgeInsets.only(bottom: 14, left: 6, right: 6),
         color: isDone ? AppColors.success : (isDark ? AppColors.borderDark : AppColors.borderLight),
       ),
     );
@@ -402,12 +409,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.person_outline_rounded, color: AppColors.primary, size: 24),
+              const Icon(Icons.person_outline_rounded, color: AppColors.primary, size: 21),
               const SizedBox(width: 8),
               Text(
                 'Personal Identity',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                   color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
                 ),
@@ -417,9 +424,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const SizedBox(height: 4),
           const Text(
             'Provide official identification for accurate medical tracking',
-            style: TextStyle(color: AppColors.textSecondaryLight, fontSize: 12),
+            style: TextStyle(color: AppColors.textSecondaryLight, fontSize: 11),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
 
           // First Name & Last Name Row
           Row(
@@ -431,6 +438,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   decoration: const InputDecoration(
                     labelText: 'First Name *',
                     hintText: 'John',
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 13),
                   ),
                   validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
                 ),
@@ -443,13 +452,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Last Name *',
                     hintText: 'Doe',
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 13),
                   ),
                   validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // NIC Field
           TextFormField(
@@ -459,6 +470,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
               labelText: 'National Identity Card (NIC) *',
               prefixIcon: Icon(Icons.badge_outlined),
               hintText: 'e.g. 199512345678 or 951234567V',
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 13),
             ),
             validator: (v) {
               final nic = v?.trim() ?? '';
@@ -467,14 +480,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
               return null;
             },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // Date of Birth Card Picker
           InkWell(
             onTap: _pickDateOfBirth,
             borderRadius: BorderRadius.circular(12),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
               decoration: BoxDecoration(
                 color: isDark ? AppColors.surfaceDarkSecondary : AppColors.surfaceLight,
                 borderRadius: BorderRadius.circular(12),
@@ -482,14 +495,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.calendar_month_outlined, color: AppColors.primary),
-                  const SizedBox(width: 12),
+                  const Icon(Icons.calendar_month_outlined, color: AppColors.primary, size: 20),
+                  const SizedBox(width: 10),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
                         'Date of Birth *',
-                        style: TextStyle(fontSize: 11, color: AppColors.textSecondaryLight),
+                        style: TextStyle(fontSize: 10, color: AppColors.textSecondaryLight),
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -507,16 +520,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ],
                   ),
                   const Spacer(),
-                  const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondaryLight),
+                  const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondaryLight, size: 20),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // Gender Selection Chips
-          const Text('Gender *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
+          const Text('Gender *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
           Row(
             children: _genders.map((gender) {
               final isSelected = _selectedGender == gender;
@@ -524,6 +537,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 padding: const EdgeInsets.only(right: 8.0),
                 child: ChoiceChip(
                   label: Text(gender),
+                  visualDensity: VisualDensity.compact,
+                  labelPadding: const EdgeInsets.symmetric(horizontal: 6),
                   selected: isSelected,
                   selectedColor: AppColors.primary.withValues(alpha: 0.2),
                   labelStyle: TextStyle(
@@ -553,12 +568,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.contact_mail_outlined, color: AppColors.primary, size: 24),
+              const Icon(Icons.contact_mail_outlined, color: AppColors.primary, size: 21),
               const SizedBox(width: 8),
               Text(
                 'Contact & Medical Profile',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                   color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
                 ),
@@ -568,9 +583,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const SizedBox(height: 4),
           const Text(
             'Used by doctors and emergency services for patient communication',
-            style: TextStyle(color: AppColors.textSecondaryLight, fontSize: 12),
+            style: TextStyle(color: AppColors.textSecondaryLight, fontSize: 11),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
 
           // Phone Number
           TextFormField(
@@ -581,13 +596,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
               labelText: 'Phone Number *',
               prefixIcon: Icon(Icons.phone_outlined),
               hintText: '+94 77 123 4567',
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 13),
             ),
             validator: (v) {
               if (v == null || v.trim().isEmpty) return 'Please enter Phone Number';
               return null;
             },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // Email
           TextFormField(
@@ -598,6 +615,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
               labelText: 'Email Address *',
               prefixIcon: Icon(Icons.email_outlined),
               hintText: 'you@example.com',
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 13),
             ),
             validator: (value) {
               final email = value?.trim() ?? '';
@@ -608,7 +627,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               return null;
             },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // Address
           TextFormField(
@@ -619,25 +638,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
               labelText: 'Residential Address *',
               prefixIcon: Icon(Icons.home_outlined),
               hintText: 'Street address, City, Province',
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             ),
             validator: (v) => v == null || v.trim().isEmpty ? 'Please enter your address' : null,
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
 
           // Blood Group Grid Selector
-          const Text('Blood Group *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
+          const Text('Blood Group *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 6,
+            runSpacing: 6,
             children: _bloodGroups.map((bg) {
               final isSelected = _selectedBloodGroup == bg;
               return InkWell(
                 onTap: () => setState(() => _selectedBloodGroup = bg),
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
-                  width: 60,
-                  height: 40,
+                  width: 52,
+                  height: 34,
                   decoration: BoxDecoration(
                     color: isSelected
                         ? AppColors.primary
@@ -678,12 +699,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.shield_outlined, color: AppColors.primary, size: 24),
+              const Icon(Icons.shield_outlined, color: AppColors.primary, size: 21),
               const SizedBox(width: 8),
               Text(
                 'Account Security',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                   color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
                 ),
@@ -693,9 +714,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const SizedBox(height: 4),
           const Text(
             'Create a strong password to protect your HIPAA-compliant medical records',
-            style: TextStyle(color: AppColors.textSecondaryLight, fontSize: 12),
+            style: TextStyle(color: AppColors.textSecondaryLight, fontSize: 11),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
 
           // Password Field
           TextFormField(
@@ -706,6 +727,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
             decoration: InputDecoration(
               labelText: 'Password *',
               prefixIcon: const Icon(Icons.lock_outline),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
               suffixIcon: IconButton(
                 icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
                 onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
@@ -717,7 +740,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               return null;
             },
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           // Dynamic Password Strength Meter
           if (_passwordController.text.isNotEmpty) ...[
@@ -725,29 +748,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
               children: [
                 Expanded(
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.circular(3),
                     child: LinearProgressIndicator(
                       value: _passwordStrength,
                       color: _passwordStrengthColor,
                       backgroundColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.1),
-                      minHeight: 6,
+                      minHeight: 5,
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Text(
                   _passwordStrengthText,
                   style: TextStyle(
                     color: _passwordStrengthColor,
-                    fontSize: 12,
+                    fontSize: 11,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
           ] else
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
 
           // Confirm Password Field
           TextFormField(
@@ -757,6 +780,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
             decoration: InputDecoration(
               labelText: 'Confirm Password *',
               prefixIcon: const Icon(Icons.lock_reset_rounded),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
               suffixIcon: IconButton(
                 icon: Icon(_obscureConfirmPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
                 onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
@@ -768,11 +793,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
               return null;
             },
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
 
           // Privacy Terms Note
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(12),
@@ -780,11 +805,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: const Row(
               children: [
                 Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 20),
-                SizedBox(width: 10),
+                SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'By registering, you agree to MediCore terms of service and consent to confidential medical record handling.',
-                    style: TextStyle(fontSize: 11, color: AppColors.textSecondaryLight, height: 1.3),
+                    style: TextStyle(fontSize: 10, color: AppColors.textSecondaryLight, height: 1.3),
                   ),
                 ),
               ],

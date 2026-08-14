@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
+import 'package:smartcare_mobile/models/appointment.dart';
 import 'package:smartcare_mobile/models/patient.dart';
 import 'package:smartcare_mobile/models/triage_workflow.dart';
 
@@ -59,8 +60,9 @@ class ApiService {
     final response = await http.post(Uri.parse('$baseUrl/auth/register'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(patient));
-    if (response.statusCode != 201)
+    if (response.statusCode != 201) {
       throw Exception(_errorMessage(response.body));
+    }
   }
 
   static Future<void> changePassword({
@@ -86,8 +88,9 @@ class ApiService {
     try {
       final decoded = jsonDecode(body);
       if (decoded is Map<String, dynamic>) {
-        if (decoded.containsKey('message'))
+        if (decoded.containsKey('message')) {
           return decoded['message'].toString();
+        }
         if (decoded.containsKey('title')) return decoded['title'].toString();
         if (decoded.containsKey('errors')) {
           final errors = decoded['errors'];
@@ -183,6 +186,129 @@ class ApiService {
     if (response.statusCode == 200) {
       return Patient.fromJson(
           jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<List<Appointment>> getMyAppointments() async {
+    final uri = Uri.parse('$baseUrl/appointment').replace(queryParameters: {
+      'page': '1',
+      'pageSize': '50',
+      'sortBy': 'startAt',
+      'sortDirection': 'desc',
+    });
+    final response = await http.get(uri, headers: await _authHeaders());
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body);
+      final items = body is Map<String, dynamic>
+          ? body['data'] as List<dynamic>? ?? []
+          : body as List<dynamic>? ?? [];
+      return items
+          .map((item) => Appointment.fromJson(item as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<List<DoctorTimeSlot>> getAvailableAppointmentSlots() async {
+    final uri = Uri.parse('$baseUrl/appointment/available-slots')
+        .replace(queryParameters: {'onlyAvailable': 'true'});
+    final response = await http.get(uri, headers: await _authHeaders());
+    if (response.statusCode == 200) {
+      final items = jsonDecode(response.body) as List<dynamic>? ?? [];
+      return items
+          .map((item) => DoctorTimeSlot.fromJson(item as Map<String, dynamic>))
+          .where((slot) => slot.isActive && slot.availableCount > 0)
+          .toList();
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<List<DoctorLookup>> getAppointmentDoctors() async {
+    final response = await http.get(Uri.parse('$baseUrl/appointment/doctors'),
+        headers: await _authHeaders());
+    if (response.statusCode == 200) {
+      final items = jsonDecode(response.body) as List<dynamic>? ?? [];
+      return items
+          .map((item) => DoctorLookup.fromJson(item as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<List<String>> getAppointmentSpecializations() async {
+    final response = await http.get(
+        Uri.parse('$baseUrl/appointment/specializations'),
+        headers: await _authHeaders());
+    if (response.statusCode == 404) {
+      return [];
+    }
+    if (response.statusCode == 200) {
+      final items = jsonDecode(response.body) as List<dynamic>? ?? [];
+      return items
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<Appointment> bookAppointment({
+    required int doctorTimeSlotId,
+    required int appointmentNumber,
+    required String patientName,
+    required String patientPhone,
+    String? patientEmail,
+    required String appointmentType,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/appointment'),
+      headers: await _authHeaders(),
+      body: jsonEncode({
+        'doctorTimeSlotId': doctorTimeSlotId,
+        'appointmentNumber': appointmentNumber,
+        'patientName': patientName.trim(),
+        'patientPhone': patientPhone.trim(),
+        if (patientEmail != null && patientEmail.trim().isNotEmpty)
+          'patientEmail': patientEmail.trim().toLowerCase(),
+        'appointmentType': appointmentType.trim(),
+        'reason': 'Appointment',
+      }),
+    );
+    if (response.statusCode == 201 || response.statusCode == 200) {
+      return Appointment.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<Appointment> rescheduleAppointment({
+    required int appointmentId,
+    required int doctorTimeSlotId,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/appointment/$appointmentId/reschedule'),
+      headers: await _authHeaders(),
+      body: jsonEncode({'doctorTimeSlotId': doctorTimeSlotId}),
+    );
+    if (response.statusCode == 200) {
+      return Appointment.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<Appointment> cancelAppointment({
+    required int appointmentId,
+    required String reason,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/appointment/$appointmentId/cancel'),
+      headers: await _authHeaders(),
+      body: jsonEncode({'reason': reason.trim()}),
+    );
+    if (response.statusCode == 200) {
+      return Appointment.fromJson(jsonDecode(response.body));
     }
     throw Exception(_errorMessage(response.body));
   }
