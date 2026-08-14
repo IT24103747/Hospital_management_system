@@ -233,10 +233,19 @@ namespace HospitalManagementSystem.Api.Controllers
         [HttpGet("doctors")]
         [Authorize(Roles = SlotReaderRoles)]
         [ProducesResponseType(typeof(IEnumerable<DoctorLookupDto>), StatusCodes.Status200OK)]
-        public async Task<IActionResult> GetDoctors()
+        public async Task<IActionResult> GetDoctors([FromQuery] string? specialty)
         {
-            var doctors = await _service.GetDoctorsAsync();
+            var doctors = await _service.GetDoctorsAsync(specialty);
             return Ok(doctors);
+        }
+
+        [HttpGet("specializations")]
+        [Authorize(Roles = SlotReaderRoles)]
+        [ProducesResponseType(typeof(IEnumerable<string>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetSpecializations()
+        {
+            var specializations = await _service.GetSpecializationsAsync();
+            return Ok(specializations);
         }
 
         [HttpPost("slots")]
@@ -405,11 +414,14 @@ namespace HospitalManagementSystem.Api.Controllers
                     ApplyDoctorProfile(dto, doctor);
             }
 
+            if (User.IsInRole("Admin") && dto is not null && !dto.DoctorId.HasValue)
+                return BadRequest(new { message = "Select an approved registered doctor." });
+
             if (User.IsInRole("Admin") && dto?.DoctorId is int doctorId)
             {
                 var doctor = await _db.Doctors.AsNoTracking()
                     .SingleOrDefaultAsync(value => value.DoctorId == doctorId &&
-                        value.RegistrationStatus == DoctorRegistrationStatuses.Approved);
+                        value.RegistrationStatus.Trim().ToLower() == DoctorRegistrationStatuses.Approved.ToLower());
                 if (doctor is null)
                     return BadRequest(new { message = "Selected doctor is not approved or does not exist." });
 
@@ -428,7 +440,7 @@ namespace HospitalManagementSystem.Api.Controllers
             return await _db.Doctors.AsNoTracking()
                 .SingleOrDefaultAsync(doctor =>
                     doctor.UserId == userId &&
-                    doctor.RegistrationStatus == DoctorRegistrationStatuses.Approved);
+                    doctor.RegistrationStatus.Trim().ToLower() == DoctorRegistrationStatuses.Approved.ToLower());
         }
 
         private static void ApplyDoctorProfile(CreateDoctorTimeSlotDto dto, Doctor doctor)

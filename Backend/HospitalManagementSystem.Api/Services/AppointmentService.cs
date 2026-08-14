@@ -71,6 +71,9 @@ namespace HospitalManagementSystem.Api.Services
             if (slot is null || !slot.IsActive)
                 throw new InvalidOperationException("Selected doctor time slot is not available.");
 
+            if (slot.StartAt <= DateTime.UtcNow)
+                throw new InvalidOperationException("Past doctor time slots cannot be booked.");
+
             return slot;
         }
 
@@ -178,29 +181,43 @@ namespace HospitalManagementSystem.Api.Services
             return MapAppointment(await _repository.UpdateAsync(appointment));
         }
 
-        public async Task<IEnumerable<DoctorLookupDto>> GetDoctorsAsync()
+        public async Task<IEnumerable<DoctorLookupDto>> GetDoctorsAsync(string? specialty = null)
         {
-            var slots = await _repository.GetSlotsAsync(null, null, false);
-            return slots
-                .GroupBy(s => new { s.DoctorName, s.Specialty })
-                .Select(g => new DoctorLookupDto
+            var doctors = await _repository.GetApprovedDoctorsAsync();
+            if (!string.IsNullOrWhiteSpace(specialty))
+            {
+                var normalizedSpecialty = specialty.Trim();
+                doctors = doctors.Where(doctor =>
+                    string.Equals(doctor.Specialization?.Trim(), normalizedSpecialty, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return doctors
+                .Select(doctor => new DoctorLookupDto
                 {
-                    DoctorName = g.Key.DoctorName,
-                    Specialty = g.Key.Specialty
+                    DoctorId = doctor.DoctorId,
+                    DoctorName = FormatDoctorName(doctor),
+                    Specialty = doctor.Specialization.Trim()
                 })
-                .OrderBy(d => d.DoctorName);
+                .OrderBy(doctor => doctor.DoctorName);
         }
+
+        public async Task<IEnumerable<string>> GetSpecializationsAsync() =>
+            await _repository.GetApprovedSpecializationsAsync();
 
         public async Task<IEnumerable<DoctorTimeSlotDto>> GetSlotsAsync(string? doctorName, DateTime? date, bool onlyAvailable, int? doctorId = null)
         {
             var slots = await _repository.GetSlotsAsync(doctorName, date, onlyAvailable, doctorId);
+            if (onlyAvailable)
+                slots = slots.Where(s => s.StartAt > DateTime.UtcNow);
+
             return slots.Select(MapSlot);
         }
 
         public async Task<DoctorTimeSlotDto> CreateSlotAsync(CreateDoctorTimeSlotDto dto)
         {
-            var doctorName = dto.DoctorName.Trim();
-            var specialty = dto.Specialty.Trim();
+            var doctor = await GetApprovedDoctorAsync(dto.DoctorId);
+            var doctorName = FormatDoctorName(doctor);
+            var specialty = doctor.Specialization.Trim();
             var startAt = DateTime.SpecifyKind(dto.StartAt, DateTimeKind.Utc);
             var endAt = DateTime.SpecifyKind(dto.EndAt, DateTimeKind.Utc);
 
@@ -213,9 +230,13 @@ namespace HospitalManagementSystem.Api.Services
             if (await _repository.SlotOverlapsAsync(doctorName, startAt, endAt, doctorId: dto.DoctorId))
                 throw new InvalidOperationException("This doctor already has an overlapping time slot.");
 
+            if (dto.RoomId.HasValue)
+                await ValidateAvailableRoomAsync(dto.RoomId.Value, startAt, endAt);
+
             var slot = new DoctorTimeSlot
             {
-                DoctorId = dto.DoctorId,
+                DoctorId = doctor.DoctorId,
+                RoomId = dto.RoomId,
                 DoctorName = doctorName,
                 Specialty = specialty,
                 StartAt = startAt,
@@ -234,8 +255,9 @@ namespace HospitalManagementSystem.Api.Services
             var slot = await _repository.GetSlotByIdAsync(id);
             if (slot is null) return null;
 
-            var doctorName = dto.DoctorName.Trim();
-            var specialty = dto.Specialty.Trim();
+            var doctor = await GetApprovedDoctorAsync(dto.DoctorId);
+            var doctorName = FormatDoctorName(doctor);
+            var specialty = doctor.Specialization.Trim();
             var startAt = DateTime.SpecifyKind(dto.StartAt, DateTimeKind.Utc);
             var endAt = DateTime.SpecifyKind(dto.EndAt, DateTimeKind.Utc);
             var activeAppointments = slot.Appointments
@@ -255,7 +277,11 @@ namespace HospitalManagementSystem.Api.Services
             if (await _repository.SlotOverlapsAsync(doctorName, startAt, endAt, id, dto.DoctorId))
                 throw new InvalidOperationException("This doctor already has an overlapping time slot.");
 
-            slot.DoctorId = dto.DoctorId;
+            if (dto.RoomId.HasValue)
+                await ValidateAvailableRoomAsync(dto.RoomId.Value, startAt, endAt, id);
+
+            slot.DoctorId = doctor.DoctorId;
+            slot.RoomId = dto.RoomId;
             slot.DoctorName = doctorName;
             slot.Specialty = specialty;
             slot.StartAt = startAt;
@@ -304,6 +330,28 @@ namespace HospitalManagementSystem.Api.Services
                 throw new InvalidOperationException("Selected doctor time slot is fully booked.");
 
             return slot;
+        }
+
+        private async Task<Doctor> GetApprovedDoctorAsync(int? doctorId)
+        {
+            if (!doctorId.HasValue)
+                throw new InvalidOperationException("Select an approved registered doctor.");
+
+            var doctor = await _repository.GetApprovedDoctorByIdAsync(doctorId.Value);
+            return doctor ?? throw new InvalidOperationException("Selected doctor is not approved or does not exist.");
+        }
+
+        private static string FormatDoctorName(Doctor doctor) =>
+            $"Dr. {doctor.FirstName} {doctor.LastName}".Trim();
+
+        private async Task ValidateAvailableRoomAsync(int roomId, DateTime startAt, DateTime endAt, int? excludeSlotId = null)
+        {
+            var room = await _repository.GetRoomByIdAsync(roomId);
+            if (room is null || !room.IsConfirmed)
+                throw new InvalidOperationException("Selected room is not confirmed or does not exist.");
+
+            if (await _repository.RoomOverlapsAsync(roomId, startAt, endAt, excludeSlotId))
+                throw new InvalidOperationException("This room is already booked for the selected time period.");
         }
 
         private async Task<int> GetNextAppointmentNumberAsync(DoctorTimeSlot slot, int? excludeAppointmentId = null)

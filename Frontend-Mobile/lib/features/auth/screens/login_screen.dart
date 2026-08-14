@@ -241,32 +241,34 @@ class _LoginScreenState extends State<LoginScreen> {
           child: SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
             padding:
-                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+                const EdgeInsets.symmetric(horizontal: 28.0, vertical: 10.0),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 360),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                 // Header Hero Branding
                 Center(
                   child: Column(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: AppColors.primary.withValues(alpha: 0.1),
                         ),
                         child: const MediCoreLogo(
-                          size: 56.0,
-                          borderRadius: 16.0,
+                          size: 44.0,
+                          borderRadius: 12.0,
                           showText: false,
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 10),
                       RichText(
                         text: TextSpan(
                           style: TextStyle(
-                            fontSize: 28,
+                            fontSize: 24,
                             fontWeight: FontWeight.w800,
                             color: isDark
                                 ? AppColors.textPrimaryDark
@@ -282,10 +284,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 4),
+                            horizontal: 10, vertical: 3),
                         decoration: BoxDecoration(
                           color: (isDark ? Colors.white : Colors.black)
                               .withValues(alpha: 0.05),
@@ -295,7 +297,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           'Hospital Patient Portal • AI Triage',
                           style: TextStyle(
                             color: AppColors.textSecondaryLight,
-                            fontSize: 12,
+                            fontSize: 11,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -303,15 +305,15 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 18),
 
                 // Main Form Card
                 Container(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     color:
                         isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color:
                           isDark ? AppColors.borderDark : AppColors.borderLight,
@@ -320,8 +322,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       BoxShadow(
                         color:
                             Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
+                        blurRadius: 14,
+                        offset: const Offset(0, 7),
                       ),
                     ],
                   ),
@@ -333,7 +335,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         Text(
                           'Sign In to Account',
                           style: TextStyle(
-                            fontSize: 20,
+                            fontSize: 18,
                             fontWeight: FontWeight.bold,
                             color: isDark
                                 ? AppColors.textPrimaryDark
@@ -341,14 +343,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
-                          'Enter your credentials to access medical records',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: AppColors.textSecondaryLight,
-                          ),
-                        ),
-                        const SizedBox(height: 24),
+
+                        const SizedBox(height: 16),
 
                         // Email Field
                         TextFormField(
@@ -359,6 +355,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             labelText: 'Email Address',
                             prefixIcon: const Icon(Icons.email_outlined),
                             hintText: 'patient@example.com',
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 14),
                             suffixIcon: _emailController.text.isNotEmpty
                                 ? IconButton(
                                     icon: const Icon(Icons.clear, size: 18),
@@ -379,7 +378,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             return null;
                           },
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
 
                         // Password Field
                         TextFormField(
@@ -390,6 +389,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           decoration: InputDecoration(
                             labelText: 'Password',
                             prefixIcon: const Icon(Icons.lock_outline_rounded),
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 14),
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _obscurePassword
@@ -410,14 +412,14 @@ class _LoginScreenState extends State<LoginScreen> {
                             return null;
                           },
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
 
                         // Remember Me & Forgot Password
                         Row(
                           children: [
                             SizedBox(
-                              height: 24,
-                              width: 24,
+                              height: 20,
+                              width: 20,
                               child: Checkbox(
                                 value: _rememberMe,
                                 activeColor: AppColors.primary,
@@ -433,7 +435,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             const Text(
                               'Remember me',
                               style: TextStyle(
-                                  fontSize: 13, fontWeight: FontWeight.w500),
+                                  fontSize: 12, fontWeight: FontWeight.w500),
                             ),
                             const Spacer(),
                             GestureDetector(
@@ -442,26 +444,26 @@ class _LoginScreenState extends State<LoginScreen> {
                                 'Forgot Password?',
                                 style: TextStyle(
                                   color: AppColors.primary,
-                                  fontSize: 13,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 18),
 
                         // Login Button
                         SizedBox(
                           width: double.infinity,
-                          height: 52,
+                          height: 46,
                           child: ElevatedButton(
                             onPressed: _isLoading ? null : _handleLogin,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
                               elevation: 2,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
+                                borderRadius: BorderRadius.circular(12),
                               ),
                             ),
                             child: _isLoading
@@ -479,7 +481,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                       Text(
                                         'Sign In',
                                         style: TextStyle(
-                                            fontSize: 16,
+                                            fontSize: 14,
                                             fontWeight: FontWeight.bold),
                                       ),
                                       SizedBox(width: 8),
@@ -493,7 +495,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 14),
 
                 // Quick Demo Access Banner
                 OutlinedButton.icon(
@@ -505,7 +507,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                   ),
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
                     side: BorderSide(
                       color:
                           isDark ? AppColors.borderDark : AppColors.borderLight,
@@ -515,7 +517,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 18),
 
                 // Register Footer Link
                 Row(
@@ -549,8 +551,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-              ],
+                const SizedBox(height: 10),
+                ],
+              ),
             ),
           ),
         ),

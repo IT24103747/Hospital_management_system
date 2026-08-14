@@ -114,6 +114,35 @@ namespace HospitalManagementSystem.Api.Repositories
             return await query.OrderBy(s => s.StartAt).ToListAsync();
         }
 
+        public async Task<IEnumerable<Doctor>> GetApprovedDoctorsAsync() =>
+            await _context.Doctors
+                .AsNoTracking()
+                .Where(doctor => doctor.RegistrationStatus.Trim().ToLower() == DoctorRegistrationStatuses.Approved.ToLower())
+                .OrderBy(doctor => doctor.FirstName)
+                .ThenBy(doctor => doctor.LastName)
+                .ToListAsync();
+
+        public async Task<IEnumerable<string>> GetApprovedSpecializationsAsync() =>
+            await _context.Doctors
+                .AsNoTracking()
+                .Where(doctor =>
+                    doctor.RegistrationStatus.Trim().ToLower() == DoctorRegistrationStatuses.Approved.ToLower() &&
+                    doctor.Specialization.Trim() != string.Empty)
+                .Select(doctor => doctor.Specialization.Trim())
+                .Distinct()
+                .OrderBy(specialization => specialization)
+                .ToListAsync();
+
+        public async Task<Doctor?> GetApprovedDoctorByIdAsync(int id) =>
+            await _context.Doctors
+                .AsNoTracking()
+                .SingleOrDefaultAsync(doctor =>
+                    doctor.DoctorId == id &&
+                    doctor.RegistrationStatus.Trim().ToLower() == DoctorRegistrationStatuses.Approved.ToLower());
+
+        public async Task<Room?> GetRoomByIdAsync(int id) =>
+            await _context.Rooms.AsNoTracking().SingleOrDefaultAsync(room => room.RoomId == id);
+
         public async Task<DoctorTimeSlot> CreateSlotAsync(DoctorTimeSlot slot)
         {
             _context.DoctorTimeSlots.Add(slot);
@@ -150,6 +179,14 @@ namespace HospitalManagementSystem.Api.Repositories
 
             return await query.AnyAsync();
         }
+
+        public async Task<bool> RoomOverlapsAsync(int roomId, DateTime startAt, DateTime endAt, int? excludeSlotId = null) =>
+            await _context.DoctorTimeSlots.AnyAsync(s =>
+                s.RoomId == roomId &&
+                s.StartAt < endAt &&
+                startAt < s.EndAt &&
+                s.IsActive &&
+                (!excludeSlotId.HasValue || s.DoctorTimeSlotId != excludeSlotId.Value));
 
         private IQueryable<Appointment> BuildAppointmentQuery(string? search, string? status, string? doctorName, DateTime? date, int? patientId = null, string? patientEmail = null, int? doctorId = null)
         {

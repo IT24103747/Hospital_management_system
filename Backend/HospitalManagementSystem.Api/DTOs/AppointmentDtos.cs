@@ -101,6 +101,7 @@ namespace HospitalManagementSystem.Api.DTOs
 
     public class DoctorLookupDto
     {
+        public int DoctorId { get; set; }
         public string DoctorName { get; set; } = string.Empty;
         public string Specialty { get; set; } = string.Empty;
     }
@@ -108,6 +109,7 @@ namespace HospitalManagementSystem.Api.DTOs
     public class CreateDoctorTimeSlotDto
     {
         public int? DoctorId { get; set; }
+        public int? RoomId { get; set; }
         [Required, MaxLength(150)]
         public string DoctorName { get; set; } = string.Empty;
         [Required, MaxLength(100)]
