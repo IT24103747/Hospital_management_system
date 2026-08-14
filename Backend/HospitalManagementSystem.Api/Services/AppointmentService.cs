@@ -333,10 +333,15 @@ namespace HospitalManagementSystem.Api.Services
                 PatientEmail = a.PatientEmail ?? string.Empty,
                 DoctorName = slot?.DoctorName ?? string.Empty,
                 Specialty = slot?.Specialty ?? string.Empty,
+                RoomId = slot?.RoomId,
+                RoomNumber = slot?.Room?.RoomNumber ?? string.Empty,
+                RoomName = slot?.Room?.RoomName ?? string.Empty,
+                Floor = slot?.Room?.Floor ?? string.Empty,
                 StartAt = slot?.StartAt ?? DateTime.MinValue,
                 EndAt = slot?.EndAt ?? DateTime.MinValue,
                 SlotCapacity = slot?.Capacity ?? 0,
                 BookedCount = bookedCount,
+                ConsultationFee = slot?.ConsultationFee ?? 0,
                 AppointmentType = a.AppointmentType,
                 Reason = a.Reason,
                 Status = a.Status,
@@ -360,9 +365,14 @@ namespace HospitalManagementSystem.Api.Services
             EndAt = s.EndAt,
             Capacity = s.Capacity,
             BookedCount = s.Appointments.Count(a => a.Status is "Requested" or "Confirmed" or "Completed" or "No-show"),
+            ConsultationFee = s.ConsultationFee,
             NextAppointmentNumber = GetNextAppointmentNumber(s),
             NextEstimatedStartAt = GetNextEstimatedStartAt(s),
-            IsActive = s.IsActive
+            IsActive = s.IsActive,
+            RoomId = s.RoomId,
+            RoomNumber = s.Room?.RoomNumber ?? string.Empty,
+            RoomName = s.Room?.RoomName ?? string.Empty,
+            Floor = s.Room?.Floor ?? string.Empty
         };
 
         private static string NormalizeAppointmentReason(string? reason)

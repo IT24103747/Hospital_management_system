@@ -38,7 +38,7 @@ namespace HospitalManagementSystem.Api.Repositories
 
         public async Task<Appointment?> GetByIdAsync(int id) =>
             await _context.Appointments
-                .Include(a => a.DoctorTimeSlot)
+                .Include(a => a.DoctorTimeSlot).ThenInclude(slot => slot!.Room)
                 .Include(a => a.Patient)
                 .FirstOrDefaultAsync(a => a.AppointmentId == id);
 
@@ -81,11 +81,12 @@ namespace HospitalManagementSystem.Api.Repositories
         public async Task<DoctorTimeSlot?> GetSlotByIdAsync(int id) =>
             await _context.DoctorTimeSlots
                 .Include(s => s.Appointments)
+                .Include(s => s.Room)
                 .FirstOrDefaultAsync(s => s.DoctorTimeSlotId == id);
 
         public async Task<IEnumerable<DoctorTimeSlot>> GetSlotsAsync(string? doctorName, DateTime? date, bool onlyAvailable)
         {
-            var query = _context.DoctorTimeSlots.Include(s => s.Appointments).AsQueryable();
+            var query = _context.DoctorTimeSlots.Include(s => s.Appointments).Include(s => s.Room).AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(doctorName))
             {
@@ -134,7 +135,7 @@ namespace HospitalManagementSystem.Api.Repositories
         private IQueryable<Appointment> BuildAppointmentQuery(string? search, string? status, string? doctorName, DateTime? date)
         {
             var query = _context.Appointments
-                .Include(a => a.DoctorTimeSlot)
+                .Include(a => a.DoctorTimeSlot).ThenInclude(slot => slot!.Room)
                 .Include(a => a.Patient)
                 .AsQueryable();
 

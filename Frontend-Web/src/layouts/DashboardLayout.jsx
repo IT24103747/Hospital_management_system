@@ -11,6 +11,7 @@ const PAGE_TITLES = {
   '/doctors':      { title: 'Doctors',      subtitle: 'Medical staff directory' },
   '/appointments': { title: 'Appointments', subtitle: 'Schedule & manage visits' },
   '/settings':     { title: 'Settings',     subtitle: 'System configuration' },
+  '/admin':        { title: 'Available Rooms', subtitle: 'Manage hospital room availability' },
 }
 
 export default function DashboardLayout() {
@@ -46,7 +47,9 @@ export default function DashboardLayout() {
     ? { title: 'Profile', subtitle: 'Manage your professional profile' }
     : location.pathname === '/doctor/triage-review'
       ? { title: 'SafeTriage Review', subtitle: 'Clinical decision-support oversight' }
-      : { title: 'Doctor Dashboard', subtitle: `Welcome Dr. ${user?.fullName || ''}` }
+      : location.pathname === '/doctor/schedules'
+        ? { title: 'Appointment Schedules', subtitle: 'Reserve rooms and manage your schedules' }
+        : { title: 'Doctor Dashboard', subtitle: `Welcome Dr. ${user?.fullName || ''}` }
   const pageMeta = user?.role === 'Doctor' ? doctorMeta : (PAGE_TITLES[pathKey] || { title: 'MediCore', subtitle: '' })
 
   return (
