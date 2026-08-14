@@ -6,6 +6,7 @@ namespace HospitalManagementSystem.Api.DTOs
     {
         public int AppointmentId { get; set; }
         public int DoctorTimeSlotId { get; set; }
+        public int? DoctorId { get; set; }
         public int? PatientId { get; set; }
         public int AppointmentNumber { get; set; }
         public DateTime EstimatedStartAt { get; set; }
@@ -79,6 +80,7 @@ namespace HospitalManagementSystem.Api.DTOs
     public class DoctorTimeSlotDto
     {
         public int DoctorTimeSlotId { get; set; }
+        public int? DoctorId { get; set; }
         public string DoctorName { get; set; } = string.Empty;
         public string Specialty { get; set; } = string.Empty;
         public DateTime StartAt { get; set; }
@@ -105,6 +107,7 @@ namespace HospitalManagementSystem.Api.DTOs
 
     public class CreateDoctorTimeSlotDto
     {
+        public int? DoctorId { get; set; }
         [Required, MaxLength(150)]
         public string DoctorName { get; set; } = string.Empty;
         [Required, MaxLength(100)]

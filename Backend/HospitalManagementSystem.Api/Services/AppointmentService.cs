@@ -16,13 +16,13 @@ namespace HospitalManagementSystem.Api.Services
             _repository = repository;
         }
 
-        public async Task<PagedResult<AppointmentDto>> GetAllAppointmentsAsync(string? search, string? status, string? doctorName, DateTime? date, string? sortBy, string? sortDirection, int page, int pageSize)
+        public async Task<PagedResult<AppointmentDto>> GetAllAppointmentsAsync(string? search, string? status, string? doctorName, DateTime? date, string? sortBy, string? sortDirection, int page, int pageSize, int? patientId = null, string? patientEmail = null, int? doctorId = null)
         {
             pageSize = Math.Clamp(pageSize, 1, 50);
             page = Math.Max(1, page);
 
-            var appointments = await _repository.GetAllAsync(search, status, doctorName, date, sortBy, sortDirection, page, pageSize);
-            var totalCount = await _repository.GetTotalCountAsync(search, status, doctorName, date);
+            var appointments = await _repository.GetAllAsync(search, status, doctorName, date, sortBy, sortDirection, page, pageSize, patientId, patientEmail, doctorId);
+            var totalCount = await _repository.GetTotalCountAsync(search, status, doctorName, date, patientId, patientEmail, doctorId);
 
             return new PagedResult<AppointmentDto>
             {
@@ -191,9 +191,9 @@ namespace HospitalManagementSystem.Api.Services
                 .OrderBy(d => d.DoctorName);
         }
 
-        public async Task<IEnumerable<DoctorTimeSlotDto>> GetSlotsAsync(string? doctorName, DateTime? date, bool onlyAvailable)
+        public async Task<IEnumerable<DoctorTimeSlotDto>> GetSlotsAsync(string? doctorName, DateTime? date, bool onlyAvailable, int? doctorId = null)
         {
-            var slots = await _repository.GetSlotsAsync(doctorName, date, onlyAvailable);
+            var slots = await _repository.GetSlotsAsync(doctorName, date, onlyAvailable, doctorId);
             return slots.Select(MapSlot);
         }
 
@@ -210,11 +210,12 @@ namespace HospitalManagementSystem.Api.Services
             if (endAt <= startAt)
                 throw new InvalidOperationException("Slot end time must be after start time.");
 
-            if (await _repository.SlotOverlapsAsync(doctorName, startAt, endAt))
+            if (await _repository.SlotOverlapsAsync(doctorName, startAt, endAt, doctorId: dto.DoctorId))
                 throw new InvalidOperationException("This doctor already has an overlapping time slot.");
 
             var slot = new DoctorTimeSlot
             {
+                DoctorId = dto.DoctorId,
                 DoctorName = doctorName,
                 Specialty = specialty,
                 StartAt = startAt,
@@ -251,9 +252,10 @@ namespace HospitalManagementSystem.Api.Services
             if (dto.Capacity < activeAppointments.Count)
                 throw new InvalidOperationException("Slot capacity cannot be less than the number of booked appointments.");
 
-            if (await _repository.SlotOverlapsAsync(doctorName, startAt, endAt, id))
+            if (await _repository.SlotOverlapsAsync(doctorName, startAt, endAt, id, dto.DoctorId))
                 throw new InvalidOperationException("This doctor already has an overlapping time slot.");
 
+            slot.DoctorId = dto.DoctorId;
             slot.DoctorName = doctorName;
             slot.Specialty = specialty;
             slot.StartAt = startAt;
@@ -325,6 +327,7 @@ namespace HospitalManagementSystem.Api.Services
             {
                 AppointmentId = a.AppointmentId,
                 DoctorTimeSlotId = a.DoctorTimeSlotId,
+                DoctorId = slot?.DoctorId,
                 PatientId = a.PatientId,
                 AppointmentNumber = a.AppointmentNumber,
                 EstimatedStartAt = a.EstimatedStartAt,
@@ -359,6 +362,7 @@ namespace HospitalManagementSystem.Api.Services
                 .Select(a => a.AppointmentNumber)
                 .OrderBy(n => n),
             DoctorTimeSlotId = s.DoctorTimeSlotId,
+            DoctorId = s.DoctorId,
             DoctorName = s.DoctorName,
             Specialty = s.Specialty,
             StartAt = s.StartAt,

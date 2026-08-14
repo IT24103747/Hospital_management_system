@@ -1,24 +1,37 @@
+using System.Security.Claims;
+using HospitalManagementSystem.Api.Data;
 using Microsoft.AspNetCore.Mvc;
 using HospitalManagementSystem.Api.DTOs;
+using HospitalManagementSystem.Api.Models;
 using HospitalManagementSystem.Api.Services;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 
 namespace HospitalManagementSystem.Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class AppointmentController : ControllerBase
     {
+        private const string StaffRoles = "Admin,Doctor";
+        private const string AppointmentReaderRoles = "Admin,Doctor,Patient";
+        private const string AppointmentBookingRoles = "Admin,Patient";
+        private const string SlotReaderRoles = "Admin,Doctor,Patient";
+
         private readonly IAppointmentService _service;
+        private readonly ApplicationDbContext _db;
         private readonly ILogger<AppointmentController> _logger;
 
-        public AppointmentController(IAppointmentService service, ILogger<AppointmentController> logger)
+        public AppointmentController(IAppointmentService service, ApplicationDbContext db, ILogger<AppointmentController> logger)
         {
             _service = service;
+            _db = db;
             _logger = logger;
         }
 
         [HttpGet]
+        [Authorize(Roles = AppointmentReaderRoles)]
         [ProducesResponseType(typeof(PagedResult<AppointmentDto>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetAll(
             [FromQuery] string? search,
@@ -30,11 +43,17 @@ namespace HospitalManagementSystem.Api.Controllers
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10)
         {
-            var result = await _service.GetAllAppointmentsAsync(search, status, doctorName, date, sortBy, sortDirection, page, pageSize);
+            var access = await GetAppointmentAccessAsync();
+            if (access.Result is not null) return access.Result;
+
+            var result = await _service.GetAllAppointmentsAsync(
+                search, status, doctorName, date, sortBy, sortDirection, page, pageSize,
+                access.PatientId, access.PatientEmail, access.DoctorId);
             return Ok(result);
         }
 
         [HttpGet("{id:int}")]
+        [Authorize(Roles = AppointmentReaderRoles)]
         [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetById(int id)
@@ -43,16 +62,30 @@ namespace HospitalManagementSystem.Api.Controllers
             if (appointment is null)
                 return NotFound(new { message = $"Appointment with ID {id} not found." });
 
+            var access = await GetAppointmentAccessAsync();
+            if (access.Result is not null) return access.Result;
+            if (!CanAccessAppointment(appointment, access))
+                return Forbid();
+
             return Ok(appointment);
         }
 
         [HttpPost]
+        [Authorize(Roles = AppointmentBookingRoles)]
         [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> Create([FromBody] CreateAppointmentDto dto)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var access = await GetAppointmentAccessAsync();
+            if (access.Result is not null) return access.Result;
+            if (User.IsInRole("Patient"))
+            {
+                dto.PatientId = access.PatientId;
+                dto.PatientEmail = access.PatientEmail;
+            }
 
             try
             {
@@ -67,6 +100,7 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpPut("{id:int}")]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -88,6 +122,7 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpDelete("{id:int}")]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Delete(int id)
@@ -97,6 +132,7 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpPatch("{id:int}/status")]
+        [Authorize(Roles = StaffRoles)]
         [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -104,6 +140,15 @@ namespace HospitalManagementSystem.Api.Controllers
         {
             try
             {
+                var appointment = await _service.GetAppointmentByIdAsync(id);
+                if (appointment is null)
+                    return NotFound(new { message = $"Appointment with ID {id} not found." });
+
+                var access = await GetAppointmentAccessAsync();
+                if (access.Result is not null) return access.Result;
+                if (!CanAccessAppointment(appointment, access))
+                    return Forbid();
+
                 var updated = await _service.UpdateStatusAsync(id, dto.Status);
                 return updated is null
                     ? NotFound(new { message = $"Appointment with ID {id} not found." })
@@ -116,6 +161,7 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpPost("{id:int}/cancel")]
+        [Authorize(Roles = AppointmentReaderRoles)]
         [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -123,6 +169,15 @@ namespace HospitalManagementSystem.Api.Controllers
         {
             try
             {
+                var appointment = await _service.GetAppointmentByIdAsync(id);
+                if (appointment is null)
+                    return NotFound(new { message = $"Appointment with ID {id} not found." });
+
+                var access = await GetAppointmentAccessAsync();
+                if (access.Result is not null) return access.Result;
+                if (!CanAccessAppointment(appointment, access))
+                    return Forbid();
+
                 var updated = await _service.CancelAppointmentAsync(id, dto.Reason);
                 return updated is null
                     ? NotFound(new { message = $"Appointment with ID {id} not found." })
@@ -135,6 +190,7 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpPost("{id:int}/reschedule")]
+        [Authorize(Roles = AppointmentBookingRoles)]
         [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -142,6 +198,15 @@ namespace HospitalManagementSystem.Api.Controllers
         {
             try
             {
+                var appointment = await _service.GetAppointmentByIdAsync(id);
+                if (appointment is null)
+                    return NotFound(new { message = $"Appointment with ID {id} not found." });
+
+                var access = await GetAppointmentAccessAsync();
+                if (access.Result is not null) return access.Result;
+                if (!CanAccessAppointment(appointment, access))
+                    return Forbid();
+
                 var updated = await _service.RescheduleAppointmentAsync(id, dto.DoctorTimeSlotId);
                 return updated is null
                     ? NotFound(new { message = $"Appointment with ID {id} not found." })
@@ -154,14 +219,19 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpGet("slots")]
+        [Authorize(Roles = SlotReaderRoles)]
         [ProducesResponseType(typeof(IEnumerable<DoctorTimeSlotDto>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetSlots([FromQuery] string? doctorName, [FromQuery] DateTime? date, [FromQuery] bool onlyAvailable = false)
         {
-            var slots = await _service.GetSlotsAsync(doctorName, date, onlyAvailable);
+            var doctorId = await GetSlotReaderDoctorIdAsync();
+            if (doctorId.Result is not null) return doctorId.Result;
+
+            var slots = await _service.GetSlotsAsync(doctorName, date, onlyAvailable, doctorId.Value);
             return Ok(slots);
         }
 
         [HttpGet("doctors")]
+        [Authorize(Roles = SlotReaderRoles)]
         [ProducesResponseType(typeof(IEnumerable<DoctorLookupDto>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetDoctors()
         {
@@ -170,12 +240,15 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpPost("slots")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = StaffRoles)]
         [ProducesResponseType(typeof(DoctorTimeSlotDto), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> CreateSlot([FromBody] CreateDoctorTimeSlotDto dto)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var slotAccessResult = await PrepareSlotMutationAsync(dto);
+            if (slotAccessResult is not null) return slotAccessResult;
 
             try
             {
@@ -189,13 +262,16 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpPut("slots/{id:int}")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = StaffRoles)]
         [ProducesResponseType(typeof(DoctorTimeSlotDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> UpdateSlot(int id, [FromBody] UpdateDoctorTimeSlotDto dto)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var slotAccessResult = await PrepareSlotMutationAsync(dto, id);
+            if (slotAccessResult is not null) return slotAccessResult;
 
             try
             {
@@ -211,11 +287,14 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpPost("slots/{id:int}/cancel")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = StaffRoles)]
         [ProducesResponseType(typeof(DoctorTimeSlotDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> CancelSlot(int id, [FromBody] CancelDoctorTimeSlotDto? dto)
         {
+            var slotAccessResult = await PrepareSlotMutationAsync(null, id);
+            if (slotAccessResult is not null) return slotAccessResult;
+
             var cancelled = await _service.CancelSlotAsync(id, dto?.Reason);
             return cancelled is null
                 ? NotFound(new { message = $"Doctor time slot with ID {id} not found." })
@@ -223,11 +302,143 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpGet("available-slots")]
+        [Authorize(Roles = SlotReaderRoles)]
         [ProducesResponseType(typeof(IEnumerable<DoctorTimeSlotDto>), StatusCodes.Status200OK)]
         public async Task<IActionResult> SuggestAvailableSlots([FromQuery] string? doctorName, [FromQuery] DateTime? date)
         {
-            var slots = await _service.GetSlotsAsync(doctorName, date, true);
+            var doctorId = await GetSlotReaderDoctorIdAsync();
+            if (doctorId.Result is not null) return doctorId.Result;
+
+            var slots = await _service.GetSlotsAsync(doctorName, date, true, doctorId.Value);
             return Ok(slots);
         }
+
+        private async Task<AppointmentAccess> GetAppointmentAccessAsync()
+        {
+            if (User.IsInRole("Admin"))
+                return new AppointmentAccess(null, null, null, null);
+
+            if (User.IsInRole("Doctor"))
+            {
+                var doctor = await GetApprovedDoctorForCurrentUserAsync();
+                return doctor is null
+                    ? new AppointmentAccess(null, null, null, Forbid())
+                    : new AppointmentAccess(null, null, doctor.DoctorId, null);
+            }
+
+            if (User.IsInRole("Patient"))
+            {
+                var email = User.FindFirstValue(ClaimTypes.Email);
+                if (string.IsNullOrWhiteSpace(email))
+                    return new AppointmentAccess(null, null, null, Unauthorized(new { message = "The access token does not contain a user email." }));
+
+                var normalizedEmail = email.Trim().ToLowerInvariant();
+                var patientId = await _db.Patients
+                    .Where(patient => patient.Email != null && patient.Email.ToLower() == normalizedEmail)
+                    .Select(patient => (int?)patient.PatientId)
+                    .SingleOrDefaultAsync();
+
+                return new AppointmentAccess(patientId, normalizedEmail, null, null);
+            }
+
+            return new AppointmentAccess(null, null, null, Forbid());
+        }
+
+        private static bool CanAccessAppointment(AppointmentDto appointment, AppointmentAccess access)
+        {
+            if (access.DoctorId.HasValue)
+                return appointment.DoctorId == access.DoctorId.Value;
+
+            if (access.PatientId.HasValue || !string.IsNullOrWhiteSpace(access.PatientEmail))
+            {
+                return (access.PatientId.HasValue && appointment.PatientId == access.PatientId.Value) ||
+                    (!string.IsNullOrWhiteSpace(access.PatientEmail) &&
+                        string.Equals(appointment.PatientEmail, access.PatientEmail, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return true;
+        }
+
+        private async Task<SlotReaderAccess> GetSlotReaderDoctorIdAsync()
+        {
+            if (!User.IsInRole("Doctor"))
+                return new SlotReaderAccess(null, null);
+
+            var doctor = await GetApprovedDoctorForCurrentUserAsync();
+            return doctor is null
+                ? new SlotReaderAccess(null, Forbid())
+                : new SlotReaderAccess(doctor.DoctorId, null);
+        }
+
+        private async Task<IActionResult?> PrepareSlotMutationAsync(CreateDoctorTimeSlotDto? dto, int? slotId = null)
+        {
+            DoctorTimeSlot? slot = null;
+            if (slotId.HasValue)
+            {
+                slot = await _db.DoctorTimeSlots.AsNoTracking()
+                    .SingleOrDefaultAsync(value => value.DoctorTimeSlotId == slotId.Value);
+                if (slot is null)
+                    return NotFound(new { message = $"Doctor time slot with ID {slotId.Value} not found." });
+
+                if (User.IsInRole("Doctor"))
+                {
+                    var doctor = await GetApprovedDoctorForCurrentUserAsync();
+                    if (doctor is null || slot.DoctorId != doctor.DoctorId)
+                        return Forbid();
+
+                    if (dto is not null)
+                        ApplyDoctorProfile(dto, doctor);
+                }
+                else if (User.IsInRole("Admin") && dto is not null && !dto.DoctorId.HasValue)
+                {
+                    dto.DoctorId = slot.DoctorId;
+                }
+            }
+
+            if (User.IsInRole("Doctor") && !slotId.HasValue)
+            {
+                var doctor = await GetApprovedDoctorForCurrentUserAsync();
+                if (doctor is null)
+                    return Forbid();
+
+                if (dto is not null)
+                    ApplyDoctorProfile(dto, doctor);
+            }
+
+            if (User.IsInRole("Admin") && dto?.DoctorId is int doctorId)
+            {
+                var doctor = await _db.Doctors.AsNoTracking()
+                    .SingleOrDefaultAsync(value => value.DoctorId == doctorId &&
+                        value.RegistrationStatus == DoctorRegistrationStatuses.Approved);
+                if (doctor is null)
+                    return BadRequest(new { message = "Selected doctor is not approved or does not exist." });
+
+                ApplyDoctorProfile(dto, doctor);
+            }
+
+            return null;
+        }
+
+        private async Task<Doctor?> GetApprovedDoctorForCurrentUserAsync()
+        {
+            var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!int.TryParse(userIdValue, out var userId))
+                return null;
+
+            return await _db.Doctors.AsNoTracking()
+                .SingleOrDefaultAsync(doctor =>
+                    doctor.UserId == userId &&
+                    doctor.RegistrationStatus == DoctorRegistrationStatuses.Approved);
+        }
+
+        private static void ApplyDoctorProfile(CreateDoctorTimeSlotDto dto, Doctor doctor)
+        {
+            dto.DoctorId = doctor.DoctorId;
+            dto.DoctorName = $"Dr. {doctor.FirstName} {doctor.LastName}";
+            dto.Specialty = doctor.Specialization;
+        }
+
+        private sealed record AppointmentAccess(int? PatientId, string? PatientEmail, int? DoctorId, IActionResult? Result);
+        private sealed record SlotReaderAccess(int? Value, IActionResult? Result);
     }
 }

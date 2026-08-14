@@ -132,7 +132,7 @@ export default function LoginPage() {
         </form>
 
         <p className="login-card__footer">
-          MediCore HMS · SE3090 Assignment · SLIIT
+          MediCore HMS &copy; 2026 · All rights reserved
         </p>
       </div>
     </div>
