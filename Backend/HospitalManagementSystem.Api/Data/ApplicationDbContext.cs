@@ -13,6 +13,7 @@ namespace HospitalManagementSystem.Api.Data
         public DbSet<DoctorTimeSlot> DoctorTimeSlots => Set<DoctorTimeSlot>();
         public DbSet<Appointment> Appointments => Set<Appointment>();
         public DbSet<Doctor> Doctors => Set<Doctor>();
+        public DbSet<Room> Rooms => Set<Room>();
         public DbSet<TriageWorkflow> TriageWorkflows => Set<TriageWorkflow>();
         public DbSet<TriageWorkflowEvent> TriageWorkflowEvents => Set<TriageWorkflowEvent>();
 
@@ -58,6 +59,21 @@ namespace HospitalManagementSystem.Api.Data
                     .OnDelete(DeleteBehavior.SetNull);
             });
 
+            modelBuilder.Entity<Room>(entity =>
+            {
+                entity.HasKey(r => r.RoomId);
+                entity.Property(r => r.RoomNumber).IsRequired().HasMaxLength(30);
+                entity.Property(r => r.RoomName).IsRequired().HasMaxLength(100);
+                entity.Property(r => r.Floor).IsRequired().HasMaxLength(50);
+                entity.Property(r => r.Description).HasMaxLength(500);
+                entity.HasIndex(r => r.RoomNumber).IsUnique();
+                entity.HasIndex(r => r.IsConfirmed);
+                entity.HasOne(r => r.CreatedByUser)
+                    .WithMany()
+                    .HasForeignKey(r => r.CreatedByUserId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
             modelBuilder.Entity<Patient>(entity =>
             {
                 entity.HasKey(p => p.PatientId);
@@ -82,13 +98,25 @@ namespace HospitalManagementSystem.Api.Data
                 {
                     t.HasCheckConstraint("CK_DoctorTimeSlots_Capacity_Positive", "\"Capacity\" > 0");
                     t.HasCheckConstraint("CK_DoctorTimeSlots_TimeRange", "\"EndAt\" > \"StartAt\"");
+                    t.HasCheckConstraint("CK_DoctorTimeSlots_ConsultationFee_NonNegative", "\"ConsultationFee\" >= 0");
                 });
                 entity.HasKey(s => s.DoctorTimeSlotId);
                 entity.Property(s => s.DoctorName).IsRequired().HasMaxLength(150);
                 entity.Property(s => s.Specialty).IsRequired().HasMaxLength(100);
                 entity.Property(s => s.Capacity).IsRequired();
+                entity.Property(s => s.ConsultationFee).HasPrecision(10, 2).IsRequired();
                 entity.Property(s => s.IsActive).IsRequired();
                 entity.HasIndex(s => new { s.DoctorName, s.StartAt, s.EndAt });
+                entity.HasIndex(s => new { s.RoomId, s.StartAt, s.EndAt });
+                entity.HasIndex(s => new { s.DoctorId, s.StartAt, s.EndAt });
+                entity.HasOne(s => s.Room)
+                    .WithMany(r => r.DoctorTimeSlots)
+                    .HasForeignKey(s => s.RoomId)
+                    .OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(s => s.Doctor)
+                    .WithMany(d => d.DoctorTimeSlots)
+                    .HasForeignKey(s => s.DoctorId)
+                    .OnDelete(DeleteBehavior.SetNull);
             });
 
             modelBuilder.Entity<Appointment>(entity =>

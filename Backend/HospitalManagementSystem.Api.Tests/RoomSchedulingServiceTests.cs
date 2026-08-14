@@ -1,0 +1,190 @@
+using HospitalManagementSystem.Api.Data;
+using HospitalManagementSystem.Api.DTOs;
+using HospitalManagementSystem.Api.Models;
+using HospitalManagementSystem.Api.Services;
+using Microsoft.EntityFrameworkCore;
+using Xunit;
+
+namespace HospitalManagementSystem.Api.Tests;
+
+public class RoomSchedulingServiceTests
+{
+    [Fact]
+    public async Task CreateAndConfirmRoom_MakesRoomAvailableToDoctors()
+    {
+        await using var db = CreateContext();
+        var admin = new User { FullName = "Admin", Email = "admin@test.lk", PasswordHash = "hash", Role = "Admin" };
+        db.Users.Add(admin); await db.SaveChangesAsync();
+        var service = new RoomService(db);
+
+        var created = await service.CreateAsync(new CreateRoomDto
+        {
+            RoomNumber = "c-204", RoomName = "Consultation Room", Floor = "Second Floor"
+        }, admin.UserId);
+        var confirmed = await service.ConfirmAsync(created.RoomId);
+
+        Assert.False(created.IsConfirmed);
+        Assert.NotNull(confirmed);
+        Assert.True(confirmed!.IsConfirmed);
+        Assert.Equal("Available", confirmed.Status);
+    }
+
+    [Fact]
+    public async Task CreateSchedule_RejectsOverlappingRoomBookingByAnotherDoctor()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedSchedulingDataAsync(db);
+        var service = new DoctorScheduleService(db);
+        var start = DateTime.UtcNow.AddDays(2);
+        var end = start.AddHours(2);
+        await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, end));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(setup.SecondUserId, Schedule(setup.RoomId, start.AddMinutes(30), end.AddHours(1))));
+
+        Assert.Equal("This room is already booked for the selected time period.", exception.Message);
+    }
+
+    [Fact]
+    public async Task CreateSchedule_AllowsAdjacentRoomBookings()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedSchedulingDataAsync(db);
+        var service = new DoctorScheduleService(db);
+        var start = DateTime.UtcNow.AddDays(3);
+        var first = await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
+        var second = await service.CreateAsync(setup.SecondUserId, Schedule(setup.RoomId, start.AddHours(1), start.AddHours(2)));
+
+        Assert.True(first.IsActive);
+        Assert.True(second.IsActive);
+    }
+
+    [Fact]
+    public async Task CancelSchedule_ReleasesRoomForSamePeriod()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedSchedulingDataAsync(db);
+        var scheduleService = new DoctorScheduleService(db);
+        var roomService = new RoomService(db);
+        var start = DateTime.UtcNow.AddDays(4);
+        var end = start.AddHours(1);
+        var schedule = await scheduleService.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, end));
+        await scheduleService.CancelAsync(setup.FirstUserId, schedule.DoctorTimeSlotId);
+
+        var rooms = await roomService.GetAllAsync(start, end, confirmedOnly: true);
+
+        Assert.Equal("Available", Assert.Single(rooms).Status);
+    }
+
+    [Fact]
+    public async Task GetMine_DoesNotReturnAnotherDoctorsSchedules()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedSchedulingDataAsync(db);
+        var service = new DoctorScheduleService(db);
+        var start = DateTime.UtcNow.AddDays(5);
+        await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
+
+        var secondDoctorsSchedules = await service.GetMineAsync(setup.SecondUserId);
+
+        Assert.Empty(secondDoctorsSchedules);
+    }
+
+    [Fact]
+    public async Task CreateSchedule_RejectsPastStartTime()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedSchedulingDataAsync(db);
+        var service = new DoctorScheduleService(db);
+        var start = DateTime.UtcNow.AddHours(-2);
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1))));
+
+        Assert.Equal("A schedule cannot start in the past.", exception.Message);
+    }
+
+    [Fact]
+    public async Task CreateSchedule_RejectsInvalidConsultationFee()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedSchedulingDataAsync(db);
+        var service = new DoctorScheduleService(db);
+        var start = DateTime.UtcNow.AddDays(6);
+        var dto = Schedule(setup.RoomId, start, start.AddHours(1));
+        dto.ConsultationFee = 0;
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(setup.FirstUserId, dto));
+
+        Assert.Contains("Consultation fee", exception.Message);
+    }
+
+    [Fact]
+    public async Task BookedSchedule_CannotBeEditedCancelledOrDeleted()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedSchedulingDataAsync(db);
+        var service = new DoctorScheduleService(db);
+        var start = DateTime.UtcNow.AddDays(7);
+        var dto = Schedule(setup.RoomId, start, start.AddHours(1));
+        var schedule = await service.CreateAsync(setup.FirstUserId, dto);
+        db.Appointments.Add(new Appointment
+        {
+            DoctorTimeSlotId = schedule.DoctorTimeSlotId, AppointmentNumber = 1,
+            EstimatedStartAt = start, PatientName = "Booked Patient", PatientPhone = "0770000000",
+            AppointmentType = "Consultation", Reason = "Checkup", Status = "Confirmed"
+        });
+        await db.SaveChangesAsync();
+
+        var editError = await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateAsync(setup.FirstUserId, schedule.DoctorTimeSlotId, new UpdateDoctorScheduleDto
+        {
+            RoomId = dto.RoomId, StartAt = dto.StartAt, EndAt = dto.EndAt, Capacity = dto.Capacity, ConsultationFee = dto.ConsultationFee
+        }));
+        var cancelError = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CancelAsync(setup.FirstUserId, schedule.DoctorTimeSlotId));
+        var deleteError = await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteAsync(setup.FirstUserId, schedule.DoctorTimeSlotId));
+
+        Assert.Contains("cannot be edited", editError.Message);
+        Assert.Contains("cannot be cancelled", cancelError.Message);
+        Assert.Contains("cannot be deleted", deleteError.Message);
+    }
+
+    [Fact]
+    public async Task DeleteSchedule_RemovesUnbookedOwnedSchedule()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedSchedulingDataAsync(db);
+        var service = new DoctorScheduleService(db);
+        var start = DateTime.UtcNow.AddDays(8);
+        var schedule = await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
+
+        var deleted = await service.DeleteAsync(setup.FirstUserId, schedule.DoctorTimeSlotId);
+
+        Assert.True(deleted);
+        Assert.Empty(await service.GetMineAsync(setup.FirstUserId));
+    }
+
+    private static CreateDoctorScheduleDto Schedule(int roomId, DateTime start, DateTime end) =>
+        new() { RoomId = roomId, StartAt = start, EndAt = end, Capacity = 5, ConsultationFee = 2500m };
+
+    private static ApplicationDbContext CreateContext()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase($"room-tests-{Guid.NewGuid()}").Options;
+        return new ApplicationDbContext(options);
+    }
+
+    private static async Task<(int FirstUserId, int SecondUserId, int RoomId)> SeedSchedulingDataAsync(ApplicationDbContext db)
+    {
+        var admin = new User { FullName = "Admin", Email = "admin@test.lk", PasswordHash = "hash", Role = "Admin" };
+        var firstUser = new User { FullName = "First Doctor", Email = "first@test.lk", PasswordHash = "hash", Role = "Doctor" };
+        var secondUser = new User { FullName = "Second Doctor", Email = "second@test.lk", PasswordHash = "hash", Role = "Doctor" };
+        db.Users.AddRange(admin, firstUser, secondUser);
+        db.Doctors.AddRange(
+            new Doctor { User = firstUser, FirstName = "First", LastName = "Doctor", NIC = "200000000001", Specialization = "Medicine", SlmcLicenseNumber = "SLMC-1", PhoneNumber = "0771111111", RegistrationStatus = DoctorRegistrationStatuses.Approved },
+            new Doctor { User = secondUser, FirstName = "Second", LastName = "Doctor", NIC = "200000000002", Specialization = "Medicine", SlmcLicenseNumber = "SLMC-2", PhoneNumber = "0772222222", RegistrationStatus = DoctorRegistrationStatuses.Approved });
+        var room = new Room { RoomNumber = "C-204", RoomName = "Consultation Room", Floor = "Second", IsConfirmed = true, CreatedByUser = admin };
+        db.Rooms.Add(room);
+        await db.SaveChangesAsync();
+        return (firstUser.UserId, secondUser.UserId, room.RoomId);
+    }
+}

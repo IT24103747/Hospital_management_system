@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using HospitalManagementSystem.Api.DTOs;
 using HospitalManagementSystem.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 
 namespace HospitalManagementSystem.Api.Controllers
 {
@@ -169,6 +170,7 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpPost("slots")]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(typeof(DoctorTimeSlotDto), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> CreateSlot([FromBody] CreateDoctorTimeSlotDto dto)
@@ -187,6 +189,7 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpPut("slots/{id:int}")]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(typeof(DoctorTimeSlotDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -208,6 +211,7 @@ namespace HospitalManagementSystem.Api.Controllers
         }
 
         [HttpPost("slots/{id:int}/cancel")]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(typeof(DoctorTimeSlotDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> CancelSlot(int id, [FromBody] CancelDoctorTimeSlotDto? dto)

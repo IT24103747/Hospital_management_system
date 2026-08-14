@@ -26,4 +26,5 @@ public class Doctor
 
     public User User { get; set; } = null!;
     public User? ReviewedByUser { get; set; }
+    public ICollection<DoctorTimeSlot> DoctorTimeSlots { get; set; } = new List<DoctorTimeSlot>();
 }

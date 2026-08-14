@@ -14,10 +14,15 @@ namespace HospitalManagementSystem.Api.DTOs
         public string PatientEmail { get; set; } = string.Empty;
         public string DoctorName { get; set; } = string.Empty;
         public string Specialty { get; set; } = string.Empty;
+        public int? RoomId { get; set; }
+        public string RoomNumber { get; set; } = string.Empty;
+        public string RoomName { get; set; } = string.Empty;
+        public string Floor { get; set; } = string.Empty;
         public DateTime StartAt { get; set; }
         public DateTime EndAt { get; set; }
         public int SlotCapacity { get; set; }
         public int BookedCount { get; set; }
+        public decimal ConsultationFee { get; set; }
         public string AppointmentType { get; set; } = string.Empty;
         public string Reason { get; set; } = string.Empty;
         public string Status { get; set; } = string.Empty;
@@ -80,11 +85,16 @@ namespace HospitalManagementSystem.Api.DTOs
         public DateTime EndAt { get; set; }
         public int Capacity { get; set; }
         public int BookedCount { get; set; }
+        public decimal ConsultationFee { get; set; }
         public IEnumerable<int> BookedAppointmentNumbers { get; set; } = [];
         public int AvailableCount => Math.Max(0, Capacity - BookedCount);
         public int NextAppointmentNumber { get; set; }
         public DateTime? NextEstimatedStartAt { get; set; }
         public bool IsActive { get; set; }
+        public int? RoomId { get; set; }
+        public string RoomNumber { get; set; } = string.Empty;
+        public string RoomName { get; set; } = string.Empty;
+        public string Floor { get; set; } = string.Empty;
     }
 
     public class DoctorLookupDto

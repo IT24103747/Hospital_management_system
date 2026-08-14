@@ -11,6 +11,8 @@ import ProtectedRoute from '../features/auth/ProtectedRoute'
 import DoctorDashboardPage from '../features/doctors/pages/DoctorDashboardPage'
 import DoctorProfilePage from '../features/doctors/pages/DoctorProfilePage'
 import TriageReviewPage from '../features/triage/pages/TriageReviewPage'
+import RoomsPage from '../features/rooms/pages/RoomsPage'
+import DoctorSchedulesPage from '../features/appointments/pages/DoctorSchedulesPage'
 
 export default function AppRouter() {
   return (
@@ -29,6 +31,7 @@ export default function AppRouter() {
             <Route path="/doctors" element={<DoctorsPage />} />
             <Route path="/appointments" element={<AppointmentsPage />} />
             <Route path="/triage/review" element={<TriageReviewPage />} />
+            <Route path="/admin/rooms" element={<RoomsPage />} />
           </Route>
         </Route>
 
@@ -37,6 +40,7 @@ export default function AppRouter() {
             <Route path="/doctor/dashboard" element={<DoctorDashboardPage />} />
             <Route path="/doctor/profile" element={<DoctorProfilePage />} />
             <Route path="/doctor/triage-review" element={<TriageReviewPage />} />
+            <Route path="/doctor/schedules" element={<DoctorSchedulesPage />} />
           </Route>
         </Route>
 
