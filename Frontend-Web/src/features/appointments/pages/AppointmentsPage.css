@@ -108,8 +108,8 @@
 .appt-panel .table-wrapper {
   overflow: hidden;
   border-radius: 10px;
-  border-color: #d8e2ef;
-  background: var(--bg-card);
+  border-color: var(--border-default);
+  background: var(--bg-surface);
   box-shadow: none;
 }
 
@@ -119,31 +119,31 @@
 }
 
 .appt-panel .table thead {
-  background: #eef4fa;
+  background: var(--bg-surface-2);
 }
 
 .appt-panel .table th {
   padding: 10px 14px;
   font-size: 0.66rem;
   letter-spacing: 0.08em;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .appt-panel .table td {
   padding: 12px 14px;
-  border-bottom-color: #dce6f1;
+  border-bottom-color: var(--border-default);
 }
 
 .appt-panel .table tbody tr {
-  background: #f7fbff;
+  background: var(--bg-card);
 }
 
 .appt-panel .table tbody tr:nth-child(even) {
-  background: #f1f6fc;
+  background: var(--bg-surface);
 }
 
 .appt-panel .table tbody tr:hover {
-  background: #ecf5ff;
+  background: var(--bg-glass-hover);
 }
 
 .appt-toolbar {
@@ -175,8 +175,16 @@
   color: var(--text-primary);
 }
 
+.appt-search input::placeholder {
+  color: var(--text-muted);
+}
+
 .appt-search input {
   width: 100%;
+}
+
+.appt-search--slots {
+  min-width: 0;
 }
 
 .appt-filter {
@@ -310,7 +318,10 @@
 }
 
 .appt-slot-controls {
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  flex: 1;
+  max-width: 720px;
   justify-content: flex-end;
 }
 
@@ -324,9 +335,10 @@
 .appt-view-toggle button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 32px;
   min-height: 32px;
-  padding: 0 10px;
+  padding: 0;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -367,7 +379,7 @@
 }
 
 .appt-slot-table th {
-  background: #eef4fa;
+  background: var(--bg-surface-2);
   color: var(--text-muted);
   font-size: 0.68rem;
   font-weight: 800;
@@ -401,6 +413,139 @@
 
 .appt-slot-capacity {
   font-weight: 800;
+}
+
+body.dark .appt-stat,
+body.dark .appt-panel,
+body.dark .appt-slots,
+body.dark .appt-slot {
+  background:
+    linear-gradient(180deg, rgba(48, 48, 48, 0.96), rgba(39, 39, 39, 0.96));
+  border-color: rgba(212, 212, 212, 0.15);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.26);
+}
+
+body.dark .appt-stat {
+  background:
+    linear-gradient(135deg, rgba(55, 55, 55, 0.98), rgba(42, 42, 42, 0.98));
+}
+
+body.dark .appt-stat:hover {
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.32);
+}
+
+body.dark .appt-stat__icon {
+  background: color-mix(in srgb, var(--appt-accent) 16%, rgba(24, 24, 24, 0.72));
+}
+
+body.dark .appt-stat__label,
+body.dark .appt-section__count {
+  color: #b8b8b8;
+}
+
+body.dark .appt-panel .table-wrapper,
+body.dark .appt-slot-table-wrap {
+  background: #202020;
+  border-color: rgba(212, 212, 212, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+body.dark .appt-panel .table thead,
+body.dark .appt-slot-table th {
+  background: #252525;
+  color: #b3b3b3;
+}
+
+body.dark .appt-panel .table tbody tr,
+body.dark .appt-slot-table tbody tr {
+  background: #303030;
+}
+
+body.dark .appt-panel .table tbody tr:nth-child(even),
+body.dark .appt-slot-table tbody tr:nth-child(even) {
+  background: #282828;
+}
+
+body.dark .appt-panel .table tbody tr:hover,
+body.dark .appt-slot-table tbody tr:hover {
+  background: rgba(14, 165, 233, 0.12);
+}
+
+body.dark .appt-panel .table td,
+body.dark .appt-slot-table td {
+  border-bottom-color: rgba(212, 212, 212, 0.12);
+  color: #dddddd;
+}
+
+body.dark .appt-panel .table td strong,
+body.dark .appt-slot-table td strong,
+body.dark .appt-patient-cell strong,
+body.dark .appt-number-cell strong,
+body.dark .appt-doctor-cell strong {
+  color: #f8fafc;
+}
+
+body.dark .appt-patient-cell span,
+body.dark .appt-number-cell span,
+body.dark .appt-doctor-cell span,
+body.dark .appt-slot span,
+body.dark .appt-slot small {
+  color: #b3b3b3;
+}
+
+body.dark .appt-search,
+body.dark .appt-filter,
+body.dark .appt-inline-select,
+body.dark .appt-view-toggle,
+body.dark .appt-number-select,
+body.dark .appt-number-trigger,
+body.dark .appt-form label {
+  background: #242424;
+  border-color: rgba(212, 212, 212, 0.16);
+  color: var(--text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+body.dark .appt-search:focus-within,
+body.dark .appt-filter:focus,
+body.dark .appt-inline-select:focus,
+body.dark .appt-number-trigger:focus {
+  border-color: rgba(14, 165, 233, 0.55);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12);
+}
+
+body.dark .appt-search input::placeholder {
+  color: #8f8f8f;
+}
+
+body.dark .appt-filter,
+body.dark .appt-inline-select,
+body.dark .appt-form input,
+body.dark .appt-form select,
+body.dark .appt-form textarea {
+  color-scheme: dark;
+}
+
+body.dark .appt-view-toggle button.is-active {
+  background: rgba(14, 165, 233, 0.14);
+  color: var(--clr-primary);
+}
+
+body.dark .appt-section__count,
+body.dark .appt-view-toggle {
+  background: #242424;
+  border-color: rgba(212, 212, 212, 0.16);
+}
+
+body.dark .appt-avatar {
+  background: rgba(14, 165, 233, 0.16);
+  border-color: rgba(14, 165, 233, 0.35);
+  color: var(--clr-primary-light);
+}
+
+body.dark .appt-slot-empty {
+  background: rgba(0, 0, 0, 0.12);
+  border-color: rgba(212, 212, 212, 0.16);
 }
 
 .appt-slot-row-actions {
@@ -734,5 +879,11 @@
   .appt-actions {
     align-items: center;
     flex-direction: row;
+  }
+
+  .appt-slot-controls {
+    grid-template-columns: 1fr auto auto;
+    width: 100%;
+    max-width: none;
   }
 }

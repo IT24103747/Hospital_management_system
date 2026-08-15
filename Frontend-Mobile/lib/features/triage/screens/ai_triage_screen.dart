@@ -76,11 +76,12 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
         _setWorkflow(workflow);
       }
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(
                 'SafeTriage could not safely process this request: $error'),
             backgroundColor: AppColors.danger));
+      }
     } finally {
       _progressTimer?.cancel();
       if (mounted) setState(() => _isSubmitting = false);
@@ -122,14 +123,16 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
     final vitals = <String, dynamic>{'source': 'patient-reported'};
     if (heartRateText.isNotEmpty) {
       final heartRate = int.tryParse(heartRateText);
-      if (heartRate == null)
+      if (heartRate == null) {
         throw const FormatException('Heart rate must be a whole number.');
+      }
       vitals['heartRateBpm'] = heartRate;
     }
     if (temperatureText.isNotEmpty) {
       final temperature = double.tryParse(temperatureText);
-      if (temperature == null)
+      if (temperature == null) {
         throw const FormatException('Temperature must be a valid number.');
+      }
       vitals['temperatureCelsius'] = temperature;
     }
     return vitals;
@@ -143,9 +146,10 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
           await ApiService.getTriageWorkflow(_workflow!.workflowId);
       if (mounted) _setWorkflow(workflow);
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Unable to refresh status: $error')));
+      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }

@@ -7,6 +7,7 @@ namespace HospitalManagementSystem.Api.Services;
 
 public class RoomService : IRoomService
 {
+    internal const int RoomTurnoverMinutes = 30;
     private readonly ApplicationDbContext _db;
     public RoomService(ApplicationDbContext db) => _db = db;
 
@@ -20,11 +21,26 @@ public class RoomService : IRoomService
         if (confirmedOnly) query = query.Where(room => room.IsConfirmed);
         var rooms = await query.OrderBy(room => room.RoomNumber).ToListAsync();
 
-        var rangeStart = startAt ?? DateTime.UtcNow;
-        var rangeEnd = endAt ?? DateTime.UtcNow.AddTicks(1);
-        var bookedRoomIds = await _db.DoctorTimeSlots.AsNoTracking()
-            .Where(slot => slot.IsActive && slot.RoomId != null && slot.StartAt < rangeEnd && rangeStart < slot.EndAt && slot.DoctorTimeSlotId != excludeScheduleId)
-            .Select(slot => slot.RoomId!.Value).Distinct().ToListAsync();
+        var slotQuery = _db.DoctorTimeSlots.AsNoTracking()
+            .Where(slot =>
+                slot.IsActive &&
+                slot.RoomId != null &&
+                slot.DoctorTimeSlotId != excludeScheduleId);
+
+        if (startAt.HasValue)
+        {
+            var bufferedStart = startAt.Value.AddMinutes(-RoomTurnoverMinutes);
+            var bufferedEnd = endAt!.Value.AddMinutes(RoomTurnoverMinutes);
+            slotQuery = slotQuery.Where(slot => slot.StartAt < bufferedEnd && bufferedStart < slot.EndAt);
+        }
+        else
+        {
+            var now = DateTime.UtcNow;
+            var releaseWindowStart = now.AddMinutes(-RoomTurnoverMinutes);
+            slotQuery = slotQuery.Where(slot => slot.StartAt <= now && releaseWindowStart < slot.EndAt);
+        }
+
+        var bookedRoomIds = await slotQuery.Select(slot => slot.RoomId!.Value).Distinct().ToListAsync();
         var booked = bookedRoomIds.ToHashSet();
         return rooms.Select(room => Map(room, booked.Contains(room.RoomId)));
     }
@@ -34,7 +50,8 @@ public class RoomService : IRoomService
         var room = await _db.Rooms.AsNoTracking().SingleOrDefaultAsync(value => value.RoomId == id);
         if (room is null) return null;
         var now = DateTime.UtcNow;
-        var isBooked = await _db.DoctorTimeSlots.AnyAsync(slot => slot.RoomId == id && slot.IsActive && slot.StartAt <= now && now < slot.EndAt);
+        var releaseWindowStart = now.AddMinutes(-RoomTurnoverMinutes);
+        var isBooked = await _db.DoctorTimeSlots.AnyAsync(slot => slot.RoomId == id && slot.IsActive && slot.StartAt <= now && releaseWindowStart < slot.EndAt);
         return Map(room, isBooked);
     }
 

@@ -120,6 +120,8 @@ namespace HospitalManagementSystem.Api.DTOs
         public DateTime EndAt { get; set; }
         [Range(1, 100)]
         public int Capacity { get; set; } = 1;
+        [Range(typeof(decimal), "0.01", "1000000.00")]
+        public decimal ConsultationFee { get; set; }
     }
 
     public class UpdateDoctorTimeSlotDto : CreateDoctorTimeSlotDto

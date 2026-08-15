@@ -369,8 +369,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           onChanged: (_) => setState(() {}),
                           validator: (value) {
                             final email = value?.trim() ?? '';
-                            if (email.isEmpty)
+                            if (email.isEmpty) {
                               return 'Please enter your email address';
+                            }
                             if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
                                 .hasMatch(email)) {
                               return 'Please enter a valid email address';

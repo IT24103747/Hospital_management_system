@@ -49,12 +49,16 @@ class _DashboardLayoutState extends State<DashboardLayout> {
   String _userInitials = 'PU';
   String? _appointmentAction;
   int _appointmentActionVersion = 0;
+  Appointment? _nextAppointment;
+  bool _loadingNextAppointment = true;
+  String? _nextAppointmentError;
 
   @override
   void initState() {
     super.initState();
     _activeSection = _sectionFromTitle(widget.title);
     _loadUserSession();
+    _loadNextAppointment();
   }
 
   Future<void> _loadUserSession() async {
@@ -128,6 +132,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
   Widget get _content => switch (_activeSection) {
         _PatientSection.home => _HomeSection(
             userName: _userName,
+            nextAppointmentText: _nextAppointmentText,
             onBookAppointment: () => _openAppointments('book'),
             onViewAppointments: () => _openAppointments('upcoming'),
           ),
@@ -135,6 +140,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _PatientSection.appointments => _AppointmentsSection(
             action: _appointmentAction,
             actionVersion: _appointmentActionVersion,
+            onAppointmentsLoaded: _syncNextAppointment,
           ),
         _PatientSection.doctors => const _DoctorsSection(),
         _PatientSection.records => const _MedicalRecordsSection(),
@@ -157,6 +163,55 @@ class _DashboardLayoutState extends State<DashboardLayout> {
       _appointmentAction = action;
       _appointmentActionVersion++;
     });
+  }
+
+  Future<void> _loadNextAppointment() async {
+    try {
+      final appointments = await ApiService.getMyAppointments();
+      if (!mounted) return;
+      setState(() {
+        _nextAppointment = _findNextAppointment(appointments);
+        _nextAppointmentError = null;
+        _loadingNextAppointment = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _nextAppointmentError = 'Unable to load your next appointment right now.';
+        _loadingNextAppointment = false;
+      });
+    }
+  }
+
+  void _syncNextAppointment(List<Appointment> appointments) {
+    setState(() {
+      _nextAppointment = _findNextAppointment(appointments);
+      _nextAppointmentError = null;
+      _loadingNextAppointment = false;
+    });
+  }
+
+  String get _nextAppointmentText {
+    if (_loadingNextAppointment) {
+      return 'Checking your upcoming appointments...';
+    }
+
+    if (_nextAppointmentError != null) {
+      return _nextAppointmentError!;
+    }
+
+    final appointment = _nextAppointment;
+    if (appointment == null) {
+      return 'You have no upcoming appointments. Book a visit when you are ready.';
+    }
+
+    final doctorName = appointment.doctorName.trim().isEmpty
+        ? 'your doctor'
+        : appointment.doctorName.trim();
+    final estimatedStartAt = appointment.estimatedStartAt.toLocal();
+    final date = DateFormat('MMM d').format(estimatedStartAt);
+    final time = DateFormat('h:mm a').format(estimatedStartAt);
+    return 'Your next appointment is $doctorName on $date at $time.';
   }
 
   Future<void> _logout() async {
@@ -531,11 +586,13 @@ class _DashboardLayoutState extends State<DashboardLayout> {
 
 class _HomeSection extends StatelessWidget {
   final String userName;
+  final String nextAppointmentText;
   final VoidCallback onBookAppointment;
   final VoidCallback onViewAppointments;
 
   const _HomeSection({
     required this.userName,
+    required this.nextAppointmentText,
     required this.onBookAppointment,
     required this.onViewAppointments,
   });
@@ -547,8 +604,7 @@ class _HomeSection extends StatelessWidget {
       children: [
         _HeroCard(
           title: 'Good morning, $firstName',
-          subtitle:
-              'Your next appointment is Dr. Kasun Silva on Aug 15 at 10:30 AM.',
+          subtitle: nextAppointmentText,
           icon: Icons.waving_hand_rounded,
           actions: const ['View Appointment', 'Book Appointment'],
           onAction: (label) {
@@ -593,8 +649,13 @@ class _HomeSection extends StatelessWidget {
 class _AppointmentsSection extends StatefulWidget {
   final String? action;
   final int actionVersion;
+  final ValueChanged<List<Appointment>>? onAppointmentsLoaded;
 
-  const _AppointmentsSection({this.action, this.actionVersion = 0});
+  const _AppointmentsSection({
+    this.action,
+    this.actionVersion = 0,
+    this.onAppointmentsLoaded,
+  });
 
   @override
   State<_AppointmentsSection> createState() => _AppointmentsSectionState();
@@ -709,6 +770,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
           _selectedAppointmentNumber = null;
         }
       });
+      widget.onAppointmentsLoaded?.call(appointments);
       _prefillProfile(profile);
       if (widget.action != null) _applyAction(widget.action);
     } catch (e) {
@@ -1974,6 +2036,24 @@ String _formatAppointmentLocation(Appointment appointment) {
       .join(', ');
 }
 
+Appointment? _findNextAppointment(List<Appointment> appointments) {
+  final now = DateTime.now();
+  final upcoming = appointments
+      .where((appointment) {
+        final status = appointment.status.trim().toLowerCase();
+        return !_isClosedAppointmentStatus(status) &&
+            status != 'no-show' &&
+            appointment.endAt.toLocal().isAfter(now);
+      })
+      .toList()
+    ..sort((a, b) => a.estimatedStartAt.compareTo(b.estimatedStartAt));
+
+  return upcoming.isEmpty ? null : upcoming.first;
+}
+
+bool _isClosedAppointmentStatus(String status) =>
+    status == 'cancelled' || status == 'completed';
+
 String _formatAppointmentDate(Appointment appointment) =>
     DateFormat('MMM d, yyyy').format(appointment.startAt.toLocal());
 
@@ -2975,6 +3055,11 @@ class _AppointmentCard extends StatelessWidget {
                   child: _MiniMetric(
                       label: 'Time',
                       value: _formatAppointmentTime(appointment))),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: _MiniMetric(
+                      label: 'Fee',
+                      value: _formatFee(appointment.consultationFee))),
             ],
           ),
           if (onReschedule != null || onCancel != null) ...[
@@ -3306,37 +3391,6 @@ class _RecordCategory extends StatelessWidget {
               children: items.map((item) => Chip(label: Text(item))).toList(),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ChatBubble extends StatelessWidget {
-  final String text;
-  final bool isPatient;
-
-  const _ChatBubble({required this.text, required this.isPatient});
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: isPatient ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(13),
-        constraints: const BoxConstraints(maxWidth: 300),
-        decoration: BoxDecoration(
-          color: isPatient ? AppColors.primary : AppColors.bgLightCard,
-          borderRadius: BorderRadius.circular(16),
-          border: isPatient ? null : Border.all(color: AppColors.borderLight),
-        ),
-        child: Text(
-          text,
-          style: TextStyle(
-              color: isPatient ? Colors.white : AppColors.textPrimaryLight,
-              fontSize: 13,
-              height: 1.35),
         ),
       ),
     );

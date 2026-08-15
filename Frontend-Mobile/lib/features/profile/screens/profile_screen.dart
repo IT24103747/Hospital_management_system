@@ -50,7 +50,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final parts =
             '${fetched.firstName} ${fetched.lastName}'.trim().split(' ');
         String initials = parts.first[0].toUpperCase();
-        if (parts.length > 1) initials += parts.last[0].toUpperCase();
+        if (parts.length > 1) {
+          initials += parts.last[0].toUpperCase();
+        }
         setState(() {
           _patient = fetched;
           _userName = '${fetched.firstName} ${fetched.lastName}';
@@ -59,13 +61,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (_) {
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   void _showEditProfileSheet() {
     if (_patient == null) return;
 
+    final messenger = ScaffoldMessenger.of(context);
     final phoneController = TextEditingController(text: _patient!.phoneNumber);
     final addressController =
         TextEditingController(text: _patient!.address ?? '');
@@ -175,8 +180,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           prefixIcon: Icons.phone_android_rounded,
                         ),
                         validator: (v) {
-                          if (v == null || v.isEmpty)
+                          if (v == null || v.isEmpty) {
                             return 'Please enter phone number';
+                          }
                           final regExp = RegExp(r'^\+?[0-9]{9,15}$');
                           if (!regExp.hasMatch(v.replaceAll(' ', ''))) {
                             return 'Enter a valid phone number (e.g., +94771234567)';
@@ -193,10 +199,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           prefixIcon: Icons.home_outlined,
                         ),
                         validator: (v) {
-                          if (v == null || v.isEmpty)
+                          if (v == null || v.isEmpty) {
                             return 'Please enter address';
-                          if (v.trim().length < 5)
+                          }
+                          if (v.trim().length < 5) {
                             return 'Address must be at least 5 characters long';
+                          }
                           return null;
                         },
                       ),
@@ -209,10 +217,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           prefixIcon: Icons.person_outline_rounded,
                         ),
                         validator: (v) {
-                          if (v == null || v.isEmpty)
+                          if (v == null || v.isEmpty) {
                             return 'Please enter emergency contact name';
-                          if (v.trim().length < 3)
+                          }
+                          if (v.trim().length < 3) {
                             return 'Name must be at least 3 characters long';
+                          }
                           final regExp = RegExp(r'^[a-zA-Z\s\.]+$');
                           if (!regExp.hasMatch(v.trim())) {
                             return 'Name must contain letters only';
@@ -229,8 +239,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           prefixIcon: Icons.phone_in_talk_rounded,
                         ),
                         validator: (v) {
-                          if (v == null || v.isEmpty)
+                          if (v == null || v.isEmpty) {
                             return 'Please enter emergency phone number';
+                          }
                           final regExp = RegExp(r'^\+?[0-9]{9,15}$');
                           if (!regExp.hasMatch(v.replaceAll(' ', ''))) {
                             return 'Enter a valid phone number (e.g., +94712345678)';
@@ -278,12 +289,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                             _patient!.profileImageUrl,
                                       };
                                       await ApiService.updateMyProfile(data);
-                                      if (context.mounted) {
-                                        Navigator.pop(context);
+                                      if (!context.mounted || !mounted) {
+                                        return;
                                       }
+                                      Navigator.pop(context);
                                       _loadProfileData();
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
+                                      messenger.showSnackBar(
                                         SnackBar(
                                           content: const Row(
                                             children: [
@@ -302,8 +313,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         ),
                                       );
                                     } catch (e) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
+                                      messenger.showSnackBar(
                                         SnackBar(
                                           content: Text('Failed to update: $e'),
                                           backgroundColor: AppColors.danger,
@@ -314,7 +324,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         ),
                                       );
                                     } finally {
-                                      setSheetState(() => isSaving = false);
+                                      if (context.mounted) {
+                                        setSheetState(() => isSaving = false);
+                                      }
                                     }
                                   }
                                 },

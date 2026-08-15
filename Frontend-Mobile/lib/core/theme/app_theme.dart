@@ -9,10 +9,6 @@ class AppTheme {
 
   // ── Typography (Inter-inspired sizes matching web rem scale) ─────────────────
   static const _fontFamily = 'Inter'; // load via pubspec.yaml or Google Fonts
-  static const _bodyLarge  = TextStyle(fontSize: 16, fontFamily: _fontFamily, height: 1.6);
-  static const _bodyMedium = TextStyle(fontSize: 14, fontFamily: _fontFamily, height: 1.6);
-  static const _bodySmall  = TextStyle(fontSize: 12, fontFamily: _fontFamily, height: 1.5);
-  static const _labelLarge = TextStyle(fontSize: 14, fontWeight: FontWeight.w600, fontFamily: _fontFamily);
 
   // ─── Light Theme ─────────────────────────────────────────────────────────────
   static ThemeData get lightTheme {
@@ -50,20 +46,20 @@ class AppTheme {
       scaffoldBackgroundColor: AppColors.bgLight,
 
       // StatusBar
-      appBarTheme: AppBarTheme(
+      appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.bgLightCard, // --bg-card
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         shadowColor: Colors.transparent,
         centerTitle: false,
-        iconTheme: const IconThemeData(color: AppColors.textPrimaryLight),
-        titleTextStyle: const TextStyle(
+        iconTheme: IconThemeData(color: AppColors.textPrimaryLight),
+        titleTextStyle: TextStyle(
           color: AppColors.textPrimaryLight,
           fontSize: 18,
           fontWeight: FontWeight.w700,
           fontFamily: _fontFamily,
         ),
-        systemOverlayStyle: const SystemUiOverlayStyle(
+        systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
           statusBarIconBrightness: Brightness.dark,
           statusBarBrightness: Brightness.light,
@@ -328,20 +324,20 @@ class AppTheme {
       fontFamily: _fontFamily,
       scaffoldBackgroundColor: AppColors.bgDark,
 
-      appBarTheme: AppBarTheme(
+      appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.surfaceDark,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         shadowColor: Colors.transparent,
         centerTitle: false,
-        iconTheme: const IconThemeData(color: AppColors.textPrimaryDark),
-        titleTextStyle: const TextStyle(
+        iconTheme: IconThemeData(color: AppColors.textPrimaryDark),
+        titleTextStyle: TextStyle(
           color: AppColors.textPrimaryDark,
           fontSize: 18,
           fontWeight: FontWeight.w700,
           fontFamily: _fontFamily,
         ),
-        systemOverlayStyle: const SystemUiOverlayStyle(
+        systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
           statusBarIconBrightness: Brightness.light,
           statusBarBrightness: Brightness.dark,

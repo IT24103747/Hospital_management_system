@@ -227,6 +227,8 @@ namespace HospitalManagementSystem.Api.Services
             if (endAt <= startAt)
                 throw new InvalidOperationException("Slot end time must be after start time.");
 
+            ValidateConsultationFee(dto.ConsultationFee);
+
             if (await _repository.SlotOverlapsAsync(doctorName, startAt, endAt, doctorId: dto.DoctorId))
                 throw new InvalidOperationException("This doctor already has an overlapping time slot.");
 
@@ -242,6 +244,7 @@ namespace HospitalManagementSystem.Api.Services
                 StartAt = startAt,
                 EndAt = endAt,
                 Capacity = dto.Capacity,
+                ConsultationFee = decimal.Round(dto.ConsultationFee, 2),
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -271,6 +274,8 @@ namespace HospitalManagementSystem.Api.Services
             if (endAt <= startAt)
                 throw new InvalidOperationException("Slot end time must be after start time.");
 
+            ValidateConsultationFee(dto.ConsultationFee);
+
             if (dto.Capacity < activeAppointments.Count)
                 throw new InvalidOperationException("Slot capacity cannot be less than the number of booked appointments.");
 
@@ -287,6 +292,7 @@ namespace HospitalManagementSystem.Api.Services
             slot.StartAt = startAt;
             slot.EndAt = endAt;
             slot.Capacity = dto.Capacity;
+            slot.ConsultationFee = decimal.Round(dto.ConsultationFee, 2);
             slot.IsActive = dto.IsActive;
 
             foreach (var appointment in activeAppointments)
@@ -352,6 +358,15 @@ namespace HospitalManagementSystem.Api.Services
 
             if (await _repository.RoomOverlapsAsync(roomId, startAt, endAt, excludeSlotId))
                 throw new InvalidOperationException("This room is already booked for the selected time period.");
+        }
+
+        private static void ValidateConsultationFee(decimal fee)
+        {
+            if (fee <= 0 || fee > 1_000_000m)
+                throw new InvalidOperationException("Consultation fee must be between LKR 0.01 and LKR 1,000,000.00.");
+
+            if (decimal.Round(fee, 2) != fee)
+                throw new InvalidOperationException("Consultation fee can contain a maximum of two decimal places.");
         }
 
         private async Task<int> GetNextAppointmentNumberAsync(DoctorTimeSlot slot, int? excludeAppointmentId = null)
