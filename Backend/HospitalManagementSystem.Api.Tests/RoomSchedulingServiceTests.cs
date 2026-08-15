@@ -46,17 +46,50 @@ public class RoomSchedulingServiceTests
     }
 
     [Fact]
-    public async Task CreateSchedule_AllowsAdjacentRoomBookings()
+    public async Task CreateSchedule_RejectsRoomBookingsInsideTurnoverWindow()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedSchedulingDataAsync(db);
+        var service = new DoctorScheduleService(db);
+        var start = DateTime.UtcNow.AddDays(3);
+        await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(setup.SecondUserId, Schedule(setup.RoomId, start.AddHours(1), start.AddHours(2))));
+
+        Assert.Equal("This room is already booked for the selected time period.", exception.Message);
+    }
+
+    [Fact]
+    public async Task CreateSchedule_AllowsRoomBookingAfterTurnoverWindow()
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
         var service = new DoctorScheduleService(db);
         var start = DateTime.UtcNow.AddDays(3);
         var first = await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
-        var second = await service.CreateAsync(setup.SecondUserId, Schedule(setup.RoomId, start.AddHours(1), start.AddHours(2)));
+        var second = await service.CreateAsync(setup.SecondUserId, Schedule(setup.RoomId, start.AddHours(1).AddMinutes(30), start.AddHours(2)));
 
         Assert.True(first.IsActive);
         Assert.True(second.IsActive);
+    }
+
+    [Fact]
+    public async Task GetAvailableRooms_UsesTimeRangeWithTurnoverBuffer()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedSchedulingDataAsync(db);
+        var scheduleService = new DoctorScheduleService(db);
+        var roomService = new RoomService(db);
+        var start = DateTime.UtcNow.AddDays(4).Date.AddHours(8);
+        var end = start.AddHours(2);
+        await scheduleService.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, end));
+
+        var insideTurnover = await roomService.GetAllAsync(end.AddMinutes(15), end.AddHours(1), confirmedOnly: true);
+        var afterTurnover = await roomService.GetAllAsync(end.AddMinutes(30), end.AddHours(2).AddMinutes(30), confirmedOnly: true);
+
+        Assert.Equal("Booked", Assert.Single(insideTurnover).Status);
+        Assert.Equal("Available", Assert.Single(afterTurnover).Status);
     }
 
     [Fact]

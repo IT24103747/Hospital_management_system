@@ -69,21 +69,21 @@ body.dark {
   --clr-danger: #ef4444;
   --clr-info: #06b6d4;
 
-  --bg-base: #32404f;
-  --bg-dark: #0f172a;
-  --bg-surface: #202d3e;
-  --bg-surface-2: #1f2937;
-  --bg-card: #3b4d63;
-  --bg-glass: rgba(255, 255, 255, 0.04);
-  --bg-glass-hover: rgba(255, 255, 255, 0.08);
+  --bg-base: #242424;
+  --bg-dark: #161616;
+  --bg-surface: #2b2b2b;
+  --bg-surface-2: #353535;
+  --bg-card: #303030;
+  --bg-glass: rgba(255, 255, 255, 0.045);
+  --bg-glass-hover: rgba(255, 255, 255, 0.075);
 
-  --border-default: rgba(148, 163, 184, 0.12);
+  --border-default: rgba(212, 212, 212, 0.12);
   --border-focus: rgba(14, 165, 233, 0.5);
-  --border-glass: rgba(255, 255, 255, 0.06);
+  --border-glass: rgba(255, 255, 255, 0.08);
 
-  --text-primary: #ffffff;
-  --text-secondary: #cbd5e1;
-  --text-muted: #8fa0b5;
+  --text-primary: #f5f5f5;
+  --text-secondary: #d4d4d4;
+  --text-muted: #a3a3a3;
   --text-accent: #0ea5e9;
 
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);

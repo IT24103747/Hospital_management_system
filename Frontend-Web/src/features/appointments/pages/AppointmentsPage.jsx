@@ -53,6 +53,7 @@ const emptySlot = {
   startTime: '',
   endTime: '',
   capacity: 1,
+  consultationFee: String(DEFAULT_CONSULTATION_FEE),
   roomId: '',
 }
 
@@ -66,6 +67,7 @@ export default function AppointmentsPage() {
   const [slotOpen, setSlotOpen] = useState(false)
   const [slotView, setSlotView] = useState('table')
   const [slotStatus, setSlotStatus] = useState('Upcoming')
+  const [slotSearch, setSlotSearch] = useState('')
   const [editSlotTarget, setEditSlotTarget] = useState(null)
   const [cancelSlotTarget, setCancelSlotTarget] = useState(null)
   const [slotCancelReason, setSlotCancelReason] = useState('')
@@ -78,6 +80,7 @@ export default function AppointmentsPage() {
   const [roomError, setRoomError] = useState('')
   const appointmentNumberRef = useRef(null)
   const debouncedSearch = useDebounce(search, 300)
+  const debouncedSlotSearch = useDebounce(slotSearch, 300)
 
   const apiStatus = status === 'Confirmed' ? 'all' : status
   const filters = useMemo(() => ({ search: debouncedSearch, status: apiStatus, date, sortBy: 'startAt', sortDirection: 'asc' }), [apiStatus, debouncedSearch, date])
@@ -102,9 +105,12 @@ export default function AppointmentsPage() {
   } = useAppointments(filters)
 
   const today = new Date().toISOString().slice(0, 10)
+  const availableUpcomingSlotCount = slots
+    .filter(slot => slot.isActive && isFutureSlot(slot))
+    .reduce((sum, slot) => sum + Math.max(0, (slot.availableCount ?? slot.capacity - slot.bookedCount)), 0)
   const stats = [
     { label: "Today's Appointments", value: appointments.filter(a => a.startAt?.slice(0, 10) === today).length, icon: CalendarClock, tone: 'primary' },
-    { label: 'Available Slots', value: slots.reduce((sum, s) => sum + Math.max(0, (s.availableCount ?? s.capacity - s.bookedCount)), 0), icon: Clock, tone: 'blue' },
+    { label: 'Available Slots', value: availableUpcomingSlotCount, icon: Clock, tone: 'blue' },
     { label: 'Confirmed', value: appointments.filter(a => getDisplayStatus(a.status) === 'Confirmed').length, icon: CheckCircle, tone: 'success' },
     { label: 'Completed', value: appointments.filter(a => a.status === 'Completed').length, icon: Stethoscope, tone: 'purple' },
   ]
@@ -155,9 +161,25 @@ export default function AppointmentsPage() {
       return matchesSearch && matchesStatus && matchesDate
     })
   }, [appointments, date, debouncedSearch, status])
-  const filteredSlots = useMemo(() => (
-    slots.filter(slot => getSlotDisplayStatus(slot) === slotStatus)
-  ), [slots, slotStatus])
+  const filteredSlots = useMemo(() => {
+    const term = debouncedSlotSearch.trim().toLowerCase()
+    return slots.filter(slot => {
+      const displayStatus = getSlotDisplayStatus(slot)
+      const matchesStatus = displayStatus === slotStatus
+      const matchesSearch = !term || [
+        slot.doctorName,
+        slot.specialty,
+        formatDateTime(slot.startAt),
+        formatTime(slot.endAt),
+        formatSlotLocation(slot),
+        displayStatus,
+        `${slot.bookedCount}/${slot.capacity}`,
+        `${Math.max(0, (slot.availableCount ?? slot.capacity - slot.bookedCount))} available`,
+        slot.nextAppointmentNumber ? `#${slot.nextAppointmentNumber}` : '',
+      ].some(value => String(value || '').toLowerCase().includes(term))
+      return matchesStatus && matchesSearch
+    })
+  }, [debouncedSlotSearch, slots, slotStatus])
 
   const getBookedNumbersForSlot = (slot) => {
     const bySlot = appointments
@@ -284,6 +306,17 @@ export default function AppointmentsPage() {
       return
     }
 
+    const consultationFee = Number(slotForm.consultationFee)
+    if (!Number.isFinite(consultationFee) || consultationFee <= 0 || consultationFee > 1000000) {
+      setRoomError('Consultation fee must be between LKR 0.01 and LKR 1,000,000.00.')
+      return
+    }
+
+    if (!/^\d+(\.\d{1,2})?$/.test(String(slotForm.consultationFee).trim())) {
+      setRoomError('Consultation fee can contain a maximum of two decimal places.')
+      return
+    }
+
     const payload = {
       doctorId: Number(resolvedDoctor.doctorId),
       doctorName: resolvedDoctor.doctorName,
@@ -291,6 +324,7 @@ export default function AppointmentsPage() {
       startAt: new Date(`${slotForm.date}T${slotForm.startTime}`).toISOString(),
       endAt: new Date(`${slotForm.date}T${slotForm.endTime}`).toISOString(),
       capacity: Number(slotForm.capacity),
+      consultationFee,
       roomId: Number(slotForm.roomId),
       isActive: true,
     }
@@ -324,6 +358,7 @@ export default function AppointmentsPage() {
       startTime: toTimeInputValue(slot.startAt),
       endTime: toTimeInputValue(slot.endAt),
       capacity: slot.capacity || 1,
+      consultationFee: String(slot.consultationFee ?? DEFAULT_CONSULTATION_FEE),
       roomId: slot.roomId ? String(slot.roomId) : '',
     })
     setAvailableRooms(slot.roomId ? [slot] : [])
@@ -393,6 +428,7 @@ export default function AppointmentsPage() {
       doctorId: String(doctor.doctorId),
       doctorName: doctor.doctorName,
       specialty: doctor.specialty || '',
+      consultationFee: slotForm.consultationFee || String(getConsultationFee({ doctor, specialty: doctor.specialty })),
     })
     setRoomError('')
   }
@@ -560,23 +596,25 @@ export default function AppointmentsPage() {
             <span className="appt-section__count">{filteredSlots.length}/{slots.length}</span>
           </div>
           <div className="appt-slot-controls">
+            <label className="appt-search appt-search--slots">
+              <Search size={15} />
+              <input type="search" value={slotSearch} onChange={e => setSlotSearch(e.target.value)} placeholder="Search doctor, specialty, room" />
+            </label>
             <select value={slotStatus} onChange={e => setSlotStatus(e.target.value)} className="appt-filter">
               {SLOT_STATUS_FILTERS.map(value => <option key={value} value={value}>{value}</option>)}
             </select>
             <div className="appt-view-toggle" aria-label="Doctor time slot view">
-              <button type="button" className={slotView === 'table' ? 'is-active' : ''} onClick={() => setSlotView('table')} aria-pressed={slotView === 'table'}>
+              <button type="button" className={slotView === 'table' ? 'is-active' : ''} onClick={() => setSlotView('table')} aria-pressed={slotView === 'table'} aria-label="Table view" title="Table view">
                 <Table2 size={15} />
-                Table
               </button>
-              <button type="button" className={slotView === 'cards' ? 'is-active' : ''} onClick={() => setSlotView('cards')} aria-pressed={slotView === 'cards'}>
+              <button type="button" className={slotView === 'cards' ? 'is-active' : ''} onClick={() => setSlotView('cards')} aria-pressed={slotView === 'cards'} aria-label="Card view" title="Card view">
                 <LayoutGrid size={15} />
-                Cards
               </button>
             </div>
           </div>
         </div>
         {filteredSlots.length === 0 ? (
-          <div className="appt-slot-empty">No {slotStatus.toLowerCase()} doctor time slots found.</div>
+          <div className="appt-slot-empty">No {slotStatus.toLowerCase()} doctor time slots match the current search.</div>
         ) : slotView === 'table' ? (
           <div className="appt-slot-table-wrap">
             <table className="appt-slot-table">
@@ -916,6 +954,18 @@ export default function AppointmentsPage() {
           </label>
           <label>Appointment Capacity
             <input required type="number" min="1" max="100" value={slotForm.capacity} onChange={e => setSlotForm({ ...slotForm, capacity: e.target.value })} />
+          </label>
+          <label>Consultation Fee (LKR)
+            <input
+              required
+              type="number"
+              min="0.01"
+              max="1000000"
+              step="0.01"
+              value={slotForm.consultationFee}
+              onChange={e => setSlotForm({ ...slotForm, consultationFee: e.target.value })}
+              placeholder="2500.00"
+            />
           </label>
           <label className="appt-form__wide">Available Room
             <select

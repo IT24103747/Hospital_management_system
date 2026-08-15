@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using HospitalManagementSystem.Api.Data;
 using HospitalManagementSystem.Api.Models;
+using HospitalManagementSystem.Api.Services;
 
 namespace HospitalManagementSystem.Api.Repositories
 {
@@ -183,8 +184,8 @@ namespace HospitalManagementSystem.Api.Repositories
         public async Task<bool> RoomOverlapsAsync(int roomId, DateTime startAt, DateTime endAt, int? excludeSlotId = null) =>
             await _context.DoctorTimeSlots.AnyAsync(s =>
                 s.RoomId == roomId &&
-                s.StartAt < endAt &&
-                startAt < s.EndAt &&
+                s.StartAt < endAt.AddMinutes(RoomService.RoomTurnoverMinutes) &&
+                startAt.AddMinutes(-RoomService.RoomTurnoverMinutes) < s.EndAt &&
                 s.IsActive &&
                 (!excludeSlotId.HasValue || s.DoctorTimeSlotId != excludeSlotId.Value));
 

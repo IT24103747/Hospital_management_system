@@ -115,7 +115,10 @@ public class DoctorScheduleService : IDoctorScheduleService
 
     private async Task EnsureNoOverlapAsync(int doctorId, int roomId, DateTime startAt, DateTime endAt, int? excludeId)
     {
-        if (await _db.DoctorTimeSlots.AnyAsync(slot => slot.IsActive && slot.RoomId == roomId && slot.StartAt < endAt && startAt < slot.EndAt && slot.DoctorTimeSlotId != excludeId))
+        var bufferedStart = startAt.AddMinutes(-RoomService.RoomTurnoverMinutes);
+        var bufferedEnd = endAt.AddMinutes(RoomService.RoomTurnoverMinutes);
+
+        if (await _db.DoctorTimeSlots.AnyAsync(slot => slot.IsActive && slot.RoomId == roomId && slot.StartAt < bufferedEnd && bufferedStart < slot.EndAt && slot.DoctorTimeSlotId != excludeId))
             throw new InvalidOperationException("This room is already booked for the selected time period.");
         if (await _db.DoctorTimeSlots.AnyAsync(slot => slot.IsActive && slot.DoctorId == doctorId && slot.StartAt < endAt && startAt < slot.EndAt && slot.DoctorTimeSlotId != excludeId))
             throw new InvalidOperationException("You already have a schedule during the selected time period.");

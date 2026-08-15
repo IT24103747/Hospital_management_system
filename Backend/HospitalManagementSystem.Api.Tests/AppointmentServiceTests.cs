@@ -136,6 +136,7 @@ public class AppointmentServiceTests
                 StartAt = slot.StartAt,
                 EndAt = slot.EndAt,
                 Capacity = 1,
+                ConsultationFee = 2500m,
                 IsActive = true
             }));
 
@@ -159,6 +160,76 @@ public class AppointmentServiceTests
 
         Assert.Equal("This doctor already has an overlapping time slot.", doctorOverlap.Message);
         Assert.Equal("This room is already booked for the selected time period.", roomOverlap.Message);
+    }
+
+    [Fact]
+    public async Task CreateSlot_PersistsConsultationFee()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedAppointmentDataAsync(db);
+        var service = CreateService(db);
+        var start = DateTime.UtcNow.AddDays(6);
+
+        var slot = await service.CreateSlotAsync(SlotDto(setup.FirstDoctorId, setup.RoomId, start, start.AddHours(1), 3750.50m));
+
+        Assert.Equal(3750.50m, slot.ConsultationFee);
+        Assert.Equal(3750.50m, await db.DoctorTimeSlots.Select(value => value.ConsultationFee).SingleAsync());
+    }
+
+    [Fact]
+    public async Task UpdateSlot_UpdatesConsultationFee()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedAppointmentDataAsync(db);
+        var slot = await AddSlotAsync(db, setup);
+        var service = CreateService(db);
+
+        var updated = await service.UpdateSlotAsync(slot.DoctorTimeSlotId, new UpdateDoctorTimeSlotDto
+        {
+            DoctorId = setup.FirstDoctorId,
+            RoomId = setup.RoomId,
+            StartAt = slot.StartAt,
+            EndAt = slot.EndAt,
+            Capacity = slot.Capacity,
+            ConsultationFee = 4200.75m,
+            IsActive = true
+        });
+
+        Assert.NotNull(updated);
+        Assert.Equal(4200.75m, updated!.ConsultationFee);
+        Assert.Equal(4200.75m, await db.DoctorTimeSlots.Where(value => value.DoctorTimeSlotId == slot.DoctorTimeSlotId).Select(value => value.ConsultationFee).SingleAsync());
+    }
+
+    [Fact]
+    public async Task CreateSlot_RejectsInvalidConsultationFee()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedAppointmentDataAsync(db);
+        var service = CreateService(db);
+        var start = DateTime.UtcNow.AddDays(7);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateSlotAsync(SlotDto(setup.FirstDoctorId, setup.RoomId, start, start.AddHours(1), 2500.555m)));
+
+        Assert.Equal("Consultation fee can contain a maximum of two decimal places.", exception.Message);
+    }
+
+    [Fact]
+    public async Task CreateSlot_RequiresRoomTurnoverAfterPreviousSlot()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedAppointmentDataAsync(db);
+        var service = CreateService(db);
+        var start = DateTime.UtcNow.AddDays(8).Date.AddHours(8);
+        var end = start.AddHours(2);
+        await service.CreateSlotAsync(SlotDto(setup.FirstDoctorId, setup.RoomId, start, end));
+
+        var insideTurnover = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateSlotAsync(SlotDto(setup.SecondDoctorId, setup.RoomId, end.AddMinutes(15), end.AddHours(2))));
+        var afterTurnover = await service.CreateSlotAsync(SlotDto(setup.SecondDoctorId, setup.RoomId, end.AddMinutes(30), end.AddHours(2)));
+
+        Assert.Equal("This room is already booked for the selected time period.", insideTurnover.Message);
+        Assert.Equal(end.AddMinutes(30), afterTurnover.StartAt);
     }
 
     [Fact]
@@ -274,13 +345,14 @@ public class AppointmentServiceTests
             Reason = "Checkup"
         };
 
-    private static CreateDoctorTimeSlotDto SlotDto(int? doctorId, int? roomId, DateTime start, DateTime end) => new()
+    private static CreateDoctorTimeSlotDto SlotDto(int? doctorId, int? roomId, DateTime start, DateTime end, decimal consultationFee = 2500m) => new()
     {
         DoctorId = doctorId,
         RoomId = roomId,
         StartAt = start,
         EndAt = end,
-        Capacity = 2
+        Capacity = 2,
+        ConsultationFee = consultationFee
     };
 
     private static ApplicationDbContext CreateContext()

@@ -16,6 +16,7 @@ class Appointment {
   final String floor;
   final DateTime startAt;
   final DateTime endAt;
+  final double consultationFee;
   final String appointmentType;
   final String reason;
   final String status;
@@ -42,6 +43,7 @@ class Appointment {
     required this.floor,
     required this.startAt,
     required this.endAt,
+    required this.consultationFee,
     required this.appointmentType,
     required this.reason,
     required this.status,
@@ -71,6 +73,7 @@ class Appointment {
       floor: json['floor'] ?? '',
       startAt: DateTime.tryParse(json['startAt'] ?? '') ?? DateTime.now(),
       endAt: DateTime.tryParse(json['endAt'] ?? '') ?? DateTime.now(),
+      consultationFee: (json['consultationFee'] as num?)?.toDouble() ?? 0,
       appointmentType: json['appointmentType'] ?? '',
       reason: json['reason'] ?? '',
       status: json['status'] ?? '',
