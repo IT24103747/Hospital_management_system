@@ -8,7 +8,7 @@ namespace HospitalManagementSystem.Api.Services;
 
 public class DoctorScheduleService : IDoctorScheduleService
 {
-    private static readonly HashSet<string> OccupyingStatuses = ["Requested", "Confirmed", "Completed", "No-show"];
+    private static readonly HashSet<string> OccupyingStatuses = ["Confirmed", "Completed"];
     private readonly ApplicationDbContext _db;
     public DoctorScheduleService(ApplicationDbContext db) => _db = db;
 

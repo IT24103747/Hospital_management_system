@@ -526,6 +526,26 @@ body.dark .appt-form textarea {
   color-scheme: dark;
 }
 
+body.dark .appt-form select option,
+body.dark .appt-inline-select option,
+body.dark .appt-filter option {
+  background: #242424;
+  color: #f5f5f5;
+}
+
+body.dark .appt-form select option:checked,
+body.dark .appt-inline-select option:checked,
+body.dark .appt-filter option:checked {
+  background: #3a3a3a;
+  color: #ffffff;
+}
+
+body.dark .appt-form select option:disabled,
+body.dark .appt-inline-select option:disabled,
+body.dark .appt-filter option:disabled {
+  color: #9ca3af;
+}
+
 body.dark .appt-view-toggle button.is-active {
   background: rgba(14, 165, 233, 0.14);
   color: var(--clr-primary);
@@ -657,6 +677,15 @@ body.dark .appt-slot-empty {
   width: 100%;
   color: var(--text-primary);
   resize: vertical;
+}
+
+.appt-form select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.appt-form select option:disabled {
+  color: var(--text-muted);
 }
 
 .appt-form__wide {

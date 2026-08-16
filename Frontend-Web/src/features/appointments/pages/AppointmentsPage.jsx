@@ -25,11 +25,9 @@ const SPECIALTY_CONSULTATION_FEES = {
 
 const STATUS_CONFIG = {
   Upcoming: { icon: Clock, color: 'var(--clr-primary)', bg: 'rgba(14,165,233,0.12)' },
-  Requested: { icon: AlertTriangle, color: 'var(--clr-warning)', bg: 'rgba(245,158,11,0.12)' },
   Confirmed: { icon: CheckCircle, color: 'var(--clr-success)', bg: 'rgba(16,185,129,0.12)' },
   Completed: { icon: CheckCircle, color: 'var(--clr-primary)', bg: 'rgba(14,165,233,0.12)' },
   Cancelled: { icon: XCircle, color: 'var(--clr-danger)', bg: 'rgba(239,68,68,0.12)' },
-  'No-show': { icon: XCircle, color: 'var(--text-muted)', bg: 'rgba(100,116,139,0.12)' },
 }
 
 const emptyAppointment = {
@@ -82,8 +80,7 @@ export default function AppointmentsPage() {
   const debouncedSearch = useDebounce(search, 300)
   const debouncedSlotSearch = useDebounce(slotSearch, 300)
 
-  const apiStatus = status === 'Confirmed' ? 'all' : status
-  const filters = useMemo(() => ({ search: debouncedSearch, status: apiStatus, date, sortBy: 'startAt', sortDirection: 'asc' }), [apiStatus, debouncedSearch, date])
+  const filters = useMemo(() => ({ search: debouncedSearch, status, date, sortBy: 'startAt', sortDirection: 'asc' }), [debouncedSearch, date, status])
   const {
     appointments,
     slots,
@@ -111,7 +108,7 @@ export default function AppointmentsPage() {
   const stats = [
     { label: "Today's Appointments", value: appointments.filter(a => a.startAt?.slice(0, 10) === today).length, icon: CalendarClock, tone: 'primary' },
     { label: 'Available Slots', value: availableUpcomingSlotCount, icon: Clock, tone: 'blue' },
-    { label: 'Confirmed', value: appointments.filter(a => getDisplayStatus(a.status) === 'Confirmed').length, icon: CheckCircle, tone: 'success' },
+    { label: 'Confirmed', value: appointments.filter(a => a.status === 'Confirmed').length, icon: CheckCircle, tone: 'success' },
     { label: 'Completed', value: appointments.filter(a => a.status === 'Completed').length, icon: Stethoscope, tone: 'purple' },
   ]
   const doctors = useMemo(() => doctorDirectory, [doctorDirectory])
@@ -155,8 +152,7 @@ export default function AppointmentsPage() {
         appointment.doctorName,
         appointment.specialty,
       ].some(value => String(value || '').toLowerCase().includes(term))
-      const displayStatus = getDisplayStatus(appointment.status)
-      const matchesStatus = displayStatus === status
+      const matchesStatus = appointment.status === status
       const matchesDate = !date || (appointment.startAt || appointment.estimatedStartAt || '').slice(0, 10) === date
       return matchesSearch && matchesStatus && matchesDate
     })
@@ -185,7 +181,7 @@ export default function AppointmentsPage() {
     const bySlot = appointments
       .filter(a => String(a.doctorTimeSlotId) === String(slot.doctorTimeSlotId))
       .filter(a => !editTarget || a.appointmentId !== editTarget.appointmentId)
-      .filter(a => ['Requested', 'Confirmed', 'Completed', 'No-show'].includes(a.status))
+      .filter(a => ['Confirmed', 'Completed'].includes(a.status))
       .map(a => Number(a.appointmentNumber))
 
     const fromSlot = (slot.bookedAppointmentNumbers || []).map(n => Number(n))
@@ -498,7 +494,7 @@ export default function AppointmentsPage() {
         specialty: a.specialty,
       })),
     },
-    { key: 'status', label: 'Status', width: '120px', render: (a) => <StatusPill status={getDisplayStatus(a.status)} /> },
+    { key: 'status', label: 'Status', width: '120px', render: (a) => <StatusPill status={a.status} /> },
     {
       key: 'actions',
       label: '',
@@ -508,7 +504,7 @@ export default function AppointmentsPage() {
         <div className="appt-actions">
           <select
             className="appt-inline-select"
-            value={getDisplayStatus(a.status)}
+            value={a.status}
             onChange={(e) => updateStatus(a.appointmentId, e.target.value)}
             disabled={saving || a.status === 'Cancelled' || a.status === 'Completed'}
             aria-label={`Update status for ${a.patientName}`}
@@ -1031,7 +1027,7 @@ export default function AppointmentsPage() {
 }
 
 function StatusPill({ status }) {
-  const config = STATUS_CONFIG[status] || STATUS_CONFIG.Requested
+  const config = STATUS_CONFIG[status] || STATUS_CONFIG.Confirmed
   const Icon = config.icon
   return (
     <span className="appt-status" style={{ background: config.bg, color: config.color }}>
@@ -1039,10 +1035,6 @@ function StatusPill({ status }) {
       {status}
     </span>
   )
-}
-
-function getDisplayStatus(status) {
-  return status === 'Requested' || status === 'No-show' ? 'Confirmed' : status
 }
 
 function getConsultationFee({ doctor, slot, specialty }) {

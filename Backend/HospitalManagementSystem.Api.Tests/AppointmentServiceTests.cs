@@ -66,7 +66,7 @@ public class AppointmentServiceTests
     }
 
     [Fact]
-    public async Task RescheduleAppointment_MovesToNextAvailableSlotNumberAndRequestsConfirmation()
+    public async Task RescheduleAppointment_MovesToNextAvailableSlotNumberAndKeepsConfirmation()
     {
         await using var db = CreateContext();
         var setup = await SeedAppointmentDataAsync(db);
@@ -81,7 +81,7 @@ public class AppointmentServiceTests
         Assert.NotNull(rescheduled);
         Assert.Equal(destination.DoctorTimeSlotId, rescheduled!.DoctorTimeSlotId);
         Assert.Equal(2, rescheduled.AppointmentNumber);
-        Assert.Equal("Requested", rescheduled.Status);
+        Assert.Equal("Confirmed", rescheduled.Status);
         Assert.Equal(destination.StartAt.AddMinutes(30), rescheduled.EstimatedStartAt);
     }
 

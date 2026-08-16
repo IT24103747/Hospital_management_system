@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using HospitalManagementSystem.Api.Data;
+using HospitalManagementSystem.Api.Middleware;
 using HospitalManagementSystem.Api.Repositories;
 using HospitalManagementSystem.Api.Services;
 using HospitalManagementSystem.Api.Models;
@@ -94,7 +95,10 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-    await db.Database.MigrateAsync();
+    if (app.Environment.IsEnvironment("Testing"))
+        await db.Database.EnsureCreatedAsync();
+    else
+        await db.Database.MigrateAsync();
 
     await SeedSampleDataAsync(db);
 }
@@ -106,6 +110,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
 app.UseHttpsRedirection();
 app.UseCors("DevCors");
 app.UseAuthentication();
@@ -268,7 +273,7 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
                 PatientEmail = "nimesha.silva@email.com",
                 AppointmentType = "Follow-up",
                 Reason = "Review ECG results",
-                Status = "Requested",
+                Status = "Confirmed",
                 CreatedAt = new DateTime(2026, 8, 8, 5, 0, 0, DateTimeKind.Utc),
                 UpdatedAt = new DateTime(2026, 8, 8, 5, 0, 0, DateTimeKind.Utc)
             }
@@ -277,3 +282,5 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
 
     await db.SaveChangesAsync();
 }
+
+public partial class Program { }

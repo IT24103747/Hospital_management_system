@@ -7,9 +7,9 @@ namespace HospitalManagementSystem.Api.Services
     public class AppointmentService : IAppointmentService
     {
         private readonly IAppointmentRepository _repository;
-        private static readonly HashSet<string> ValidStatuses = ["Requested", "Confirmed", "Completed", "Cancelled", "No-show"];
-        private static readonly HashSet<string> TerminalStatuses = ["Completed", "Cancelled", "No-show"];
-        private static readonly HashSet<string> OccupyingStatuses = ["Requested", "Confirmed", "Completed", "No-show"];
+        private static readonly HashSet<string> ValidStatuses = ["Confirmed", "Completed", "Cancelled"];
+        private static readonly HashSet<string> TerminalStatuses = ["Completed", "Cancelled"];
+        private static readonly HashSet<string> OccupyingStatuses = ["Confirmed", "Completed"];
 
         public AppointmentService(IAppointmentRepository repository)
         {
@@ -177,7 +177,7 @@ namespace HospitalManagementSystem.Api.Services
             appointment.DoctorTimeSlotId = doctorTimeSlotId;
             appointment.AppointmentNumber = appointmentNumber;
             appointment.EstimatedStartAt = GetEstimatedStartAt(slot, appointmentNumber);
-            appointment.Status = "Requested";
+            appointment.Status = "Confirmed";
             return MapAppointment(await _repository.UpdateAsync(appointment));
         }
 
@@ -310,7 +310,7 @@ namespace HospitalManagementSystem.Api.Services
             if (slot is null) return null;
 
             var affectedAppointments = slot.Appointments
-                .Where(a => a.Status is "Requested" or "Confirmed")
+                .Where(a => a.Status == "Confirmed")
                 .OrderBy(a => a.AppointmentNumber)
                 .ToList();
 
@@ -384,7 +384,7 @@ namespace HospitalManagementSystem.Api.Services
         private static AppointmentDto MapAppointment(Appointment a)
         {
             var slot = a.DoctorTimeSlot;
-            var bookedCount = slot?.Appointments.Count(x => x.Status is "Requested" or "Confirmed" or "Completed" or "No-show") ?? 0;
+            var bookedCount = slot?.Appointments.Count(x => x.Status is "Confirmed" or "Completed") ?? 0;
 
             return new AppointmentDto
             {
@@ -421,7 +421,7 @@ namespace HospitalManagementSystem.Api.Services
         private static DoctorTimeSlotDto MapSlot(DoctorTimeSlot s) => new()
         {
             BookedAppointmentNumbers = s.Appointments
-                .Where(a => a.Status is "Requested" or "Confirmed" or "Completed" or "No-show")
+                .Where(a => a.Status is "Confirmed" or "Completed")
                 .Select(a => a.AppointmentNumber)
                 .OrderBy(n => n),
             DoctorTimeSlotId = s.DoctorTimeSlotId,
@@ -431,7 +431,7 @@ namespace HospitalManagementSystem.Api.Services
             StartAt = s.StartAt,
             EndAt = s.EndAt,
             Capacity = s.Capacity,
-            BookedCount = s.Appointments.Count(a => a.Status is "Requested" or "Confirmed" or "Completed" or "No-show"),
+            BookedCount = s.Appointments.Count(a => a.Status is "Confirmed" or "Completed"),
             ConsultationFee = s.ConsultationFee,
             NextAppointmentNumber = GetNextAppointmentNumber(s),
             NextEstimatedStartAt = GetNextEstimatedStartAt(s),
@@ -451,7 +451,7 @@ namespace HospitalManagementSystem.Api.Services
         private static int GetNextAppointmentNumber(DoctorTimeSlot s)
         {
             var bookedNumbers = s.Appointments
-                .Where(a => a.Status is "Requested" or "Confirmed" or "Completed" or "No-show")
+                .Where(a => a.Status is "Confirmed" or "Completed")
                 .Select(a => a.AppointmentNumber)
                 .ToHashSet();
 

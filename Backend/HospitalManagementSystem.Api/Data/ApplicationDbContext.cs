@@ -124,7 +124,7 @@ namespace HospitalManagementSystem.Api.Data
                 entity.ToTable(t =>
                     t.HasCheckConstraint(
                         "CK_Appointments_Status",
-                        "\"Status\" IN ('Requested', 'Confirmed', 'Completed', 'Cancelled', 'No-show')"));
+                        "\"Status\" IN ('Confirmed', 'Completed', 'Cancelled')"));
                 entity.HasKey(a => a.AppointmentId);
                 entity.Property(a => a.AppointmentNumber).IsRequired();
                 entity.Property(a => a.EstimatedStartAt).IsRequired();
