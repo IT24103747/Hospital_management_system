@@ -14,7 +14,7 @@ namespace HospitalManagementSystem.Api.Models
         public string? PatientEmail { get; set; }
         public string AppointmentType { get; set; } = "Consultation";
         public string Reason { get; set; } = string.Empty;
-        public string Status { get; set; } = "Requested";
+        public string Status { get; set; } = "Confirmed";
         public string? CancellationReason { get; set; }
         public string? Notes { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

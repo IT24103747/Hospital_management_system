@@ -271,7 +271,7 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
                 PatientEmail = "nimesha.silva@email.com",
                 AppointmentType = "Follow-up",
                 Reason = "Review ECG results",
-                Status = "Requested",
+                Status = "Confirmed",
                 CreatedAt = new DateTime(2026, 8, 8, 5, 0, 0, DateTimeKind.Utc),
                 UpdatedAt = new DateTime(2026, 8, 8, 5, 0, 0, DateTimeKind.Utc)
             }

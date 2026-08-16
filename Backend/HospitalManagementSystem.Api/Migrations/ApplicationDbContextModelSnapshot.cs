@@ -101,7 +101,7 @@ namespace HospitalManagementSystem.Api.Migrations
 
                     b.ToTable("Appointments", t =>
                         {
-                            t.HasCheckConstraint("CK_Appointments_Status", "\"Status\" IN ('Requested', 'Confirmed', 'Completed', 'Cancelled', 'No-show')");
+                            t.HasCheckConstraint("CK_Appointments_Status", "\"Status\" IN ('Confirmed', 'Completed', 'Cancelled')");
                         });
                 });
 

@@ -1085,8 +1085,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   }
 
   bool _isUpcomingAppointment(Appointment appointment) {
-    if (_isHistoricalAppointment(appointment) ||
-        appointment.status == 'No-show') {
+    if (_isHistoricalAppointment(appointment)) {
       return false;
     }
 

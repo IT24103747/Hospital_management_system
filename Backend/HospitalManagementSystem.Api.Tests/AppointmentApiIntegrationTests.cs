@@ -73,7 +73,7 @@ public class AppointmentApiIntegrationTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var appointment = await response.Content.ReadFromJsonAsync<AppointmentDto>();
         Assert.Equal(seed.RescheduleDestinationSlotId, appointment!.DoctorTimeSlotId);
-        Assert.Equal("Requested", appointment.Status);
+        Assert.Equal("Confirmed", appointment.Status);
     }
 
     [Fact]

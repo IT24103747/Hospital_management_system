@@ -93,7 +93,7 @@ export const MOCK_APPOINTMENTS = [
     bookedCount: 1,
     appointmentType: 'Follow-up',
     reason: 'Review ECG results',
-    status: 'Requested',
+    status: 'Confirmed',
     createdAt: '2026-08-08T05:00:00Z',
   },
 ]

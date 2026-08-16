@@ -158,7 +158,7 @@ Future<void> pumpAppointmentsDashboard(
         ...appointmentJson().first,
         'doctorTimeSlotId': 12,
         'doctorName': 'Dr. Alan Turing',
-        'status': 'Requested',
+        'status': 'Confirmed',
       });
     }
 

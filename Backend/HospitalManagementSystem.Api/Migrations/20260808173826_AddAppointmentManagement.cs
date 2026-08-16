@@ -58,7 +58,7 @@ namespace HospitalManagementSystem.Api.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Appointments", x => x.AppointmentId);
-                    table.CheckConstraint("CK_Appointments_Status", "\"Status\" IN ('Requested', 'Confirmed', 'Completed', 'Cancelled', 'No-show')");
+                    table.CheckConstraint("CK_Appointments_Status", "\"Status\" IN ('Confirmed', 'Completed', 'Cancelled')");
                     table.ForeignKey(
                         name: "FK_Appointments_DoctorTimeSlots_DoctorTimeSlotId",
                         column: x => x.DoctorTimeSlotId,

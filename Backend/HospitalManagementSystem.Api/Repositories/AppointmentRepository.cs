@@ -8,7 +8,7 @@ namespace HospitalManagementSystem.Api.Repositories
     public class AppointmentRepository : IAppointmentRepository
     {
         private readonly ApplicationDbContext _context;
-        private static readonly string[] OccupyingStatuses = ["Requested", "Confirmed", "Completed", "No-show"];
+        private static readonly string[] OccupyingStatuses = ["Confirmed", "Completed"];
 
         public AppointmentRepository(ApplicationDbContext context)
         {
