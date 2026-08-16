@@ -14,6 +14,18 @@ class ApiService {
       : defaultTargetPlatform == TargetPlatform.android
           ? 'http://10.0.2.2:5000/api'
           : 'http://localhost:5000/api';
+  static http.Client _client = http.Client();
+
+  @visibleForTesting
+  static void setHttpClientForTesting(http.Client client) {
+    _client = client;
+  }
+
+  @visibleForTesting
+  static void resetHttpClientForTesting() {
+    _client.close();
+    _client = http.Client();
+  }
 
   static Future<Map<String, String>> _authHeaders() async {
     final token = await SecureTokenStorage.readToken();
@@ -32,7 +44,7 @@ class ApiService {
       if (search.trim().isNotEmpty) 'search': search.trim(),
     };
     final uri = Uri.parse('$baseUrl/patient').replace(queryParameters: query);
-    final response = await http.get(uri, headers: await _authHeaders());
+    final response = await _client.get(uri, headers: await _authHeaders());
     if (response.statusCode != 200) {
       throw Exception('Unable to load patient records.');
     }
@@ -45,7 +57,7 @@ class ApiService {
 
   static Future<Map<String, dynamic>> login(
       {required String email, required String password}) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$baseUrl/auth/login'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'email': email.trim(), 'password': password}),
@@ -57,7 +69,7 @@ class ApiService {
   }
 
   static Future<void> register(Map<String, dynamic> patient) async {
-    final response = await http.post(Uri.parse('$baseUrl/auth/register'),
+    final response = await _client.post(Uri.parse('$baseUrl/auth/register'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(patient));
     if (response.statusCode != 201) {
@@ -70,7 +82,7 @@ class ApiService {
     required String currentPassword,
     required String newPassword,
   }) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$baseUrl/auth/change-password'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -111,7 +123,7 @@ class ApiService {
 
   static Future<Patient?> getMyProfile() async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/patient/me'),
+      final response = await _client.get(Uri.parse('$baseUrl/patient/me'),
           headers: await _authHeaders());
       if (response.statusCode == 200) {
         return Patient.fromJson(jsonDecode(response.body));
@@ -124,7 +136,7 @@ class ApiService {
 
   static Future<Patient?> getPatientById(int id) async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/patient/$id'),
+      final response = await _client.get(Uri.parse('$baseUrl/patient/$id'),
           headers: await _authHeaders());
       if (response.statusCode == 200) {
         return Patient.fromJson(jsonDecode(response.body));
@@ -137,7 +149,7 @@ class ApiService {
 
   static Future<Patient?> createPatient(Map<String, dynamic> data) async {
     try {
-      final response = await http.post(
+      final response = await _client.post(
         Uri.parse('$baseUrl/patient'),
         headers: await _authHeaders(),
         body: jsonEncode(data),
@@ -156,9 +168,9 @@ class ApiService {
     final uri = Uri.parse(
         patientId == null ? '$baseUrl/patient' : '$baseUrl/patient/$patientId');
     final response = patientId == null
-        ? await http.post(uri,
+        ? await _client.post(uri,
             headers: await _authHeaders(), body: jsonEncode(data))
-        : await http.put(uri,
+        : await _client.put(uri,
             headers: await _authHeaders(), body: jsonEncode(data));
     if (response.statusCode == 200 || response.statusCode == 201) {
       return Patient.fromJson(
@@ -170,7 +182,8 @@ class ApiService {
   }
 
   static Future<void> deletePatient(int patientId) async {
-    final response = await http.delete(Uri.parse('$baseUrl/patient/$patientId'),
+    final response = await _client.delete(
+        Uri.parse('$baseUrl/patient/$patientId'),
         headers: await _authHeaders());
     if (response.statusCode != 204) {
       throw Exception('Unable to delete patient.');
@@ -178,7 +191,7 @@ class ApiService {
   }
 
   static Future<Patient> updateMyProfile(Map<String, dynamic> data) async {
-    final response = await http.put(
+    final response = await _client.put(
       Uri.parse('$baseUrl/patient/me'),
       headers: await _authHeaders(),
       body: jsonEncode(data),
@@ -197,7 +210,7 @@ class ApiService {
       'sortBy': 'startAt',
       'sortDirection': 'desc',
     });
-    final response = await http.get(uri, headers: await _authHeaders());
+    final response = await _client.get(uri, headers: await _authHeaders());
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
       final items = body is Map<String, dynamic>
@@ -213,7 +226,7 @@ class ApiService {
   static Future<List<DoctorTimeSlot>> getAvailableAppointmentSlots() async {
     final uri = Uri.parse('$baseUrl/appointment/available-slots')
         .replace(queryParameters: {'onlyAvailable': 'true'});
-    final response = await http.get(uri, headers: await _authHeaders());
+    final response = await _client.get(uri, headers: await _authHeaders());
     if (response.statusCode == 200) {
       final items = jsonDecode(response.body) as List<dynamic>? ?? [];
       return items
@@ -225,7 +238,7 @@ class ApiService {
   }
 
   static Future<List<DoctorLookup>> getAppointmentDoctors() async {
-    final response = await http.get(Uri.parse('$baseUrl/appointment/doctors'),
+    final response = await _client.get(Uri.parse('$baseUrl/appointment/doctors'),
         headers: await _authHeaders());
     if (response.statusCode == 200) {
       final items = jsonDecode(response.body) as List<dynamic>? ?? [];
@@ -237,7 +250,7 @@ class ApiService {
   }
 
   static Future<List<String>> getAppointmentSpecializations() async {
-    final response = await http.get(
+    final response = await _client.get(
         Uri.parse('$baseUrl/appointment/specializations'),
         headers: await _authHeaders());
     if (response.statusCode == 404) {
@@ -263,7 +276,7 @@ class ApiService {
     String? patientEmail,
     required String appointmentType,
   }) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$baseUrl/appointment'),
       headers: await _authHeaders(),
       body: jsonEncode({
@@ -287,7 +300,7 @@ class ApiService {
     required int appointmentId,
     required int doctorTimeSlotId,
   }) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$baseUrl/appointment/$appointmentId/reschedule'),
       headers: await _authHeaders(),
       body: jsonEncode({'doctorTimeSlotId': doctorTimeSlotId}),
@@ -302,7 +315,7 @@ class ApiService {
     required int appointmentId,
     required String reason,
   }) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$baseUrl/appointment/$appointmentId/cancel'),
       headers: await _authHeaders(),
       body: jsonEncode({'reason': reason.trim()}),
@@ -336,7 +349,7 @@ class ApiService {
   }
 
   static Future<TriageWorkflow> getTriageWorkflow(int workflowId) async {
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('$baseUrl/triage-workflows/$workflowId'),
       headers: await _authHeaders(),
     );

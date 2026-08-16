@@ -94,7 +94,10 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-    await db.Database.MigrateAsync();
+    if (app.Environment.IsEnvironment("Testing"))
+        await db.Database.EnsureCreatedAsync();
+    else
+        await db.Database.MigrateAsync();
 
     await SeedSampleDataAsync(db);
 }
@@ -277,3 +280,5 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
 
     await db.SaveChangesAsync();
 }
+
+public partial class Program { }
