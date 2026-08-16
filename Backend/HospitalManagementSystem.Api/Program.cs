@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using HospitalManagementSystem.Api.Data;
+using HospitalManagementSystem.Api.Middleware;
 using HospitalManagementSystem.Api.Repositories;
 using HospitalManagementSystem.Api.Services;
 using HospitalManagementSystem.Api.Models;
@@ -109,6 +110,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
 app.UseHttpsRedirection();
 app.UseCors("DevCors");
 app.UseAuthentication();
