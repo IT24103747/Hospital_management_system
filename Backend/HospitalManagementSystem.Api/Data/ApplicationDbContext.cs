@@ -16,10 +16,70 @@ namespace HospitalManagementSystem.Api.Data
         public DbSet<Room> Rooms => Set<Room>();
         public DbSet<TriageWorkflow> TriageWorkflows => Set<TriageWorkflow>();
         public DbSet<TriageWorkflowEvent> TriageWorkflowEvents => Set<TriageWorkflowEvent>();
+        public DbSet<MedicalRecord> MedicalRecords => Set<MedicalRecord>();
+        public DbSet<MedicalRecordAttachment> MedicalRecordAttachments => Set<MedicalRecordAttachment>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            modelBuilder.Entity<MedicalRecord>(entity =>
+            {
+                entity.ToTable(t =>
+                {
+                    t.HasCheckConstraint(
+                        "CK_MedicalRecords_Status",
+                        "\"Status\" IN ('Draft', 'Finalized', 'Archived')");
+                    t.HasCheckConstraint(
+                        "CK_MedicalRecords_RecordType",
+                        "\"RecordType\" IN ('Consultation', 'LabReport', 'DischargeSummary', 'Prescription', 'GeneralNote')");
+                });
+                entity.HasKey(m => m.MedicalRecordId);
+                entity.Property(m => m.RecordType).IsRequired().HasMaxLength(50);
+                entity.Property(m => m.Diagnosis).IsRequired().HasMaxLength(500);
+                entity.Property(m => m.Symptoms).IsRequired().HasMaxLength(2000);
+                entity.Property(m => m.TreatmentPlan).IsRequired().HasMaxLength(2000);
+                entity.Property(m => m.PrescriptionNotes).HasMaxLength(2000);
+                entity.Property(m => m.LabNotes).HasMaxLength(4000);
+                entity.Property(m => m.Status).IsRequired().HasMaxLength(30);
+
+                entity.HasIndex(m => new { m.PatientId, m.RecordDate });
+                entity.HasIndex(m => m.DoctorId);
+                entity.HasIndex(m => m.AppointmentId);
+                entity.HasIndex(m => m.RecordType);
+                entity.HasIndex(m => m.Status);
+
+                entity.HasOne(m => m.Patient)
+                    .WithMany()
+                    .HasForeignKey(m => m.PatientId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(m => m.Doctor)
+                    .WithMany()
+                    .HasForeignKey(m => m.DoctorId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(m => m.Appointment)
+                    .WithMany()
+                    .HasForeignKey(m => m.AppointmentId)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<MedicalRecordAttachment>(entity =>
+            {
+                entity.HasKey(a => a.AttachmentId);
+                entity.Property(a => a.FileName).IsRequired().HasMaxLength(255);
+                entity.Property(a => a.FileType).IsRequired().HasMaxLength(100);
+                entity.Property(a => a.FileUrl).IsRequired().HasMaxLength(1000);
+                entity.Property(a => a.FileSize).IsRequired();
+
+                entity.HasIndex(a => a.MedicalRecordId);
+
+                entity.HasOne(a => a.MedicalRecord)
+                    .WithMany(m => m.Attachments)
+                    .HasForeignKey(a => a.MedicalRecordId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
 
             modelBuilder.Entity<User>(entity =>
             {
