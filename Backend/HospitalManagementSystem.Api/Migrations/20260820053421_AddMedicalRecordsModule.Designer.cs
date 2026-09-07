@@ -3,6 +3,7 @@ using System;
 using HospitalManagementSystem.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HospitalManagementSystem.Api.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260820053421_AddMedicalRecordsModule")]
+    partial class AddMedicalRecordsModule
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -103,31 +106,6 @@ namespace HospitalManagementSystem.Api.Migrations
                         {
                             t.HasCheckConstraint("CK_Appointments_Status", "\"Status\" IN ('Confirmed', 'Completed', 'Cancelled')");
                         });
-                });
-
-            modelBuilder.Entity("HospitalManagementSystem.Api.Models.AppointmentNotification", b =>
-                {
-                    b.Property<int>("AppointmentNotificationId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("AppointmentNotificationId"));
-
-                    b.Property<int>("AppointmentId")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<string>("Message")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("AppointmentNotificationId");
-
-                    b.HasIndex("AppointmentId");
-
-                    b.ToTable("AppointmentNotifications");
                 });
 
             modelBuilder.Entity("HospitalManagementSystem.Api.Models.Doctor", b =>
@@ -712,17 +690,6 @@ namespace HospitalManagementSystem.Api.Migrations
                     b.Navigation("Patient");
                 });
 
-            modelBuilder.Entity("HospitalManagementSystem.Api.Models.AppointmentNotification", b =>
-                {
-                    b.HasOne("HospitalManagementSystem.Api.Models.Appointment", "Appointment")
-                        .WithMany("Notifications")
-                        .HasForeignKey("AppointmentId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Appointment");
-                });
-
             modelBuilder.Entity("HospitalManagementSystem.Api.Models.Doctor", b =>
                 {
                     b.HasOne("HospitalManagementSystem.Api.Models.User", "ReviewedByUser")
@@ -841,11 +808,6 @@ namespace HospitalManagementSystem.Api.Migrations
                         .HasForeignKey("PatientProfilePatientId");
 
                     b.Navigation("PatientProfile");
-                });
-
-            modelBuilder.Entity("HospitalManagementSystem.Api.Models.Appointment", b =>
-                {
-                    b.Navigation("Notifications");
                 });
 
             modelBuilder.Entity("HospitalManagementSystem.Api.Models.Doctor", b =>

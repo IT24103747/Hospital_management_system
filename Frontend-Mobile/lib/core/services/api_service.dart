@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
 import 'package:smartcare_mobile/models/appointment.dart';
+import 'package:smartcare_mobile/models/medical_record.dart';
 import 'package:smartcare_mobile/models/patient.dart';
 import 'package:smartcare_mobile/models/triage_workflow.dart';
 
@@ -382,6 +383,56 @@ class ApiService {
         .timeout(const Duration(seconds: 85));
     if (response.statusCode == 200) {
       return TriageWorkflow.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  // ---------- Medical Records Endpoints ----------
+
+  static Future<List<MedicalRecord>> getMyMedicalRecords() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/medicalrecord/me'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode == 200) {
+      final list = jsonDecode(response.body) as List<dynamic>;
+      return list
+          .map((item) => MedicalRecord.fromJson(item as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<MedicalRecord> getMedicalRecordById(int id) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/medicalrecord/$id'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode == 200) {
+      return MedicalRecord.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<MedicalRecordAttachment> addMedicalRecordAttachment(
+    int recordId, {
+    required String fileName,
+    required String fileType,
+    required String fileUrl,
+    required int fileSize,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/medicalrecord/$recordId/attachments'),
+      headers: await _authHeaders(),
+      body: jsonEncode({
+        'fileName': fileName,
+        'fileType': fileType,
+        'fileUrl': fileUrl,
+        'fileSize': fileSize,
+      }),
+    );
+    if (response.statusCode == 201) {
+      return MedicalRecordAttachment.fromJson(jsonDecode(response.body));
     }
     throw Exception(_errorMessage(response.body));
   }

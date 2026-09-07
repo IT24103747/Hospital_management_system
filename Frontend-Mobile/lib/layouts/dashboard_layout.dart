@@ -7,6 +7,7 @@ import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
 import 'package:smartcare_mobile/core/theme/theme_controller.dart';
 import 'package:smartcare_mobile/core/widgets/medicore_logo.dart';
 import 'package:smartcare_mobile/features/auth/screens/login_screen.dart';
+import 'package:smartcare_mobile/features/medical_records/screens/medical_records_screen.dart';
 import 'package:smartcare_mobile/features/profile/screens/profile_screen.dart';
 import 'package:smartcare_mobile/features/triage/screens/ai_triage_screen.dart';
 import 'package:smartcare_mobile/models/appointment.dart';
@@ -143,7 +144,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
             onAppointmentsLoaded: _syncNextAppointment,
           ),
         _PatientSection.doctors => const _DoctorsSection(),
-        _PatientSection.records => const _MedicalRecordsSection(),
+        _PatientSection.records => const MedicalRecordsScreen(embedded: true),
         _PatientSection.assistant => const AiTriageScreen(embedded: true),
         _PatientSection.notifications => const _NotificationsSection(),
         _PatientSection.settings => const _SettingsSection(),
