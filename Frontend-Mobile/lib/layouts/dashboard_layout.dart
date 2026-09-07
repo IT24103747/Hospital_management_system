@@ -628,7 +628,7 @@ class _HomeSection extends StatelessWidget {
             _FeatureTileData(Icons.description_outlined, 'Recent report',
                 'Blood test uploaded', AppColors.success),
             _FeatureTileData(Icons.notifications_active_outlined,
-                'Notifications', '3 new updates', AppColors.warning),
+                'Notifications', 'Appointment updates', AppColors.warning),
             _FeatureTileData(Icons.psychology_alt_outlined, 'AI Assistant',
                 'Ask about reports', AppColors.accent),
           ],
@@ -938,7 +938,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   }
 
   Future<String?> _cancelReason() async {
-    final controller = TextEditingController();
+    var reason = '';
     final formKey = GlobalKey<FormState>();
     final result = await showDialog<String>(
       context: context,
@@ -948,7 +948,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
           content: Form(
             key: formKey,
             child: TextFormField(
-              controller: controller,
+              onChanged: (value) => reason = value,
               minLines: 2,
               maxLines: 4,
               decoration: const InputDecoration(
@@ -968,7 +968,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
             FilledButton(
               onPressed: () {
                 if (formKey.currentState!.validate()) {
-                  Navigator.pop(context, controller.text.trim());
+                  Navigator.pop(context, reason.trim());
                 }
               },
               child: const Text('Cancel appointment'),
@@ -977,7 +977,6 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
         );
       },
     );
-    controller.dispose();
     return result;
   }
 
@@ -2056,12 +2055,8 @@ bool _isClosedAppointmentStatus(String status) =>
 String _formatAppointmentDate(Appointment appointment) =>
     DateFormat('MMM d, yyyy').format(appointment.startAt.toLocal());
 
-String _formatAppointmentTime(Appointment appointment) {
-  final start =
-      DateFormat('h:mm a').format(appointment.estimatedStartAt.toLocal());
-  final end = DateFormat('h:mm a').format(appointment.endAt.toLocal());
-  return '$start - $end';
-}
+String _formatAppointmentTime(Appointment appointment) =>
+    DateFormat('h:mm a').format(appointment.estimatedStartAt.toLocal());
 
 String _formatEstimatedTime(DoctorTimeSlot slot, int appointmentNumber) =>
     DateFormat('h:mm a')
@@ -2174,31 +2169,51 @@ class _MedicalRecordsSection extends StatelessWidget {
   }
 }
 
-class _NotificationsSection extends StatelessWidget {
+class _NotificationsSection extends StatefulWidget {
   const _NotificationsSection();
 
   @override
+  State<_NotificationsSection> createState() => _NotificationsSectionState();
+}
+
+class _NotificationsSectionState extends State<_NotificationsSection> {
+  late Future<List<Map<String, dynamic>>> _notifications;
+
+  @override
+  void initState() {
+    super.initState();
+    _notifications = ApiService.getAppointmentNotifications();
+  }
+
+  void _refresh() {
+    setState(() => _notifications = ApiService.getAppointmentNotifications());
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const _PageScaffold(
-      children: [
-        _NotificationTile(
-            Icons.alarm_on_outlined,
-            'Appointment Reminder',
-            'You have an appointment with Dr. Silva tomorrow at 10:30 AM.',
-            'New'),
-        _NotificationTile(
-            Icons.check_circle_outline_rounded,
-            'Appointment Confirmed',
-            'Your cardiology visit has been confirmed.',
-            'Today'),
-        _NotificationTile(
-            Icons.science_outlined,
-            'New Lab Report',
-            'A blood test report is available in Medical Records.',
-            'Yesterday'),
-        _NotificationTile(Icons.campaign_outlined, 'Hospital Announcement',
-            'The outpatient desk closes early on public holidays.', 'Info'),
-      ],
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _notifications,
+      builder: (context, snapshot) {
+        return _PageScaffold(children: [
+          Align(alignment: Alignment.centerRight,
+            child: TextButton.icon(onPressed: _refresh,
+              icon: const Icon(Icons.refresh), label: const Text('Refresh'))),
+          if (snapshot.connectionState == ConnectionState.waiting)
+            const Center(child: CircularProgressIndicator())
+          else if (snapshot.hasError)
+            const Text('Unable to load notifications. Please try again.')
+          else if (snapshot.data!.isEmpty)
+            const Text('No appointment updates yet.')
+          else
+            ...snapshot.data!.map((notification) => _NotificationTile(
+              Icons.calendar_month_outlined,
+              'Appointment Updated',
+              notification['message'] as String,
+              DateFormat('MMM d, h:mm a').format(
+                DateTime.parse(notification['createdAt'] as String).toLocal()),
+            )),
+        ]);
+      },
     );
   }
 }
@@ -3047,13 +3062,22 @@ class _AppointmentCard extends StatelessWidget {
             children: [
               Expanded(
                   child: _MiniMetric(
-                      label: 'Date',
-                      value: _formatAppointmentDate(appointment))),
+                      label: 'Appointment number',
+                      value: '#${appointment.appointmentNumber}')),
               const SizedBox(width: 8),
               Expanded(
                   child: _MiniMetric(
-                      label: 'Time',
+                      label: 'Estimated time',
                       value: _formatAppointmentTime(appointment))),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                  child: _MiniMetric(
+                      label: 'Date',
+                      value: _formatAppointmentDate(appointment))),
               const SizedBox(width: 8),
               Expanded(
                   child: _MiniMetric(

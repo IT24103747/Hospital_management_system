@@ -15,6 +15,26 @@ void main() {
     SecureTokenStorage.resetTokenForTesting();
   });
 
+  testWidgets('patient sees saved schedule changes in notifications', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    SecureTokenStorage.setTokenForTesting('patient-token');
+    ApiService.setHttpClientForTesting(MockClient((request) async {
+      if (request.url.path == '/api/appointment/notifications') {
+        expect(request.headers['Authorization'], 'Bearer patient-token');
+        return jsonResponse([{
+          'message': 'Your appointment time has changed to 11:00 AM.',
+          'createdAt': '2026-09-07T08:00:00Z',
+        }]);
+      }
+      return jsonResponse({'data': []});
+    }));
+    await tester.pumpWidget(const MaterialApp(home: DashboardLayout(title: 'Notifications')));
+    await tester.pumpAndSettle();
+    expect(find.text('Appointment Updated'), findsOneWidget);
+    expect(find.text('Your appointment time has changed to 11:00 AM.'), findsOneWidget);
+    expect(find.text('Your cardiology visit has been confirmed.'), findsNothing);
+  });
+
   testWidgets('patient can complete the appointment booking form',
       (tester) async {
     final requests = <http.Request>[];
@@ -26,9 +46,12 @@ void main() {
     await selectDropdownValue(tester, 1, 'Dr. Ada Lovelace');
     await tester.tap(find.text('Select appointment no'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('#1').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('#1').last);
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Confirm'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
 
@@ -59,10 +82,11 @@ void main() {
     await pumpAppointmentsDashboard(tester, requests: requests);
 
     await tester.ensureVisible(find.text('Cancel'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Cancel').first);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).last, 'Patient unavailable');
-    await tester.tap(find.text('Cancel appointment'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Cancel appointment'));
     await tester.pumpAndSettle();
 
     expect(
@@ -80,6 +104,7 @@ void main() {
     await pumpAppointmentsDashboard(tester, requests: requests);
 
     await tester.ensureVisible(find.text('Reschedule'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Reschedule').first);
     await tester.pumpAndSettle();
     expect(find.text('Reschedule appointment'), findsOneWidget);
@@ -102,7 +127,7 @@ void main() {
     await pumpAppointmentsDashboard(tester, failAppointments: true);
 
     expect(find.text('Unable to load appointments.'), findsOneWidget);
-    expect(find.text('Try again'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
   });
 }
 

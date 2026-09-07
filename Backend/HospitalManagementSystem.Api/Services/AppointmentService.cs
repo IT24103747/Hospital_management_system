@@ -276,8 +276,14 @@ namespace HospitalManagementSystem.Api.Services
 
             ValidateConsultationFee(dto.ConsultationFee);
 
+            if (slot.EndAt <= DateTime.UtcNow || !slot.IsActive)
+                throw new InvalidOperationException("Completed or cancelled slots cannot be edited.");
+
             if (dto.Capacity < activeAppointments.Count)
                 throw new InvalidOperationException("Slot capacity cannot be less than the number of booked appointments.");
+
+            if (activeAppointments.Any(a => a.AppointmentNumber > dto.Capacity))
+                throw new InvalidOperationException("Capacity cannot exclude an existing appointment number.");
 
             if (await _repository.SlotOverlapsAsync(doctorName, startAt, endAt, id, dto.DoctorId))
                 throw new InvalidOperationException("This doctor already has an overlapping time slot.");
@@ -285,6 +291,8 @@ namespace HospitalManagementSystem.Api.Services
             if (dto.RoomId.HasValue)
                 await ValidateAvailableRoomAsync(dto.RoomId.Value, startAt, endAt, id);
 
+            var changed = slot.StartAt != startAt || slot.EndAt != endAt || slot.Capacity != dto.Capacity ||
+                slot.RoomId != dto.RoomId || slot.DoctorId != doctor.DoctorId || slot.ConsultationFee != dto.ConsultationFee;
             slot.DoctorId = doctor.DoctorId;
             slot.RoomId = dto.RoomId;
             slot.DoctorName = doctorName;
@@ -295,10 +303,7 @@ namespace HospitalManagementSystem.Api.Services
             slot.ConsultationFee = decimal.Round(dto.ConsultationFee, 2);
             slot.IsActive = dto.IsActive;
 
-            foreach (var appointment in activeAppointments)
-            {
-                appointment.EstimatedStartAt = GetEstimatedStartAt(slot, appointment.AppointmentNumber);
-            }
+            ScheduleAppointmentUpdates.Apply(slot, changed);
 
             var updated = await _repository.UpdateSlotAsync(slot);
             return MapSlot(updated);

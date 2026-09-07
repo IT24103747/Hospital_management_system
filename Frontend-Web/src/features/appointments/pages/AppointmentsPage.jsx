@@ -9,7 +9,6 @@ import { roomApi } from '../../rooms/services/roomApi'
 import './AppointmentsPage.css'
 
 const STATUS_FILTERS = ['Confirmed', 'Completed', 'Cancelled']
-const STATUS_ACTIONS = ['Confirmed', 'Completed']
 const SLOT_STATUS_FILTERS = ['Upcoming', 'Completed', 'Cancelled']
 const TYPES = ['Consultation', 'Follow-up', 'Check-up', 'Procedure Review', 'Emergency']
 const DEFAULT_CONSULTATION_FEE = 2500
@@ -97,7 +96,6 @@ export default function AppointmentsPage() {
     createSlot,
     updateSlot,
     cancelSlot,
-    updateStatus,
     cancelAppointment,
   } = useAppointments(filters)
 
@@ -502,15 +500,6 @@ export default function AppointmentsPage() {
       width: '150px',
       render: (a) => (
         <div className="appt-actions">
-          <select
-            className="appt-inline-select"
-            value={a.status}
-            onChange={(e) => updateStatus(a.appointmentId, e.target.value)}
-            disabled={saving || a.status === 'Cancelled' || a.status === 'Completed'}
-            aria-label={`Update status for ${a.patientName}`}
-          >
-            {STATUS_ACTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
           <Button
             variant="secondary"
             size="sm"

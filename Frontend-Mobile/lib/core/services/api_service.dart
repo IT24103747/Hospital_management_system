@@ -35,6 +35,18 @@ class ApiService {
     };
   }
 
+  static Future<List<Map<String, dynamic>>> getAppointmentNotifications() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/appointment/notifications'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Unable to load notifications.');
+    }
+    return (jsonDecode(response.body) as List<dynamic>)
+        .map((item) => item as Map<String, dynamic>).toList();
+  }
+
   static Future<List<Patient>> getPatients({String search = ''}) async {
     final query = <String, String>{
       'page': '1',

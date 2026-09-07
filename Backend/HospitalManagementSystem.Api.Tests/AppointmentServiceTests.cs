@@ -18,6 +18,27 @@ namespace HospitalManagementSystem.Api.Tests;
 public class AppointmentServiceTests
 {
     [Fact]
+    public async Task Completion_UpdatesExpiredConfirmedAppointmentsBeforeFiltering()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedAppointmentDataAsync(db);
+        var past = await AddSlotAsync(db, setup, start: DateTime.UtcNow.AddHours(-2));
+        var future = await AddSlotAsync(db, setup);
+        var expired = await AddAppointmentAsync(db, past);
+        var cancelled = await AddAppointmentAsync(db, past, appointmentNumber: 2, status: "Cancelled");
+        var upcoming = await AddAppointmentAsync(db, future);
+        var service = new AppointmentService(new AppointmentRepository(db));
+        var result = await service.GetAllAppointmentsAsync(null, "Completed", null, null, null, null, 1, 50);
+        Assert.Equal(expired.AppointmentId, Assert.Single(result.Data).AppointmentId);
+        Assert.Equal(1, result.TotalCount);
+        Assert.Equal("Cancelled", cancelled.Status);
+        Assert.Equal("Confirmed", upcoming.Status);
+        await AppointmentCompletionService.CompleteDueAsync(db);
+        Assert.Equal("Completed", expired.Status);
+        Assert.Empty(await db.AppointmentNotifications.ToListAsync());
+    }
+
+    [Fact]
     public async Task CreateAppointment_RejectsDuplicateAppointmentNumber()
     {
         await using var db = CreateContext();

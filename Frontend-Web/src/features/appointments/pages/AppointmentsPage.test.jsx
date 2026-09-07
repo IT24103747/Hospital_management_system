@@ -139,16 +139,13 @@ describe('AppointmentsPage', () => {
     expect(screen.getByRole('dialog', { name: /cancel appointment/i })).toBeInTheDocument()
   })
 
-  it('calls the status update API when staff changes an appointment status', () => {
-    const state = mockAppointments()
+  it('shows status without a manual status dropdown and retains appointment actions', () => {
     render(<AppointmentsPage />)
     const row = screen.getByText('Ravi Patient').closest('tr')
-
-    fireEvent.change(within(row).getByDisplayValue('Confirmed'), {
-      target: { value: 'Completed' },
-    })
-
-    expect(state.updateStatus).toHaveBeenCalledWith(42, 'Completed')
+    expect(within(row).queryByRole('combobox')).not.toBeInTheDocument()
+    expect(within(row).getByText('Confirmed')).toBeInTheDocument()
+    expect(within(row).getByLabelText('Edit appointment for Ravi Patient')).toBeEnabled()
+    expect(within(row).getByLabelText('Cancel appointment for Ravi Patient')).toBeEnabled()
   })
 
   it('validates slot consultation fee precision after room selection', async () => {

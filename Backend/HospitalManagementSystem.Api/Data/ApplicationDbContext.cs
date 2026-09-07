@@ -12,6 +12,7 @@ namespace HospitalManagementSystem.Api.Data
         public DbSet<Patient> Patients => Set<Patient>();
         public DbSet<DoctorTimeSlot> DoctorTimeSlots => Set<DoctorTimeSlot>();
         public DbSet<Appointment> Appointments => Set<Appointment>();
+        public DbSet<AppointmentNotification> AppointmentNotifications => Set<AppointmentNotification>();
         public DbSet<Doctor> Doctors => Set<Doctor>();
         public DbSet<Room> Rooms => Set<Room>();
         public DbSet<TriageWorkflow> TriageWorkflows => Set<TriageWorkflow>();

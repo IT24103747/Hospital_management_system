@@ -103,6 +103,31 @@ public class AppointmentApiIntegrationTests
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Notifications_ReturnOnlyTheAuthenticatedPatientsUpdates()
+    {
+        await using var factory = new AppointmentApiFactory();
+        using var client = factory.CreateClient();
+        var seed = await SeedScenarioAsync(factory);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            db.AppointmentNotifications.AddRange(
+                new AppointmentNotification { AppointmentId = seed.AmalAppointmentId, Message = "Your time changed" },
+                new AppointmentNotification { AppointmentId = seed.NimeshaAppointmentId, Message = "Private other patient update" });
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/appointment/notifications")).StatusCode);
+        await AuthorizeAsync(client, "amal.perera@email.com", "Patient123!");
+        var response = await client.GetAsync("/api/appointment/notifications");
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Your time changed", body);
+        Assert.DoesNotContain("Private other patient update", body);
+        await AuthorizeAsync(client, "admin@medicore.lk", "Admin1234");
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/appointment/notifications")).StatusCode);
+    }
+
     private static async Task AuthorizeAsync(HttpClient client, string email, string password)
     {
         var response = await client.PostAsJsonAsync("/api/auth/login", new { email, password });

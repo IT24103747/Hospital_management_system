@@ -52,6 +52,23 @@ namespace HospitalManagementSystem.Api.Controllers
             return Ok(result);
         }
 
+        [HttpGet("notifications")]
+        [Authorize(Roles = "Patient")]
+        public async Task<IActionResult> GetNotifications()
+        {
+            var access = await GetAppointmentAccessAsync();
+            if (access.Result is not null) return access.Result;
+            var patientId = access.PatientId;
+            var email = access.PatientEmail;
+            var notifications = await _db.AppointmentNotifications.AsNoTracking()
+                .Where(n => (patientId.HasValue && n.Appointment.PatientId == patientId) ||
+                    (email != null && n.Appointment.PatientEmail != null && n.Appointment.PatientEmail.ToLower() == email))
+                .OrderByDescending(n => n.CreatedAt).Take(100)
+                .Select(n => new { n.AppointmentNotificationId, n.AppointmentId, n.Message, CreatedAt = DateTime.SpecifyKind(n.CreatedAt, DateTimeKind.Utc) })
+                .ToListAsync();
+            return Ok(notifications);
+        }
+
         [HttpGet("{id:int}")]
         [Authorize(Roles = AppointmentReaderRoles)]
         [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]
