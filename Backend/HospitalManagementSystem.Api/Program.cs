@@ -77,6 +77,8 @@ builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IDoctorScheduleService, DoctorScheduleService>();
 builder.Services.AddScoped<ITriageWorkflowService, TriageWorkflowService>();
+builder.Services.AddScoped<IMedicalRecordRepository, MedicalRecordRepository>();
+builder.Services.AddScoped<IMedicalRecordService, MedicalRecordService>();
 builder.Services.AddHttpClient<IClinicalInformationExtractionAgent, OllamaClinicalInformationExtractionAgent>(client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["SafeTriage:OllamaUrl"] ?? "http://127.0.0.1:11434/");
@@ -278,9 +280,66 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
                 UpdatedAt = new DateTime(2026, 8, 8, 5, 0, 0, DateTimeKind.Utc)
             }
         );
+        await db.SaveChangesAsync();
     }
 
-    await db.SaveChangesAsync();
+    if (!await db.MedicalRecords.AnyAsync())
+    {
+        var amal = await db.Patients.FirstOrDefaultAsync(p => p.Email == "amal.perera@email.com");
+        var nimesha = await db.Patients.FirstOrDefaultAsync(p => p.Email == "nimesha.silva@email.com");
+        var doctor = await db.Doctors.FirstOrDefaultAsync();
+
+        if (amal != null)
+        {
+            db.MedicalRecords.Add(new HospitalManagementSystem.Api.Models.MedicalRecord
+            {
+                PatientId = amal.PatientId,
+                DoctorId = doctor?.DoctorId,
+                RecordDate = DateTime.UtcNow.AddDays(-5),
+                RecordType = HospitalManagementSystem.Api.Models.MedicalRecordTypes.Consultation,
+                Diagnosis = "Acute Upper Respiratory Tract Infection",
+                Symptoms = "Low-grade fever, dry cough, mild sore throat for 3 days.",
+                TreatmentPlan = "Rest, adequate hydration, Paracetamol 500mg TDS for 3 days.",
+                PrescriptionNotes = "Paracetamol 500mg - 1 tab tid x 3 days\nCetirizine 10mg - 1 tab nocte x 5 days",
+                LabNotes = "Chest clear on auscultation. Normal SpO2 (98%).",
+                FollowUpDate = DateTime.UtcNow.AddDays(7),
+                Status = HospitalManagementSystem.Api.Models.MedicalRecordStatuses.Finalized,
+                CreatedAt = DateTime.UtcNow.AddDays(-5),
+                UpdatedAt = DateTime.UtcNow.AddDays(-5)
+            });
+        }
+
+        if (nimesha != null)
+        {
+            var rec = new HospitalManagementSystem.Api.Models.MedicalRecord
+            {
+                PatientId = nimesha.PatientId,
+                DoctorId = doctor?.DoctorId,
+                RecordDate = DateTime.UtcNow.AddDays(-2),
+                RecordType = HospitalManagementSystem.Api.Models.MedicalRecordTypes.LabReport,
+                Diagnosis = "Mild Sinus Tachycardia",
+                Symptoms = "Palpitations during moderate exercise, mild shortness of breath.",
+                TreatmentPlan = "Cardiology review, 12-lead ECG, lifestyle management.",
+                PrescriptionNotes = "Propranolol 10mg PRN",
+                LabNotes = "ECG reveals normal axis, sinus tachycardia (HR 102 bpm). Normal troponin I.",
+                FollowUpDate = DateTime.UtcNow.AddDays(14),
+                Status = HospitalManagementSystem.Api.Models.MedicalRecordStatuses.Finalized,
+                CreatedAt = DateTime.UtcNow.AddDays(-2),
+                UpdatedAt = DateTime.UtcNow.AddDays(-2)
+            };
+            rec.Attachments.Add(new HospitalManagementSystem.Api.Models.MedicalRecordAttachment
+            {
+                FileName = "ecg_report_20260818.pdf",
+                FileType = "application/pdf",
+                FileUrl = "/uploads/medical-records/ecg_report_20260818.pdf",
+                FileSize = 1048576,
+                UploadedAt = DateTime.UtcNow.AddDays(-2)
+            });
+            db.MedicalRecords.Add(rec);
+        }
+
+        await db.SaveChangesAsync();
+    }
 }
 
 public partial class Program { }

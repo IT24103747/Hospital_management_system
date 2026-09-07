@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Phone, Mail, MapPin, Droplets, User, Calendar, Shield, CalendarClock, Stethoscope } from 'lucide-react'
+import { ArrowLeft, Phone, Mail, MapPin, Droplets, User, Calendar, Shield, CalendarClock, Stethoscope, ClipboardList, Paperclip, FileText, Plus } from 'lucide-react'
 import Button from '../../../components/Button'
-import { BloodGroupBadge } from '../../../components/Badge'
+import Badge, { BloodGroupBadge } from '../../../components/Badge'
 import { patientApi } from '../services/patientApi'
+import { medicalRecordApi } from '../../medical-records/services/medicalRecordApi'
+import MedicalRecordDetailModal from '../../medical-records/components/MedicalRecordDetailModal'
+import MedicalRecordFormModal from '../../medical-records/components/MedicalRecordFormModal'
 import { calculateAge, formatDate, getInitials, nameToGradient } from '../../../lib/utils'
 import './PatientDetailPage.css'
 
@@ -12,6 +15,10 @@ export default function PatientDetailPage() {
   const navigate = useNavigate()
   const [patient, setPatient] = useState(null)
   const [appointments, setAppointments] = useState([])
+  const [medicalRecords, setMedicalRecords] = useState([])
+  const [selectedRecord, setSelectedRecord] = useState(null)
+  const [isAddRecordOpen, setIsAddRecordOpen] = useState(false)
+  const [savingRecord, setSavingRecord] = useState(false)
   const [appointmentError, setAppointmentError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -24,6 +31,7 @@ export default function PatientDetailPage() {
       setError(null)
       setAppointmentError(null)
       setAppointments([])
+      setMedicalRecords([])
       try {
         const patientResult = await patientApi.getById(id)
         if (active) {
@@ -33,6 +41,13 @@ export default function PatientDetailPage() {
             if (active) setAppointments(appointmentResult)
           } catch {
             if (active) setAppointmentError('Appointment history is temporarily unavailable.')
+          }
+
+          try {
+            const recordsResult = await medicalRecordApi.getByPatientId(id)
+            if (active) setMedicalRecords(recordsResult || [])
+          } catch (err) {
+            console.error('Failed to load patient medical records:', err)
           }
         }
       } catch (err) {
@@ -45,6 +60,21 @@ export default function PatientDetailPage() {
     loadPatient()
     return () => { active = false }
   }, [id])
+
+  const handleSaveRecord = async (payload) => {
+    try {
+      setSavingRecord(true)
+      await medicalRecordApi.createMedicalRecord(payload)
+      const updated = await medicalRecordApi.getPatientMedicalRecords(patient.patientId)
+      setMedicalRecords(updated.data || [])
+      setIsAddRecordOpen(false)
+    } catch (err) {
+      console.error('Failed to create medical record:', err)
+      alert(err.response?.data?.message || 'Failed to save medical record.')
+    } finally {
+      setSavingRecord(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -121,6 +151,67 @@ export default function PatientDetailPage() {
           </InfoCard>
         </div>
 
+        {/* Medical Records & Clinical History Section */}
+        <section className="patient-history glass-card" style={{ marginBottom: '24px' }}>
+          <div className="patient-history__header">
+            <div className="patient-history__heading">
+              <div className="info-card__icon"><ClipboardList size={16} /></div>
+              <div>
+                <h3 className="info-card__title">Clinical Medical Records</h3>
+                <p className="patient-history__sub">Diagnoses, prescriptions, and lab reports for this patient</p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="patient-history__count">{medicalRecords.length} {medicalRecords.length === 1 ? 'record' : 'records'}</span>
+              <Button size="sm" variant="primary" icon={Plus} onClick={() => setIsAddRecordOpen(true)}>
+                Add Record
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => navigate('/medical-records')}>
+                All Records
+              </Button>
+            </div>
+          </div>
+
+          {medicalRecords.length === 0 ? (
+            <p className="patient-history__empty">No medical records have been recorded for this patient.</p>
+          ) : (
+            <div className="patient-history__list">
+              {medicalRecords.map((rec) => (
+                <article
+                  className="patient-history__item"
+                  key={rec.medicalRecordId}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setSelectedRecord(rec)}
+                >
+                  <div className="patient-history__date">
+                    <strong>{formatDate(rec.recordDate)}</strong>
+                    <Badge variant={rec.recordType === 'Consultation' ? 'primary' : 'info'}>{rec.recordType}</Badge>
+                  </div>
+                  <div className="patient-history__visit">
+                    <div className="patient-history__doctor">
+                      <Stethoscope size={15} />
+                      <strong>{rec.doctorName || 'Attending Clinician'}</strong>
+                    </div>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{rec.diagnosis}</span>
+                    <small>{rec.treatmentPlan}</small>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {rec.attachments?.length > 0 && (
+                      <span className="mr-attachment-badge">
+                        <Paperclip size={12} /> {rec.attachments.length}
+                      </span>
+                    )}
+                    <span className={`patient-history__status patient-history__status--${rec.status.toLowerCase()}`}>
+                      {rec.status}
+                    </span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Appointment History Section */}
         <section className="patient-history glass-card">
           <div className="patient-history__header">
             <div className="patient-history__heading">
@@ -156,6 +247,25 @@ export default function PatientDetailPage() {
           )}
         </section>
       </div>
+
+      {selectedRecord && (
+        <MedicalRecordDetailModal
+          record={selectedRecord}
+          onClose={() => setSelectedRecord(null)}
+          canEdit={false}
+        />
+      )}
+
+      {isAddRecordOpen && (
+        <MedicalRecordFormModal
+          open={isAddRecordOpen}
+          isOpen={isAddRecordOpen}
+          onClose={() => setIsAddRecordOpen(false)}
+          onSubmit={handleSaveRecord}
+          patients={[patient]}
+          loading={savingRecord}
+        />
+      )}
     </div>
   )
 }
@@ -183,3 +293,4 @@ function InfoRow({ icon: Icon, label, value }) {
     </div>
   )
 }
+
