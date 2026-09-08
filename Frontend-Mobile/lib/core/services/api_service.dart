@@ -78,7 +78,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
-    throw Exception('Invalid email or password.');
+    throw Exception(_errorMessage(response.body));
   }
 
   static Future<void> register(Map<String, dynamic> patient) async {
@@ -371,9 +371,22 @@ class ApiService {
     throw Exception(_errorMessage(response.body));
   }
 
+  static Future<List<TriageWorkflow>> getTriageWorkflowHistory() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/triage-workflows/history'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode == 200) {
+      return (jsonDecode(response.body) as List<dynamic>)
+          .map((item) => TriageWorkflow.fromJson(item as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
   static Future<TriageWorkflow> continueTriageWorkflow({
     required int workflowId,
-    required String answers,
+    required List<Map<String, dynamic>> answers,
   }) async {
     final response = await http
         .post(Uri.parse('$baseUrl/triage-workflows/$workflowId/continue'),
