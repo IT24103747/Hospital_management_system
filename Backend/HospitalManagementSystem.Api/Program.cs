@@ -9,23 +9,31 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
-using System.Security.Cryptography;
 using HospitalManagementSystem.Api.AgenticAI.AppointmentScheduling;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 var jwtSecret = builder.Configuration["Jwt:Secret"];
-if (string.IsNullOrWhiteSpace(jwtSecret))
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+var allowedOrigins = configuredOrigins
+    .Where(origin => Uri.TryCreate(origin, UriKind.Absolute, out _))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
+
+if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Length < 32)
+    throw new InvalidOperationException("Jwt:Secret must be configured through a local secret or environment variable and contain at least 32 characters.");
+
+if (!builder.Environment.IsEnvironment("Testing"))
 {
-    jwtSecret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
-    builder.Configuration["Jwt:Secret"] = jwtSecret;
+    if (string.IsNullOrWhiteSpace(connectionString))
+        throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured through a local secret or environment variable.");
+    if (!builder.Environment.IsDevelopment() && allowedOrigins.Length == 0)
+        throw new InvalidOperationException("Cors:AllowedOrigins must contain the permitted web application origin(s).");
 }
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
-
-// ---------- Database Connection Check ----------
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
 
 // ---------- Services ----------
@@ -87,11 +95,23 @@ builder.Services.AddHttpClient<IClinicalInformationExtractionAgent, OllamaClinic
     client.BaseAddress = new Uri(builder.Configuration["SafeTriage:OllamaUrl"] ?? "http://127.0.0.1:11434/");
 });
 
-// CORS – allow React and Flutter (dev)
+// In Development mode, dynamically allow any localhost origin (supporting changing Flutter Web ports).
+// In Production mode, strictly enforce configured AllowedOrigins.
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("DevCors", policy =>
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+    options.AddPolicy("AppCors", policy =>
+    {
+        if (builder.Environment.IsDevelopment())
+        {
+            policy.SetIsOriginAllowed(origin => Uri.TryCreate(origin, UriKind.Absolute, out var uri) && (uri.Host == "localhost" || uri.Host == "127.0.0.1"))
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        }
+        else if (allowedOrigins.Length > 0)
+        {
+            policy.WithOrigins(allowedOrigins).AllowAnyMethod().AllowAnyHeader();
+        }
+    });
 });
 
 var app = builder.Build();
@@ -105,7 +125,9 @@ await using (var scope = app.Services.CreateAsyncScope())
     else
         await db.Database.MigrateAsync();
 
-    await SeedSampleDataAsync(db);
+    // Seed accounts use documented sample passwords and must never be created in a deployed environment.
+    if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
+        await SeedSampleDataAsync(db);
 }
 
 // ---------- Middleware ----------
@@ -117,7 +139,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
 app.UseHttpsRedirection();
-app.UseCors("DevCors");
+app.UseCors("AppCors");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
