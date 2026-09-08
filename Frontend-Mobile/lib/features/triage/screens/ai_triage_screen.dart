@@ -19,12 +19,32 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
   final _symptomController = TextEditingController();
   final _heartRateController = TextEditingController();
   final _temperatureController = TextEditingController();
+  final _processingKey = GlobalKey();
   bool _isSubmitting = false;
   int _activeStage = 0;
   Timer? _progressTimer;
   TriageWorkflow? _workflow;
-  List<bool?> _followUpAnswers = [];
+  List<TriageWorkflow> _assessmentHistory = [];
+  int? _expandedHistoryWorkflowId;
+  TriageWorkflow? _expandedHistoryWorkflow;
+  final Map<String, String> _followUpAnswers = {};
+  final Map<String, TextEditingController> _followUpControllers = {};
   bool _followUpRoundComplete = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAssessmentHistory();
+  }
+
+  Future<void> _loadAssessmentHistory() async {
+    try {
+      final history = await ApiService.getTriageWorkflowHistory();
+      if (mounted) setState(() => _assessmentHistory = history);
+    } catch (_) {
+      // History is an enhancement; an assessment must still work offline/from a fresh account.
+    }
+  }
 
   static const _workflowStages = [
     (
@@ -47,18 +67,33 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
   ];
 
   Future<void> _startTriage({bool includeFollowUpAnswers = false}) async {
-    if (_symptomController.text.trim().length < 3) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Please describe your symptoms before continuing.')));
-      return;
+    if (!includeFollowUpAnswers) {
+      final inputIssue = _symptomInputIssue(_symptomController.text);
+      if (inputIssue != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(inputIssue)));
+        return;
+      }
     }
-    final symptoms = _symptomsForSubmission(includeFollowUpAnswers);
-    if (symptoms == null) return;
+    final symptoms = _symptomController.text.trim();
+    final answers = includeFollowUpAnswers ? _answersForSubmission() : null;
+    if (includeFollowUpAnswers && answers == null) return;
     setState(() {
       if (!includeFollowUpAnswers) _followUpRoundComplete = false;
       _isSubmitting = true;
       _activeStage = 0;
     });
+    if (includeFollowUpAnswers) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final processingContext = _processingKey.currentContext;
+        if (processingContext != null) {
+          Scrollable.ensureVisible(processingContext,
+              duration: const Duration(milliseconds: 350),
+              curve: Curves.easeOutCubic,
+              alignment: .15);
+        }
+      });
+    }
     _progressTimer?.cancel();
     _progressTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
       if (mounted && _activeStage < _workflowStages.length - 1) {
@@ -68,12 +103,17 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
     try {
       final workflow = includeFollowUpAnswers
           ? await ApiService.continueTriageWorkflow(
-              workflowId: _workflow!.workflowId, answers: symptoms)
+              workflowId: _workflow!.workflowId, answers: answers!)
           : await ApiService.startTriageWorkflow(
               symptoms: symptoms, vitals: _optionalVitals());
       if (mounted) {
         _followUpRoundComplete = includeFollowUpAnswers;
         _setWorkflow(workflow);
+        if (!includeFollowUpAnswers) {
+          _symptomController.clear();
+          _heartRateController.clear();
+          _temperatureController.clear();
+        }
       }
     } catch (error) {
       if (mounted) {
@@ -88,31 +128,64 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
     }
   }
 
-  String? _symptomsForSubmission(bool includeFollowUpAnswers) {
-    if (!includeFollowUpAnswers) return _symptomController.text.trim();
-    final guidance = _workflow?.guidance;
-    if (guidance == null) return _symptomController.text.trim();
-    final answered = <String>[];
-    for (var index = 0; index < _followUpAnswers.length; index++) {
-      final answer = _followUpAnswers[index];
-      if (answer != null) {
-        answered.add(
-            '${guidance.followUpQuestions[index]} Answer: ${answer ? 'Yes' : 'No'}');
-      }
+  String? _symptomInputIssue(String raw) {
+    final value = raw.trim();
+    if (value.length < 3 || !RegExp(r'[A-Za-z]').hasMatch(value)) {
+      return 'Describe your symptom using a few words.';
     }
-    if (answered.isEmpty) {
+    if (RegExp(r'^(.)\1{2,}$').hasMatch(value.replaceAll(' ', ''))) {
+      return 'Please avoid repeated characters and describe what you are feeling.';
+    }
+    if (RegExp(r'\b(password|passcode|cvv|card number|account number)\b',
+                caseSensitive: false)
+            .hasMatch(value) ||
+        RegExp(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\+?\d[\d\s().-]{7,}\d')
+            .hasMatch(value)) {
+      return 'For your privacy, remove contact, account, and password details.';
+    }
+    return null;
+  }
+
+  List<Map<String, dynamic>>? _answersForSubmission() {
+    final questions = _workflow?.guidance?.followUpItems ?? const [];
+    final missingRequired = questions.where((question) =>
+        question.required &&
+        (_followUpAnswers[question.id]?.trim().isEmpty ?? true));
+    if (missingRequired.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-              'Answer at least one follow-up question before updating the assessment.')));
+          content: Text('Please answer every required follow-up question.')));
       return null;
     }
-    return answered.join('\n');
+    return questions
+        .where((question) =>
+            _followUpAnswers[question.id]?.trim().isNotEmpty == true)
+        .map((question) => {
+              'questionId': question.id,
+              'value': _followUpAnswers[question.id]!.trim(),
+              if (question.unit != null) 'unit': question.unit,
+            })
+        .toList();
   }
 
   void _setWorkflow(TriageWorkflow workflow) {
-    _followUpAnswers = List<bool?>.filled(
-        workflow.guidance?.followUpQuestions.length ?? 0, null);
-    setState(() => _workflow = workflow);
+    for (final controller in _followUpControllers.values) {
+      controller.dispose();
+    }
+    _followUpControllers.clear();
+    _followUpAnswers.clear();
+    for (final question in workflow.guidance?.followUpItems ?? const []) {
+      _followUpControllers[question.id] = TextEditingController();
+    }
+    setState(() {
+      _workflow = workflow;
+      _expandedHistoryWorkflowId = null;
+      _expandedHistoryWorkflow = null;
+      _assessmentHistory = [
+        workflow,
+        ..._assessmentHistory
+            .where((item) => item.workflowId != workflow.workflowId),
+      ];
+    });
   }
 
   Map<String, dynamic>? _optionalVitals() {
@@ -161,6 +234,9 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
     _symptomController.dispose();
     _heartRateController.dispose();
     _temperatureController.dispose();
+    for (final controller in _followUpControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -168,6 +244,19 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
   Widget build(BuildContext context) {
     final isEmergency = _workflow?.triageLevel == 'Emergency';
     final isUrgent = _workflow?.triageLevel == 'Urgent';
+    final isClinicalReview = _workflow?.triageLevel == 'ClinicalReview';
+    final isAwaitingFollowUp =
+        _workflow?.status == 'PendingPatientInput' && !_followUpRoundComplete;
+    final needsEscalation = isEmergency || isUrgent || isClinicalReview;
+    final resultColor = needsEscalation
+        ? isClinicalReview
+            ? AppColors.warning
+            : AppColors.danger
+        : isAwaitingFollowUp
+            ? AppColors.accent
+            : AppColors.primary;
+    final resultLabel =
+        isAwaitingFollowUp ? 'Assessment incomplete' : _workflow?.triageLevel;
     final content = SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -267,19 +356,18 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
                     : 'Submit for SafeTriage'))),
         if (_isSubmitting) ...[
           const SizedBox(height: 18),
-          _buildLiveWorkflowProgress(),
+          Container(key: _processingKey, child: _buildLiveWorkflowProgress()),
         ],
         if (_workflow != null) ...[
           const SizedBox(height: 24),
+          _buildSubmittedReport(_workflow!),
+          const SizedBox(height: 12),
           Card(
               margin: EdgeInsets.zero,
               elevation: 0,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(
-                      color: isEmergency || isUrgent
-                          ? AppColors.danger.withValues(alpha: .35)
-                          : AppColors.primary.withValues(alpha: .20))),
+                  side: BorderSide(color: resultColor.withValues(alpha: .30))),
               child: Padding(
                   padding: const EdgeInsets.all(18),
                   child: Column(
@@ -289,18 +377,15 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
                           Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                                color: (isEmergency || isUrgent
-                                        ? AppColors.danger
-                                        : AppColors.primary)
-                                    .withValues(alpha: .12),
+                                color: resultColor.withValues(alpha: .12),
                                 borderRadius: BorderRadius.circular(12)),
                             child: Icon(
-                                isEmergency || isUrgent
+                                needsEscalation
                                     ? Icons.warning_amber_rounded
-                                    : Icons.verified_user_outlined,
-                                color: isEmergency || isUrgent
-                                    ? AppColors.danger
-                                    : AppColors.primary),
+                                    : isAwaitingFollowUp
+                                        ? Icons.pending_actions_outlined
+                                        : Icons.verified_user_outlined,
+                                color: resultColor),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
@@ -311,13 +396,11 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
                                     style: TextStyle(
                                         fontSize: 12,
                                         color: AppColors.textSecondaryLight)),
-                                Text(_workflow!.triageLevel,
+                                Text(resultLabel ?? 'Assessment unavailable',
                                     style: TextStyle(
                                         fontSize: 20,
                                         fontWeight: FontWeight.w800,
-                                        color: isEmergency || isUrgent
-                                            ? AppColors.danger
-                                            : AppColors.primary)),
+                                        color: resultColor)),
                               ])),
                         ]),
                         const SizedBox(height: 8),
@@ -360,6 +443,27 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
                             ),
                           ),
                         ],
+                        if (isClinicalReview) ...[
+                          const SizedBox(height: 14),
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: AppColors.warning.withValues(alpha: .12),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Row(children: [
+                              Icon(Icons.medical_information_outlined,
+                                  color: AppColors.warning),
+                              SizedBox(width: 10),
+                              Expanded(
+                                  child: Text(
+                                'CLINICAL REVIEW REQUIRED\nA qualified clinician must review this report. Contact the relevant care team. If symptoms become severe or rapidly worsen, seek urgent or emergency care.',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold, height: 1.35),
+                              )),
+                            ]),
+                          ),
+                        ],
                         if (_workflow!.guidance != null) ...[
                           const SizedBox(height: 16),
                           _buildAgentResponse(_workflow!, isEmergency),
@@ -388,6 +492,10 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
                                   icon: const Icon(Icons.warning_amber_rounded),
                                   label: const Text('Find emergency clinic'))),
                       ]))),
+        ],
+        if (_assessmentHistory.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          _buildAssessmentHistory(),
         ],
       ]),
     );
@@ -500,45 +608,49 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
                     ))
                 .toList()),
       ),
-      if (!_followUpRoundComplete && guidance.followUpQuestions.isNotEmpty) ...[
+      if (!_followUpRoundComplete && guidance.followUpItems.isNotEmpty) ...[
         const SizedBox(height: 10),
         _responsePanel(
           icon: Icons.forum_outlined,
           title: 'A few details could improve this guidance',
           color: AppColors.accent,
           child: Column(children: [
-            ...List.generate(
-                guidance.followUpQuestions.length,
-                (index) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: .68),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                              color: AppColors.accent.withValues(alpha: .16)),
-                        ),
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(guidance.followUpQuestions[index],
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w600)),
-                              const SizedBox(height: 10),
-                              Row(children: [
-                                _answerButton(index, true),
-                                const SizedBox(width: 8),
-                                _answerButton(index, false),
-                              ]),
-                            ]),
-                      ),
-                    )),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'The assistant selected up to 3 relevant questions from what you reported. Reply naturally in your own words.',
+                  style: TextStyle(color: AppColors.textSecondaryLight),
+                ),
+              ),
+            ),
+            ...guidance.followUpItems.map((question) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .68),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: AppColors.accent.withValues(alpha: .16)),
+                    ),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_followUpPrompt(question.prompt),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 10),
+                          _buildQuestionInput(question),
+                        ]),
+                  ),
+                )),
             if (!isEmergency)
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: _isSubmitting || !_hasFollowUpAnswer
+                  onPressed: _isSubmitting || !_allRequiredAnswersProvided
                       ? null
                       : () => _startTriage(includeFollowUpAnswers: true),
                   icon: const Icon(Icons.update_outlined),
@@ -585,31 +697,54 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
         ]),
       );
 
-  Widget _answerButton(int index, bool answer) {
-    final isSelected =
-        _followUpAnswers.length > index && _followUpAnswers[index] == answer;
-    final color = answer ? AppColors.success : AppColors.textSecondaryLight;
-    return Expanded(
-      child: ChoiceChip(
-        selected: isSelected,
-        onSelected: (_) => setState(() => _followUpAnswers[index] = answer),
-        showCheckmark: false,
-        avatar: Icon(answer ? Icons.check_rounded : Icons.close_rounded,
-            size: 17, color: isSelected ? Colors.white : color),
-        label: Center(child: Text(answer ? 'Yes' : 'No')),
-        labelStyle: TextStyle(
-            color: isSelected ? Colors.white : color,
-            fontWeight: FontWeight.w700),
-        selectedColor: color,
-        backgroundColor: Colors.transparent,
-        side: BorderSide(color: color.withValues(alpha: isSelected ? 1 : .45)),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+  Widget _buildQuestionInput(TriageFollowUpQuestion question) {
+    return TextField(
+      controller: _followUpControllers[question.id],
+      keyboardType: TextInputType.text,
+      textCapitalization: TextCapitalization.sentences,
+      maxLines: 2,
+      minLines: 1,
+      onChanged: (value) =>
+          setState(() => _followUpAnswers[question.id] = value),
+      decoration: InputDecoration(
+        hintText: _followUpHint(question),
+        prefixIcon: const Icon(Icons.chat_bubble_outline_rounded, size: 19),
       ),
     );
   }
 
-  bool get _hasFollowUpAnswer =>
-      _followUpAnswers.any((answer) => answer != null);
+  String _followUpHint(TriageFollowUpQuestion question) {
+    switch (question.type) {
+      case 'yesNo':
+        return 'For example: Yes, and it is still happening';
+      case 'number':
+        return question.unit == null
+            ? 'Write your answer in your own words'
+            : 'For example: About 3 ${question.unit}';
+      case 'severityScale':
+        final minimum = (question.minimum ?? 0).toStringAsFixed(0);
+        final maximum = (question.maximum ?? 10).toStringAsFixed(0);
+        return 'Describe it, or give a number from $minimum to $maximum';
+      case 'multipleChoice':
+        return 'Describe anything that applies, or write “none”';
+      default:
+        return 'Write your answer in your own words';
+    }
+  }
+
+  String _followUpPrompt(String prompt) => prompt
+      .replaceFirst(
+          RegExp(r'^Select every ', caseSensitive: false), 'Describe any ')
+      .replaceFirst(
+          RegExp(r'^Select any ', caseSensitive: false), 'Describe any ');
+
+  bool get _allRequiredAnswersProvided {
+    final questions = _workflow?.guidance?.followUpItems ?? const [];
+    return questions.isNotEmpty &&
+        questions.every((question) =>
+            !question.required ||
+            (_followUpAnswers[question.id]?.trim().isNotEmpty ?? false));
+  }
 
   Widget _statusPill(IconData icon, String label) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
@@ -629,6 +764,174 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
         ]),
       );
 
+  Widget _buildSubmittedReport(TriageWorkflow workflow) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: .06),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.primary.withValues(alpha: .18)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Row(children: [
+            Icon(Icons.receipt_long_outlined,
+                color: AppColors.primary, size: 19),
+            SizedBox(width: 8),
+            Text('Your submitted report',
+                style: TextStyle(fontWeight: FontWeight.w800)),
+          ]),
+          const SizedBox(height: 8),
+          Text(
+              workflow.patientReportedSymptoms.isEmpty
+                  ? _symptomController.text.trim()
+                  : workflow.patientReportedSymptoms,
+              style: const TextStyle(height: 1.4)),
+          const SizedBox(height: 8),
+          Text(
+              'Saved as assessment #${workflow.workflowId} · ${_patientStatusLabel(workflow)}',
+              style: const TextStyle(
+                  fontSize: 11, color: AppColors.textSecondaryLight)),
+        ]),
+      );
+
+  Widget _buildAssessmentHistory() => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Previous assessments',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+          const SizedBox(height: 4),
+          const Text(
+              'Your earlier reports are saved. Tap one to expand its latest status here.',
+              style:
+                  TextStyle(fontSize: 12, color: AppColors.textSecondaryLight)),
+          const SizedBox(height: 9),
+          ..._historyCards(),
+        ],
+      );
+
+  List<Widget> _historyCards() {
+    final cards = <Widget>[];
+    for (final item in _assessmentHistory.take(6)) {
+      final expanded = _expandedHistoryWorkflowId == item.workflowId;
+      cards.add(Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        elevation: 0,
+        child: ListTile(
+          onTap: _isSubmitting
+              ? null
+              : () async {
+                  if (expanded) {
+                    setState(() {
+                      _expandedHistoryWorkflowId = null;
+                      _expandedHistoryWorkflow = null;
+                    });
+                    return;
+                  }
+                  setState(() => _isSubmitting = true);
+                  try {
+                    final workflow =
+                        await ApiService.getTriageWorkflow(item.workflowId);
+                    if (mounted) {
+                      setState(() {
+                        _expandedHistoryWorkflowId = item.workflowId;
+                        _expandedHistoryWorkflow = workflow;
+                      });
+                    }
+                  } catch (_) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content:
+                              Text('This assessment could not be opened.')));
+                    }
+                  } finally {
+                    if (mounted) setState(() => _isSubmitting = false);
+                  }
+                },
+          leading: Icon(_historyIcon(item), color: _historyColor(item)),
+          title: Text(
+              item.patientReportedSymptoms.isEmpty
+                  ? 'Assessment #${item.workflowId}'
+                  : item.patientReportedSymptoms.split('\n').first,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+          subtitle: Text(_patientStatusLabel(item)),
+          trailing: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+        ),
+      ));
+      if (expanded && _expandedHistoryWorkflow != null) {
+        cards.add(_buildExpandedHistoryDetail(_expandedHistoryWorkflow!));
+      }
+    }
+    return cards;
+  }
+
+  Widget _buildExpandedHistoryDetail(TriageWorkflow workflow) => Container(
+        margin: const EdgeInsets.only(left: 8, right: 8, bottom: 14),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: .055),
+          border: Border.all(color: AppColors.primary.withValues(alpha: .18)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Saved assessment details',
+              style: TextStyle(
+                  fontWeight: FontWeight.w800, color: AppColors.primary)),
+          const SizedBox(height: 8),
+          Text(workflow.patientReportedSymptoms,
+              style:
+                  const TextStyle(fontWeight: FontWeight.w600, height: 1.35)),
+          const SizedBox(height: 8),
+          Text(_patientStatusLabel(workflow),
+              style: TextStyle(
+                  color: _historyColor(workflow), fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text(workflow.patientMessage, style: const TextStyle(height: 1.4)),
+          if (workflow.guidance?.actions.isNotEmpty == true) ...[
+            const SizedBox(height: 10),
+            const Text('Recorded next steps',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            ...workflow.guidance!.actions.take(3).map((action) => Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Text('• $action'),
+                )),
+          ],
+        ]),
+      );
+
+  String _patientStatusLabel(TriageWorkflow workflow) {
+    if (workflow.approvalStatus == 'Approved') {
+      return 'Reviewed and accepted by a clinician';
+    }
+    if (workflow.approvalStatus == 'Rejected') {
+      return 'Reviewed — recommendation not accepted';
+    }
+    if (workflow.approvalStatus == 'RevisionRequested') {
+      return 'Clinician requested more information';
+    }
+    if (workflow.requiresHumanReview) {
+      return 'Waiting for clinical review';
+    }
+    if (workflow.status == 'PendingPatientInput') {
+      return 'More information needed from you';
+    }
+    return 'Guidance completed';
+  }
+
+  IconData _historyIcon(TriageWorkflow workflow) =>
+      workflow.approvalStatus == 'Approved'
+          ? Icons.verified_rounded
+          : workflow.requiresHumanReview
+              ? Icons.person_search_outlined
+              : Icons.assignment_turned_in_outlined;
+
+  Color _historyColor(TriageWorkflow workflow) =>
+      workflow.approvalStatus == 'Approved'
+          ? AppColors.success
+          : workflow.requiresHumanReview
+              ? AppColors.warning
+              : AppColors.primary;
+
   Widget _buildTechnicalDetails(TriageWorkflow workflow) => Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
@@ -641,14 +944,27 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
           subtitle: const Text('Workflow and audit information',
               style: TextStyle(fontSize: 11)),
           children: [
+            _technicalHeading('Assessment status'),
             _technicalItem('Workflow status', workflow.status),
             _technicalItem('Clinical review', workflow.approvalStatus),
             _technicalItem('Information state', workflow.uncertaintyState),
+            const SizedBox(height: 7),
+            _technicalHeading('Safety signals'),
             if (workflow.redFlags.isNotEmpty)
-              _technicalList('Configured safety flags', workflow.redFlags),
+              _technicalList('Emergency red flags', workflow.redFlags),
+            if (workflow.urgentFlags.isNotEmpty)
+              _technicalList('Urgent warning signs', workflow.urgentFlags),
+            if (workflow.clinicalReviewFlags.isNotEmpty)
+              _technicalList(
+                  'Serious or high-risk context', workflow.clinicalReviewFlags),
             if (workflow.missingInformation.isNotEmpty)
               _technicalList(
                   'Information limitations', workflow.missingInformation),
+            const SizedBox(height: 7),
+            _technicalHeading('Decision audit'),
+            if (workflow.decisionBasis.isNotEmpty)
+              _technicalList(
+                  'Why this result was produced', workflow.decisionBasis),
             if (workflow.plan.isNotEmpty) ...[
               const SizedBox(height: 8),
               const Align(
@@ -689,6 +1005,15 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
               style:
                   const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
         ]),
+      );
+
+  Widget _technicalHeading(String label) => Padding(
+        padding: const EdgeInsets.only(bottom: 5),
+        child: Text(label.toUpperCase(),
+            style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primary)),
       );
 
   Widget _technicalList(String title, List<String> items) => Padding(
