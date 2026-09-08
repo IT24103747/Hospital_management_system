@@ -153,7 +153,7 @@ public class RoomSchedulingServiceTests
     }
 
     [Fact]
-    public async Task BookedSchedule_CannotBeEditedCancelledOrDeleted()
+    public async Task BookedSchedule_CanBeEditedAndNotifiesPatient_ButCannotBeCancelledOrDeleted()
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
@@ -169,16 +169,44 @@ public class RoomSchedulingServiceTests
         });
         await db.SaveChangesAsync();
 
-        var editError = await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateAsync(setup.FirstUserId, schedule.DoctorTimeSlotId, new UpdateDoctorScheduleDto
+        var updated = await service.UpdateAsync(setup.FirstUserId, schedule.DoctorTimeSlotId, new UpdateDoctorScheduleDto
         {
-            RoomId = dto.RoomId, StartAt = dto.StartAt, EndAt = dto.EndAt, Capacity = dto.Capacity, ConsultationFee = dto.ConsultationFee
-        }));
+            RoomId = dto.RoomId, StartAt = dto.StartAt.AddHours(2), EndAt = dto.EndAt.AddHours(2), Capacity = dto.Capacity, ConsultationFee = dto.ConsultationFee
+        });
         var cancelError = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CancelAsync(setup.FirstUserId, schedule.DoctorTimeSlotId));
         var deleteError = await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteAsync(setup.FirstUserId, schedule.DoctorTimeSlotId));
 
-        Assert.Contains("cannot be edited", editError.Message);
+        Assert.NotNull(updated);
+        Assert.Equal(start.AddHours(2), (await db.Appointments.SingleAsync()).EstimatedStartAt);
+        Assert.Equal(1, (await db.Appointments.SingleAsync()).AppointmentNumber);
+        Assert.Contains("has been updated", (await db.AppointmentNotifications.SingleAsync()).Message);
         Assert.Contains("cannot be cancelled", cancelError.Message);
         Assert.Contains("cannot be deleted", deleteError.Message);
+    }
+
+    [Fact]
+    public async Task EditBookedSchedule_ProtectsHighAppointmentNumbersAndDoesNotNotifyOnNoOp()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedSchedulingDataAsync(db);
+        var service = new DoctorScheduleService(db);
+        var start = DateTime.UtcNow.AddDays(7);
+        var schedule = await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
+        db.Appointments.Add(new Appointment { DoctorTimeSlotId = schedule.DoctorTimeSlotId,
+            AppointmentNumber = 5, EstimatedStartAt = start.AddMinutes(48), Status = "Confirmed" });
+        await db.SaveChangesAsync();
+        var dto = new UpdateDoctorScheduleDto { RoomId = setup.RoomId, StartAt = start,
+            EndAt = start.AddHours(1), Capacity = 4, ConsultationFee = 2500m };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateAsync(setup.FirstUserId, schedule.DoctorTimeSlotId, dto));
+        Assert.Empty(await db.AppointmentNotifications.ToListAsync());
+        dto.Capacity = 5;
+        await service.UpdateAsync(setup.FirstUserId, schedule.DoctorTimeSlotId, dto);
+        Assert.Empty(await db.AppointmentNotifications.ToListAsync());
+        dto.StartAt = start.AddHours(2);
+        dto.EndAt = start.AddHours(3);
+        await service.UpdateAsync(setup.FirstUserId, schedule.DoctorTimeSlotId, dto);
+        Assert.Equal(start.AddHours(2).AddMinutes(48), (await db.Appointments.SingleAsync()).EstimatedStartAt);
+        Assert.Single(await db.AppointmentNotifications.ToListAsync());
     }
 
     [Fact]

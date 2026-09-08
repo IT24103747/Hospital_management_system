@@ -18,6 +18,27 @@ namespace HospitalManagementSystem.Api.Tests;
 public class AppointmentServiceTests
 {
     [Fact]
+    public async Task Completion_UpdatesExpiredConfirmedAppointmentsBeforeFiltering()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedAppointmentDataAsync(db);
+        var past = await AddSlotAsync(db, setup, start: DateTime.UtcNow.AddHours(-2));
+        var future = await AddSlotAsync(db, setup);
+        var expired = await AddAppointmentAsync(db, past);
+        var cancelled = await AddAppointmentAsync(db, past, appointmentNumber: 2, status: "Cancelled");
+        var upcoming = await AddAppointmentAsync(db, future);
+        var service = new AppointmentService(new AppointmentRepository(db));
+        var result = await service.GetAllAppointmentsAsync(null, "Completed", null, null, null, null, 1, 50);
+        Assert.Equal(expired.AppointmentId, Assert.Single(result.Data).AppointmentId);
+        Assert.Equal(1, result.TotalCount);
+        Assert.Equal("Cancelled", cancelled.Status);
+        Assert.Equal("Confirmed", upcoming.Status);
+        await AppointmentCompletionService.CompleteDueAsync(db);
+        Assert.Equal("Completed", expired.Status);
+        Assert.Empty(await db.AppointmentNotifications.ToListAsync());
+    }
+
+    [Fact]
     public async Task CreateAppointment_RejectsDuplicateAppointmentNumber()
     {
         await using var db = CreateContext();
@@ -99,24 +120,6 @@ public class AppointmentServiceTests
             service.RescheduleAppointmentAsync(appointment.AppointmentId, destination.DoctorTimeSlotId));
 
         Assert.Equal("Terminal appointments cannot be rescheduled.", exception.Message);
-    }
-
-    [Fact]
-    public async Task UpdateStatus_RejectsInvalidStatusAndTerminalStatusMove()
-    {
-        await using var db = CreateContext();
-        var setup = await SeedAppointmentDataAsync(db);
-        var slot = await AddSlotAsync(db, setup);
-        var appointment = await AddAppointmentAsync(db, slot, status: "Completed");
-        var service = CreateService(db);
-
-        var invalid = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.UpdateStatusAsync(appointment.AppointmentId, "Archived"));
-        var terminalMove = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.UpdateStatusAsync(appointment.AppointmentId, "Confirmed"));
-
-        Assert.Equal("Invalid appointment status.", invalid.Message);
-        Assert.Equal("Terminal appointments cannot be moved to another status.", terminalMove.Message);
     }
 
     [Fact]
@@ -250,20 +253,6 @@ public class AppointmentServiceTests
     }
 
     [Fact]
-    public async Task DoctorCannotUpdateAnotherDoctorsAppointmentStatus()
-    {
-        await using var db = CreateContext();
-        var setup = await SeedAppointmentDataAsync(db);
-        var slot = await AddSlotAsync(db, setup, doctorId: setup.FirstDoctorId);
-        var appointment = await AddAppointmentAsync(db, slot);
-        var controller = CreateController(db, "Doctor", setup.SecondDoctorUserId, "second.doctor@example.com");
-
-        var result = await controller.UpdateStatus(appointment.AppointmentId, new UpdateAppointmentStatusDto { Status = "Completed" });
-
-        Assert.IsType<ForbidResult>(result);
-    }
-
-    [Fact]
     public async Task PatientCannotCancelAnotherPatientsAppointment()
     {
         await using var db = CreateContext();
@@ -296,8 +285,6 @@ public class AppointmentServiceTests
     [Theory]
     [InlineData(nameof(AppointmentController.Create), "Admin,Patient")]
     [InlineData(nameof(AppointmentController.Update), "Admin")]
-    [InlineData(nameof(AppointmentController.Delete), "Admin")]
-    [InlineData(nameof(AppointmentController.UpdateStatus), "Admin,Doctor")]
     [InlineData(nameof(AppointmentController.CreateSlot), "Admin,Doctor")]
     public void AppointmentEndpoints_DeclareExpectedRolePermissions(string methodName, string expectedRoles)
     {
@@ -342,7 +329,6 @@ public class AppointmentServiceTests
             PatientPhone = "0770000000",
             PatientEmail = patientEmail,
             AppointmentType = "Consultation",
-            Reason = "Checkup"
         };
 
     private static CreateDoctorTimeSlotDto SlotDto(int? doctorId, int? roomId, DateTime start, DateTime end, decimal consultationFee = 2500m) => new()

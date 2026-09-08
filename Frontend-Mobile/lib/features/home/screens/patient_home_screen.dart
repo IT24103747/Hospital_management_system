@@ -141,23 +141,23 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
                   tone: const Color(0xFF059669),
                   onTap: _openMedicalRecords,
                 ),
-                _QuickTile(
+                const _QuickTile(
                   icon: Icons.notifications_active_outlined,
                   title: 'Notifications',
                   value: '3 new updates',
-                  tone: const Color(0xFFD97706),
+                  tone: Color(0xFFD97706),
                 ),
-                _QuickTile(
+                const _QuickTile(
                   icon: Icons.psychology_alt_outlined,
                   title: 'AI Assistant',
                   value: 'Ask about reports',
-                  tone: const Color(0xFF4F46E5),
+                  tone: Color(0xFF4F46E5),
                 ),
-                _QuickTile(
+                const _QuickTile(
                   icon: Icons.health_and_safety_outlined,
                   title: 'Reminders',
                   value: 'Take medicine',
-                  tone: const Color(0xFF0284C7),
+                  tone: Color(0xFF0284C7),
                 ),
               ],
             ),

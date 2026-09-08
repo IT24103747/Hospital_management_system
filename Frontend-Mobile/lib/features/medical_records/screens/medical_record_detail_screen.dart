@@ -102,7 +102,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Upload failed: $e'),
-          backgroundColor: AppColors.error,
+          backgroundColor: AppColors.danger,
         ),
       );
     }
@@ -151,10 +151,10 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: AppColors.secondary.withValues(alpha: 0.1),
+                    color: AppColors.accent.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.photo_library_rounded, color: AppColors.secondary),
+                  child: const Icon(Icons.photo_library_rounded, color: AppColors.accent),
                 ),
                 title: const Text('Choose from Photo Gallery', style: TextStyle(fontWeight: FontWeight.w600)),
                 subtitle: const Text('Select saved report image from device'),
@@ -380,7 +380,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
             _buildSectionCard(
               title: 'Attached Reports & Scans (${_record.attachments.length})',
               icon: Icons.attach_file_rounded,
-              iconColor: AppColors.secondary,
+              iconColor: AppColors.accent,
               action: TextButton.icon(
                 onPressed: _uploading ? null : _showUploadOptions,
                 icon: const Icon(Icons.camera_alt, size: 16),

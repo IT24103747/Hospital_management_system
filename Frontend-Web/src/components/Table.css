@@ -49,6 +49,14 @@
   transition: background var(--transition-fast);
 }
 
+/* Keep loading placeholders still instead of sweeping a bright shimmer. */
+.table .skeleton {
+  background: var(--border-default);
+  background-image: none;
+  animation: none;
+  opacity: 0.55;
+}
+
 .table tbody tr:hover {
   background: var(--bg-surface-2);
 }

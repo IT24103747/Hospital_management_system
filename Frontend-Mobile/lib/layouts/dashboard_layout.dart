@@ -49,6 +49,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
   String _userEmail = 'patient@medicore.lk';
   String _userInitials = 'PU';
   String? _appointmentAction;
+  DoctorLookup? _bookingDoctor;
   int _appointmentActionVersion = 0;
   Appointment? _nextAppointment;
   bool _loadingNextAppointment = true;
@@ -140,10 +141,13 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _PatientSection.profile => const ProfileScreen(),
         _PatientSection.appointments => _AppointmentsSection(
             action: _appointmentAction,
+            initialDoctor: _bookingDoctor,
             actionVersion: _appointmentActionVersion,
             onAppointmentsLoaded: _syncNextAppointment,
           ),
-        _PatientSection.doctors => const _DoctorsSection(),
+        _PatientSection.doctors => _DoctorsSection(
+            onBook: (doctor) => _openAppointments('book', doctor: doctor),
+          ),
         _PatientSection.records => const MedicalRecordsScreen(embedded: true),
         _PatientSection.assistant => const AiTriageScreen(embedded: true),
         _PatientSection.notifications => const _NotificationsSection(),
@@ -158,10 +162,11 @@ class _DashboardLayoutState extends State<DashboardLayout> {
     }
   }
 
-  void _openAppointments(String action) {
+  void _openAppointments(String action, {DoctorLookup? doctor}) {
     setState(() {
       _activeSection = _PatientSection.appointments;
       _appointmentAction = action;
+      _bookingDoctor = doctor;
       _appointmentActionVersion++;
     });
   }
@@ -629,7 +634,7 @@ class _HomeSection extends StatelessWidget {
             _FeatureTileData(Icons.description_outlined, 'Recent report',
                 'Blood test uploaded', AppColors.success),
             _FeatureTileData(Icons.notifications_active_outlined,
-                'Notifications', '3 new updates', AppColors.warning),
+                'Notifications', 'Appointment updates', AppColors.warning),
             _FeatureTileData(Icons.psychology_alt_outlined, 'AI Assistant',
                 'Ask about reports', AppColors.accent),
           ],
@@ -649,11 +654,13 @@ class _HomeSection extends StatelessWidget {
 
 class _AppointmentsSection extends StatefulWidget {
   final String? action;
+  final DoctorLookup? initialDoctor;
   final int actionVersion;
   final ValueChanged<List<Appointment>>? onAppointmentsLoaded;
 
   const _AppointmentsSection({
     this.action,
+    this.initialDoctor,
     this.actionVersion = 0,
     this.onAppointmentsLoaded,
   });
@@ -686,6 +693,8 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   @override
   void initState() {
     super.initState();
+    _selectedSpecialty = widget.initialDoctor?.specialty;
+    _selectedDoctorName = widget.initialDoctor?.doctorName;
     _loadAppointments();
   }
 
@@ -702,6 +711,12 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   void didUpdateWidget(covariant _AppointmentsSection oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.actionVersion != oldWidget.actionVersion) {
+      if (widget.initialDoctor != null) {
+        _selectedSpecialty = widget.initialDoctor!.specialty;
+        _selectedDoctorName = widget.initialDoctor!.doctorName;
+        _selectedSlotId = null;
+        _selectedAppointmentNumber = null;
+      }
       _applyAction(widget.action);
     }
   }
@@ -939,7 +954,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   }
 
   Future<String?> _cancelReason() async {
-    final controller = TextEditingController();
+    var reason = '';
     final formKey = GlobalKey<FormState>();
     final result = await showDialog<String>(
       context: context,
@@ -949,7 +964,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
           content: Form(
             key: formKey,
             child: TextFormField(
-              controller: controller,
+              onChanged: (value) => reason = value,
               minLines: 2,
               maxLines: 4,
               decoration: const InputDecoration(
@@ -969,7 +984,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
             FilledButton(
               onPressed: () {
                 if (formKey.currentState!.validate()) {
-                  Navigator.pop(context, controller.text.trim());
+                  Navigator.pop(context, reason.trim());
                 }
               },
               child: const Text('Cancel appointment'),
@@ -978,7 +993,6 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
         );
       },
     );
-    controller.dispose();
     return result;
   }
 
@@ -2057,12 +2071,8 @@ bool _isClosedAppointmentStatus(String status) =>
 String _formatAppointmentDate(Appointment appointment) =>
     DateFormat('MMM d, yyyy').format(appointment.startAt.toLocal());
 
-String _formatAppointmentTime(Appointment appointment) {
-  final start =
-      DateFormat('h:mm a').format(appointment.estimatedStartAt.toLocal());
-  final end = DateFormat('h:mm a').format(appointment.endAt.toLocal());
-  return '$start - $end';
-}
+String _formatAppointmentTime(Appointment appointment) =>
+    DateFormat('h:mm a').format(appointment.estimatedStartAt.toLocal());
 
 String _formatEstimatedTime(DoctorTimeSlot slot, int appointmentNumber) =>
     DateFormat('h:mm a')
@@ -2089,117 +2099,105 @@ String _formatFee(double value) {
 bool _sameText(String? a, String? b) =>
     (a ?? '').trim().toLowerCase() == (b ?? '').trim().toLowerCase();
 
-class _DoctorsSection extends StatelessWidget {
-  const _DoctorsSection();
+class _DoctorsSection extends StatefulWidget {
+  final ValueChanged<DoctorLookup> onBook;
+
+  const _DoctorsSection({required this.onBook});
+
+  @override
+  State<_DoctorsSection> createState() => _DoctorsSectionState();
+}
+
+class _DoctorsSectionState extends State<_DoctorsSection> {
+  late Future<List<DoctorLookup>> _doctors;
+
+  @override
+  void initState() {
+    super.initState();
+    _doctors = ApiService.getAppointmentDoctors();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return const _PageScaffold(
-      children: [
-        _SearchBarCard(hint: 'Search doctors or specialization'),
-        SizedBox(height: 14),
-        _FilterChips(labels: [
-          'All',
-          'Cardiology',
-          'General',
-          'Pediatrics',
-          'Orthopedics'
-        ]),
-        SizedBox(height: 16),
-        _DoctorCard(
-          name: 'Dr. Kasun Silva',
-          specialty: 'Cardiologist',
-          details: 'MBBS, MD Cardiology | 12 years experience',
-          schedule: 'Available: Mon, Wed, Fri',
-          rating: '4.8',
-        ),
-        SizedBox(height: 12),
-        _DoctorCard(
-          name: 'Dr. Nilani Perera',
-          specialty: 'General Physician',
-          details: 'MBBS, Family Medicine | 9 years experience',
-          schedule: 'Available: Tue, Thu, Sat',
-          rating: '4.7',
-        ),
-      ],
+    return FutureBuilder<List<DoctorLookup>>(
+      future: _doctors,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return _PageScaffold(children: [
+            const Text('Unable to load doctors. Please try again.'),
+            TextButton(
+              onPressed: () => setState(() {
+                _doctors = ApiService.getAppointmentDoctors();
+              }),
+              child: const Text('Retry'),
+            ),
+          ]);
+        }
+        final doctors = snapshot.data ?? [];
+        return _PageScaffold(children: [
+          if (doctors.isEmpty) const Text('No approved doctors are available.'),
+          for (final doctor in doctors) ...[
+            _DoctorCard(
+              name: doctor.doctorName,
+              specialty: doctor.specialty,
+              onBook: () => widget.onBook(doctor),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ]);
+      },
     );
   }
 }
 
-class _MedicalRecordsSection extends StatelessWidget {
-  const _MedicalRecordsSection();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _PageScaffold(
-      children: [
-        _HeroCard(
-          title: 'Your health record hub',
-          subtitle:
-              'Medical history, reports, prescriptions, doctor notes, and uploaded documents stay together.',
-          icon: Icons.folder_copy_outlined,
-          actions: ['Upload Document', 'Share Summary'],
-        ),
-        SizedBox(height: 16),
-        _RecordCategory(
-            icon: Icons.history_edu_outlined,
-            title: 'Medical History',
-            items: [
-              'Previous diagnoses',
-              'Previous treatments',
-              'Past visits'
-            ]),
-        _RecordCategory(
-            icon: Icons.science_outlined,
-            title: 'Lab Reports',
-            items: ['Blood tests', 'X-rays', 'Scan reports', 'Results']),
-        _RecordCategory(
-            icon: Icons.medication_outlined,
-            title: 'Prescriptions',
-            items: [
-              'Current medicines',
-              'Dosage',
-              'Instructions',
-              'Previous prescriptions'
-            ]),
-        _RecordCategory(
-            icon: Icons.note_alt_outlined,
-            title: 'Doctor Notes',
-            items: ['Consultation notes', 'Treatment recommendations']),
-        _RecordCategory(
-            icon: Icons.file_copy_outlined,
-            title: 'Documents',
-            items: ['Uploaded documents', 'Medical certificates']),
-      ],
-    );
-  }
-}
-
-class _NotificationsSection extends StatelessWidget {
+class _NotificationsSection extends StatefulWidget {
   const _NotificationsSection();
 
   @override
+  State<_NotificationsSection> createState() => _NotificationsSectionState();
+}
+
+class _NotificationsSectionState extends State<_NotificationsSection> {
+  late Future<List<Map<String, dynamic>>> _notifications;
+
+  @override
+  void initState() {
+    super.initState();
+    _notifications = ApiService.getAppointmentNotifications();
+  }
+
+  void _refresh() {
+    setState(() => _notifications = ApiService.getAppointmentNotifications());
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const _PageScaffold(
-      children: [
-        _NotificationTile(
-            Icons.alarm_on_outlined,
-            'Appointment Reminder',
-            'You have an appointment with Dr. Silva tomorrow at 10:30 AM.',
-            'New'),
-        _NotificationTile(
-            Icons.check_circle_outline_rounded,
-            'Appointment Confirmed',
-            'Your cardiology visit has been confirmed.',
-            'Today'),
-        _NotificationTile(
-            Icons.science_outlined,
-            'New Lab Report',
-            'A blood test report is available in Medical Records.',
-            'Yesterday'),
-        _NotificationTile(Icons.campaign_outlined, 'Hospital Announcement',
-            'The outpatient desk closes early on public holidays.', 'Info'),
-      ],
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _notifications,
+      builder: (context, snapshot) {
+        return _PageScaffold(children: [
+          Align(alignment: Alignment.centerRight,
+            child: TextButton.icon(onPressed: _refresh,
+              icon: const Icon(Icons.refresh), label: const Text('Refresh'))),
+          if (snapshot.connectionState == ConnectionState.waiting)
+            const Center(child: CircularProgressIndicator())
+          else if (snapshot.hasError)
+            const Text('Unable to load notifications. Please try again.')
+          else if (snapshot.data!.isEmpty)
+            const Text('No appointment updates yet.')
+          else
+            ...snapshot.data!.map((notification) => _NotificationTile(
+              Icons.calendar_month_outlined,
+              'Appointment Updated',
+              notification['message'] as String,
+              DateFormat('MMM d, h:mm a').format(
+                DateTime.parse(notification['createdAt'] as String).toLocal()),
+            )),
+        ]);
+      },
     );
   }
 }
@@ -3048,13 +3046,22 @@ class _AppointmentCard extends StatelessWidget {
             children: [
               Expanded(
                   child: _MiniMetric(
-                      label: 'Date',
-                      value: _formatAppointmentDate(appointment))),
+                      label: 'Appointment number',
+                      value: '#${appointment.appointmentNumber}')),
               const SizedBox(width: 8),
               Expanded(
                   child: _MiniMetric(
-                      label: 'Time',
+                      label: 'Estimated time',
                       value: _formatAppointmentTime(appointment))),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                  child: _MiniMetric(
+                      label: 'Date',
+                      value: _formatAppointmentDate(appointment))),
               const SizedBox(width: 8),
               Expanded(
                   child: _MiniMetric(
@@ -3190,82 +3197,15 @@ class _OutlineAction extends StatelessWidget {
   }
 }
 
-class _SearchBarCard extends StatelessWidget {
-  final String hint;
-
-  const _SearchBarCard({required this.hint});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return _SurfaceCard(
-      child: Row(
-        children: [
-          Icon(Icons.search_rounded,
-              color:
-                  isDark ? AppColors.textMutedDark : AppColors.textMutedLight),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              hint,
-              style: TextStyle(
-                color:
-                    isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
-                fontSize: 13,
-              ),
-            ),
-          ),
-          const Icon(Icons.tune_rounded, color: AppColors.primary),
-        ],
-      ),
-    );
-  }
-}
-
-class _FilterChips extends StatelessWidget {
-  final List<String> labels;
-
-  const _FilterChips({required this.labels});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: labels.map((label) {
-        final selected = label == labels.first;
-        return Chip(
-          label: Text(label),
-          backgroundColor:
-              selected ? AppColors.primary.withValues(alpha: 0.12) : null,
-          labelStyle: TextStyle(
-            color: selected
-                ? AppColors.primary
-                : (isDark
-                    ? AppColors.textSecondaryDark
-                    : AppColors.textSecondaryLight),
-            fontWeight: FontWeight.w700,
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
 class _DoctorCard extends StatelessWidget {
   final String name;
   final String specialty;
-  final String details;
-  final String schedule;
-  final String rating;
+  final VoidCallback onBook;
 
   const _DoctorCard({
     required this.name,
     required this.specialty,
-    required this.details,
-    required this.schedule,
-    required this.rating,
+    required this.onBook,
   });
 
   @override
@@ -3304,94 +3244,17 @@ class _DoctorCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.star_rounded,
-                      color: AppColors.warning, size: 16),
-                  const SizedBox(width: 2),
-                  Text(
-                    rating,
-                    style: const TextStyle(
-                        color: AppColors.warning,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900),
-                  ),
-                ],
-              ),
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            details,
-            style: TextStyle(
-              color: isDark
-                  ? AppColors.textSecondaryDark
-                  : AppColors.textSecondaryLight,
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            schedule,
-            style: TextStyle(
-              color:
-                  isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 12),
-          const Row(
+          Row(
             children: [
-              Expanded(child: _OutlineAction(label: 'View Profile')),
-              SizedBox(width: 8),
-              Expanded(child: _OutlineAction(label: 'Book')),
+              const Expanded(child: _OutlineAction(label: 'View Profile')),
+              const SizedBox(width: 8),
+              Expanded(child: _OutlineAction(label: 'Book', onTap: onBook)),
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _RecordCategory extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final List<String> items;
-
-  const _RecordCategory({
-    required this.icon,
-    required this.title,
-    required this.items,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: _SurfaceCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                    backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-                    child: Icon(icon, color: AppColors.primary)),
-                const SizedBox(width: 12),
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w900)),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: items.map((item) => Chip(label: Text(item))).toList(),
-            ),
-          ],
-        ),
       ),
     );
   }

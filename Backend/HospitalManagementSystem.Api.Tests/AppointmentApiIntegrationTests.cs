@@ -17,6 +17,22 @@ namespace HospitalManagementSystem.Api.Tests;
 
 public class AppointmentApiIntegrationTests
 {
+    [Theory]
+    [InlineData("DELETE", "", HttpStatusCode.MethodNotAllowed)]
+    [InlineData("PATCH", "/status", HttpStatusCode.NotFound)]
+    public async Task RemovedAppointmentEndpoints_AreNotRoutable(string method, string suffix, HttpStatusCode expected)
+    {
+        await using var factory = new AppointmentApiFactory();
+        using var client = factory.CreateClient();
+        var seed = await SeedScenarioAsync(factory);
+        await AuthorizeAsync(client, "admin@medicore.lk", "Admin1234");
+        using var request = new HttpRequestMessage(new HttpMethod(method), $"/api/appointment/{seed.AdminManagedAppointmentId}{suffix}");
+        var response = await client.SendAsync(request);
+        Assert.Equal(expected, response.StatusCode);
+        var appointment = await client.GetFromJsonAsync<AppointmentDto>($"/api/appointment/{seed.AdminManagedAppointmentId}");
+        Assert.Equal("Confirmed", appointment!.Status);
+    }
+
     [Fact]
     public async Task PostAppointment_WithPatientToken_CreatesAppointmentForCurrentPatient()
     {
@@ -33,7 +49,6 @@ public class AppointmentApiIntegrationTests
             PatientPhone = "0771112222",
             PatientEmail = "spoof@example.com",
             AppointmentType = "Consultation",
-            Reason = "Checkup"
         });
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -41,22 +56,6 @@ public class AppointmentApiIntegrationTests
         Assert.NotNull(appointment);
         Assert.Equal(seed.AmalPatientId, appointment!.PatientId);
         Assert.Equal("amal.perera@email.com", appointment.PatientEmail);
-    }
-
-    [Fact]
-    public async Task PatchStatus_WithAdminToken_UpdatesAppointmentStatus()
-    {
-        await using var factory = new AppointmentApiFactory();
-        using var client = factory.CreateClient();
-        var seed = await SeedScenarioAsync(factory);
-        await AuthorizeAsync(client, "admin@medicore.lk", "Admin1234");
-
-        var response = await client.PatchAsJsonAsync($"/api/appointment/{seed.AdminManagedAppointmentId}/status",
-            new UpdateAppointmentStatusDto { Status = "Completed" });
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var appointment = await response.Content.ReadFromJsonAsync<AppointmentDto>();
-        Assert.Equal("Completed", appointment!.Status);
     }
 
     [Fact]
@@ -90,17 +89,28 @@ public class AppointmentApiIntegrationTests
     }
 
     [Fact]
-    public async Task PatchStatus_WithDifferentDoctorToken_ReturnsForbidden()
+    public async Task Notifications_ReturnOnlyTheAuthenticatedPatientsUpdates()
     {
         await using var factory = new AppointmentApiFactory();
         using var client = factory.CreateClient();
         var seed = await SeedScenarioAsync(factory);
-        await AuthorizeAsync(client, seed.SecondDoctorEmail, "Doctor123!");
-
-        var response = await client.PatchAsJsonAsync($"/api/appointment/{seed.FirstDoctorAppointmentId}/status",
-            new UpdateAppointmentStatusDto { Status = "Completed" });
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            db.AppointmentNotifications.AddRange(
+                new AppointmentNotification { AppointmentId = seed.AmalAppointmentId, Message = "Your time changed" },
+                new AppointmentNotification { AppointmentId = seed.NimeshaAppointmentId, Message = "Private other patient update" });
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/appointment/notifications")).StatusCode);
+        await AuthorizeAsync(client, "amal.perera@email.com", "Patient123!");
+        var response = await client.GetAsync("/api/appointment/notifications");
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Your time changed", body);
+        Assert.DoesNotContain("Private other patient update", body);
+        await AuthorizeAsync(client, "admin@medicore.lk", "Admin1234");
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/appointment/notifications")).StatusCode);
     }
 
     private static async Task AuthorizeAsync(HttpClient client, string email, string password)

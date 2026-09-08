@@ -53,17 +53,20 @@ public class DoctorScheduleService : IDoctorScheduleService
         var slot = await ScheduleQuery().SingleOrDefaultAsync(value => value.DoctorTimeSlotId == slotId && value.DoctorId == doctor.DoctorId);
         if (slot is null) return null;
         if (!slot.IsActive) throw new InvalidOperationException("Cancelled schedules cannot be updated.");
-        if (slot.Appointments.Count != 0)
-            throw new InvalidOperationException("Schedules with patient bookings cannot be edited.");
+        if (slot.EndAt <= DateTime.UtcNow) throw new InvalidOperationException("Completed schedules cannot be edited.");
         var activeCount = slot.Appointments.Count(a => OccupyingStatuses.Contains(a.Status));
         if (dto.Capacity < activeCount) throw new InvalidOperationException("Capacity cannot be less than the number of booked appointments.");
+        if (slot.Appointments.Any(a => OccupyingStatuses.Contains(a.Status) && a.AppointmentNumber > dto.Capacity))
+            throw new InvalidOperationException("Capacity cannot exclude an existing appointment number.");
         var room = await ValidRoomAsync(dto.RoomId);
         var startAt = Utc(dto.StartAt); var endAt = Utc(dto.EndAt);
         RoomService.ValidateRange(startAt, endAt);
         ValidateFee(dto.ConsultationFee);
         await EnsureNoOverlapAsync(doctor.DoctorId, room.RoomId, startAt, endAt, slotId);
-        slot.RoomId = room.RoomId; slot.StartAt = startAt; slot.EndAt = endAt;
+        var changed = slot.RoomId != room.RoomId || slot.StartAt != startAt || slot.EndAt != endAt || slot.Capacity != dto.Capacity || slot.ConsultationFee != dto.ConsultationFee;
+        slot.RoomId = room.RoomId; slot.Room = room; slot.StartAt = startAt; slot.EndAt = endAt;
         slot.Capacity = dto.Capacity; slot.ConsultationFee = decimal.Round(dto.ConsultationFee, 2); slot.UpdatedAt = DateTime.UtcNow;
+        ScheduleAppointmentUpdates.Apply(slot, changed);
         await SaveWithConflictTranslationAsync();
         return Map(slot);
     }

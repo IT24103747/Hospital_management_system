@@ -52,6 +52,23 @@ namespace HospitalManagementSystem.Api.Controllers
             return Ok(result);
         }
 
+        [HttpGet("notifications")]
+        [Authorize(Roles = "Patient")]
+        public async Task<IActionResult> GetNotifications()
+        {
+            var access = await GetAppointmentAccessAsync();
+            if (access.Result is not null) return access.Result;
+            var patientId = access.PatientId;
+            var email = access.PatientEmail;
+            var notifications = await _db.AppointmentNotifications.AsNoTracking()
+                .Where(n => (patientId.HasValue && n.Appointment.PatientId == patientId) ||
+                    (email != null && n.Appointment.PatientEmail != null && n.Appointment.PatientEmail.ToLower() == email))
+                .OrderByDescending(n => n.CreatedAt).Take(100)
+                .Select(n => new { n.AppointmentNotificationId, n.AppointmentId, n.Message, CreatedAt = DateTime.SpecifyKind(n.CreatedAt, DateTimeKind.Utc) })
+                .ToListAsync();
+            return Ok(notifications);
+        }
+
         [HttpGet("{id:int}")]
         [Authorize(Roles = AppointmentReaderRoles)]
         [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]
@@ -111,45 +128,6 @@ namespace HospitalManagementSystem.Api.Controllers
             try
             {
                 var updated = await _service.UpdateAppointmentAsync(id, dto);
-                return updated is null
-                    ? NotFound(new { message = $"Appointment with ID {id} not found." })
-                    : Ok(updated);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return Conflict(new { message = ex.Message });
-            }
-        }
-
-        [HttpDelete("{id:int}")]
-        [Authorize(Roles = "Admin")]
-        [ProducesResponseType(StatusCodes.Status204NoContent)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> Delete(int id)
-        {
-            var deleted = await _service.DeleteAppointmentAsync(id);
-            return deleted ? NoContent() : NotFound(new { message = $"Appointment with ID {id} not found." });
-        }
-
-        [HttpPatch("{id:int}/status")]
-        [Authorize(Roles = StaffRoles)]
-        [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status409Conflict)]
-        public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateAppointmentStatusDto dto)
-        {
-            try
-            {
-                var appointment = await _service.GetAppointmentByIdAsync(id);
-                if (appointment is null)
-                    return NotFound(new { message = $"Appointment with ID {id} not found." });
-
-                var access = await GetAppointmentAccessAsync();
-                if (access.Result is not null) return access.Result;
-                if (!CanAccessAppointment(appointment, access))
-                    return Forbid();
-
-                var updated = await _service.UpdateStatusAsync(id, dto.Status);
                 return updated is null
                     ? NotFound(new { message = $"Appointment with ID {id} not found." })
                     : Ok(updated);
