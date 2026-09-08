@@ -138,45 +138,6 @@ namespace HospitalManagementSystem.Api.Controllers
             }
         }
 
-        [HttpDelete("{id:int}")]
-        [Authorize(Roles = "Admin")]
-        [ProducesResponseType(StatusCodes.Status204NoContent)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> Delete(int id)
-        {
-            var deleted = await _service.DeleteAppointmentAsync(id);
-            return deleted ? NoContent() : NotFound(new { message = $"Appointment with ID {id} not found." });
-        }
-
-        [HttpPatch("{id:int}/status")]
-        [Authorize(Roles = StaffRoles)]
-        [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status409Conflict)]
-        public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateAppointmentStatusDto dto)
-        {
-            try
-            {
-                var appointment = await _service.GetAppointmentByIdAsync(id);
-                if (appointment is null)
-                    return NotFound(new { message = $"Appointment with ID {id} not found." });
-
-                var access = await GetAppointmentAccessAsync();
-                if (access.Result is not null) return access.Result;
-                if (!CanAccessAppointment(appointment, access))
-                    return Forbid();
-
-                var updated = await _service.UpdateStatusAsync(id, dto.Status);
-                return updated is null
-                    ? NotFound(new { message = $"Appointment with ID {id} not found." })
-                    : Ok(updated);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return Conflict(new { message = ex.Message });
-            }
-        }
-
         [HttpPost("{id:int}/cancel")]
         [Authorize(Roles = AppointmentReaderRoles)]
         [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]

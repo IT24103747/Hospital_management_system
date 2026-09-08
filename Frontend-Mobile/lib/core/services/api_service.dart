@@ -300,7 +300,6 @@ class ApiService {
         if (patientEmail != null && patientEmail.trim().isNotEmpty)
           'patientEmail': patientEmail.trim().toLowerCase(),
         'appointmentType': appointmentType.trim(),
-        'reason': 'Appointment',
       }),
     );
     if (response.statusCode == 201 || response.statusCode == 200) {

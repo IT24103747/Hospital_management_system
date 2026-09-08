@@ -62,12 +62,6 @@ namespace HospitalManagementSystem.Api.Repositories
             return (await GetByIdAsync(appointment.AppointmentId))!;
         }
 
-        public async Task DeleteAsync(Appointment appointment)
-        {
-            _context.Appointments.Remove(appointment);
-            await _context.SaveChangesAsync();
-        }
-
         public async Task<int> GetActiveBookingCountAsync(int doctorTimeSlotId, int? excludeAppointmentId = null) =>
             await _context.Appointments.CountAsync(a =>
                 a.DoctorTimeSlotId == doctorTimeSlotId &&

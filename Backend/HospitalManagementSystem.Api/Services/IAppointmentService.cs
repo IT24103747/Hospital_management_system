@@ -8,8 +8,6 @@ namespace HospitalManagementSystem.Api.Services
         Task<AppointmentDto?> GetAppointmentByIdAsync(int id);
         Task<AppointmentDto> CreateAppointmentAsync(CreateAppointmentDto dto);
         Task<AppointmentDto?> UpdateAppointmentAsync(int id, UpdateAppointmentDto dto);
-        Task<bool> DeleteAppointmentAsync(int id);
-        Task<AppointmentDto?> UpdateStatusAsync(int id, string status);
         Task<AppointmentDto?> CancelAppointmentAsync(int id, string reason);
         Task<AppointmentDto?> RescheduleAppointmentAsync(int id, int doctorTimeSlotId);
         Task<IEnumerable<DoctorLookupDto>> GetDoctorsAsync(string? specialty = null);

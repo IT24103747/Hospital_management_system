@@ -150,7 +150,7 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 40.0, horizontal: 20.0),
                   child: Column(
                     children: [
-                      const Icon(Icons.error_outline_rounded, size: 40, color: AppColors.error),
+                      const Icon(Icons.error_outline_rounded, size: 40, color: AppColors.danger),
                       const SizedBox(height: 12),
                       Text(
                         _error!,

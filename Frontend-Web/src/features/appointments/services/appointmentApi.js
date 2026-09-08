@@ -14,7 +14,6 @@ export const appointmentApi = {
   getAll: (params) => apiClient.get(`/appointment?${toParams(params)}`).then(r => r.data),
   create: (data) => apiClient.post('/appointment', data).then(r => r.data),
   update: (id, data) => apiClient.put(`/appointment/${id}`, data).then(r => r.data),
-  updateStatus: (id, status) => apiClient.patch(`/appointment/${id}/status`, { status }).then(r => r.data),
   cancel: (id, reason) => apiClient.post(`/appointment/${id}/cancel`, { reason }).then(r => r.data),
   reschedule: (id, doctorTimeSlotId) => apiClient.post(`/appointment/${id}/reschedule`, { doctorTimeSlotId }).then(r => r.data),
   getDoctors: (params) => apiClient.get(`/appointment/doctors?${toParams(params)}`).then(r => r.data),

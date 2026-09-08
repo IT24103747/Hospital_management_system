@@ -123,24 +123,6 @@ public class AppointmentServiceTests
     }
 
     [Fact]
-    public async Task UpdateStatus_RejectsInvalidStatusAndTerminalStatusMove()
-    {
-        await using var db = CreateContext();
-        var setup = await SeedAppointmentDataAsync(db);
-        var slot = await AddSlotAsync(db, setup);
-        var appointment = await AddAppointmentAsync(db, slot, status: "Completed");
-        var service = CreateService(db);
-
-        var invalid = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.UpdateStatusAsync(appointment.AppointmentId, "Archived"));
-        var terminalMove = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.UpdateStatusAsync(appointment.AppointmentId, "Confirmed"));
-
-        Assert.Equal("Invalid appointment status.", invalid.Message);
-        Assert.Equal("Terminal appointments cannot be moved to another status.", terminalMove.Message);
-    }
-
-    [Fact]
     public async Task UpdateSlot_RejectsCapacityBelowActiveBookings()
     {
         await using var db = CreateContext();
@@ -271,20 +253,6 @@ public class AppointmentServiceTests
     }
 
     [Fact]
-    public async Task DoctorCannotUpdateAnotherDoctorsAppointmentStatus()
-    {
-        await using var db = CreateContext();
-        var setup = await SeedAppointmentDataAsync(db);
-        var slot = await AddSlotAsync(db, setup, doctorId: setup.FirstDoctorId);
-        var appointment = await AddAppointmentAsync(db, slot);
-        var controller = CreateController(db, "Doctor", setup.SecondDoctorUserId, "second.doctor@example.com");
-
-        var result = await controller.UpdateStatus(appointment.AppointmentId, new UpdateAppointmentStatusDto { Status = "Completed" });
-
-        Assert.IsType<ForbidResult>(result);
-    }
-
-    [Fact]
     public async Task PatientCannotCancelAnotherPatientsAppointment()
     {
         await using var db = CreateContext();
@@ -317,8 +285,6 @@ public class AppointmentServiceTests
     [Theory]
     [InlineData(nameof(AppointmentController.Create), "Admin,Patient")]
     [InlineData(nameof(AppointmentController.Update), "Admin")]
-    [InlineData(nameof(AppointmentController.Delete), "Admin")]
-    [InlineData(nameof(AppointmentController.UpdateStatus), "Admin,Doctor")]
     [InlineData(nameof(AppointmentController.CreateSlot), "Admin,Doctor")]
     public void AppointmentEndpoints_DeclareExpectedRolePermissions(string methodName, string expectedRoles)
     {
@@ -363,7 +329,6 @@ public class AppointmentServiceTests
             PatientPhone = "0770000000",
             PatientEmail = patientEmail,
             AppointmentType = "Consultation",
-            Reason = "Checkup"
         };
 
     private static CreateDoctorTimeSlotDto SlotDto(int? doctorId, int? roomId, DateTime start, DateTime end, decimal consultationFee = 2500m) => new()

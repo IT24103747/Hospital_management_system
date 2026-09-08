@@ -249,8 +249,6 @@ export default function AppointmentsPage() {
       patientEmail: appointmentForm.patientEmail,
       appointmentType: appointmentForm.appointmentType,
       consultationFee: selectedConsultationFee,
-      reason: 'Appointment',
-      notes: '',
       doctorTimeSlotId: Number(appointmentForm.doctorTimeSlotId),
       appointmentNumber: Number(appointmentForm.appointmentNumber),
     }

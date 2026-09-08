@@ -82,7 +82,6 @@ const defaultHook = {
   createSlot: vi.fn(),
   updateSlot: vi.fn(),
   cancelSlot: vi.fn(),
-  updateStatus: vi.fn(),
   cancelAppointment: vi.fn(),
 }
 

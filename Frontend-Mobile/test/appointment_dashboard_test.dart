@@ -35,6 +35,36 @@ void main() {
     expect(find.text('Your cardiology visit has been confirmed.'), findsNothing);
   });
 
+  testWidgets('doctor Book opens the form with that doctor preselected',
+      (tester) async {
+    final requests = <http.Request>[];
+    await pumpAppointmentsDashboard(tester, requests: requests, title: 'Doctors');
+    await tester.tap(find.text('Book').first);
+    await tester.pumpAndSettle();
+
+    final fields = tester.widgetList<DropdownButtonFormField<String>>(
+      find.byType(DropdownButtonFormField<String>)).toList();
+    expect(fields[0].initialValue, 'Cardiology');
+    expect(fields[1].initialValue, 'Dr. Ada Lovelace');
+    expect(find.text('Select appointment no'), findsOneWidget);
+    expect(requests.any((request) => request.method == 'POST'), isFalse);
+
+    await tester.tap(find.text('Select appointment no'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('#1').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('#1').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    final booking = requests.singleWhere((request) =>
+        request.method == 'POST' && request.url.path == '/api/appointment');
+    expect(jsonDecode(booking.body)['doctorTimeSlotId'], 11);
+    expect(find.text('Appointment booked successfully.'), findsOneWidget);
+  });
+
   testWidgets('patient can complete the appointment booking form',
       (tester) async {
     final requests = <http.Request>[];
@@ -135,6 +165,7 @@ Future<void> pumpAppointmentsDashboard(
   WidgetTester tester, {
   List<http.Request>? requests,
   bool failAppointments = false,
+  String title = 'Appointments',
 }) async {
   SharedPreferences.setMockInitialValues({
     'patient_full_name': 'Amal Perera',
@@ -199,8 +230,8 @@ Future<void> pumpAppointmentsDashboard(
     return jsonResponse({'message': 'Not found'}, 404);
   }));
 
-  await tester.pumpWidget(const MaterialApp(
-    home: DashboardLayout(title: 'Appointments'),
+  await tester.pumpWidget(MaterialApp(
+    home: DashboardLayout(title: title),
   ));
   await tester.pumpAndSettle();
 }
