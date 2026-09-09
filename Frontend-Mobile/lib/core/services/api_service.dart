@@ -283,7 +283,6 @@ class ApiService {
 
   static Future<Appointment> bookAppointment({
     required int doctorTimeSlotId,
-    required int appointmentNumber,
     required String patientName,
     required String patientPhone,
     String? patientEmail,
@@ -294,7 +293,6 @@ class ApiService {
       headers: await _authHeaders(),
       body: jsonEncode({
         'doctorTimeSlotId': doctorTimeSlotId,
-        'appointmentNumber': appointmentNumber,
         'patientName': patientName.trim(),
         'patientPhone': patientPhone.trim(),
         if (patientEmail != null && patientEmail.trim().isNotEmpty)

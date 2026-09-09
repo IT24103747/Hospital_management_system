@@ -295,11 +295,11 @@ class AppTheme {
   static ThemeData get darkTheme {
     const colorScheme = ColorScheme(
       brightness: Brightness.dark,
-      primary:           AppColors.primaryLight,   // lighter sky in dark
+      primary:           AppColors.primaryDarkTheme, // web --clr-primary
       onPrimary:         Colors.white,
       primaryContainer:  AppColors.primaryDark,
       onPrimaryContainer: AppColors.primaryLight,
-      secondary:         Color(0xFF818CF8),         // indigo-400
+      secondary:         Color(0xFF6366F1),         // web --clr-accent
       onSecondary:       Colors.white,
       secondaryContainer:AppColors.accentDark,
       onSecondaryContainer: Colors.white,
@@ -390,7 +390,7 @@ class AppTheme {
 
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primaryLight,
+          backgroundColor: AppColors.primaryDarkTheme,
           foregroundColor: Colors.white,
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
@@ -402,7 +402,7 @@ class AppTheme {
 
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.primaryLight,
+          foregroundColor: AppColors.primaryDarkTheme,
           side: const BorderSide(color: AppColors.borderDark),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           minimumSize: const Size(0, 48),
@@ -413,7 +413,7 @@ class AppTheme {
 
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: AppColors.primaryLight,
+          foregroundColor: AppColors.primaryDarkTheme,
           textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, fontFamily: _fontFamily),
         ),
       ),
