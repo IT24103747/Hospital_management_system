@@ -23,7 +23,7 @@ The tools reuse:
   shared availability data. `IDoctorScheduleService` manages a doctor's own schedules;
   it is intentionally not called with a patient's identity.
 - `IAppointmentService.CreateAppointmentAsync` for booking, capacity validation,
-  assignment of appointment numbers, estimated time calculation, and persistence.
+  assignment of appointment numbers and persistence. Appointment times use the scheduled session start; queue numbers do not imply individual consultation times.
 
 No agent class queries a repository or `ApplicationDbContext`. Search uses the next
 available appointment number/time supplied by the existing service, not model arithmetic.
@@ -34,8 +34,9 @@ patient details and private doctor registration fields. Unknown references, unsu
 tools, extra JSON fields, and invalid arguments cannot become writes. API response facts
 and booking messages are assembled from service results, not unrestricted model prose.
 Recommendations and bookings recheck observed slots. A successful booking ends the loop,
-so a repeated model action cannot book twice in one request. The existing database unique
-index handles appointment-number races; conflicts do not trigger write retries.
+so a repeated model action cannot book twice in one request. Creation locks the selected
+session while assigning the next free appointment number and saving the booking. The
+existing unique index remains a final guard; conflicts do not trigger write retries.
 
 ## Run locally
 
@@ -79,7 +80,7 @@ This minimal feature books consultations and does not change/cancel existing app
 
 Responses contain `status`, `message`, `doctors`, `slots`, and optional `booking`.
 Slot objects include the real slot/doctor IDs, fee, room, next available appointment number,
-and individual estimated time with a `+05:30` offset. `Booked` includes the ID returned
+with a `+05:30` offset. `Booked` includes the ID returned
 by the existing appointment service. Recommendations are not reservations.
 
 This endpoint is stateless: for a follow-up, send the full doctor/date/time preference

@@ -23,9 +23,9 @@ public sealed record AgentDoctor(string Reference, int DoctorId, string Name, st
 public sealed record AgentSlot(
     string Reference, int DoctorTimeSlotId, int DoctorId, string DoctorName, string Specialty,
     DateTimeOffset StartAt, DateTimeOffset EndAt, int AppointmentNumber,
-    DateTimeOffset EstimatedStartAt, int AvailableCount, decimal ConsultationFee, string Location);
+    int AvailableCount, decimal ConsultationFee, string Location);
 public sealed record AgentBooking(int AppointmentId, int DoctorTimeSlotId, int AppointmentNumber,
-    string DoctorName, DateTimeOffset EstimatedStartAt, string Status);
+    string DoctorName, DateTimeOffset StartAt, string Status);
 
 public sealed class AppointmentAgentOptions
 {

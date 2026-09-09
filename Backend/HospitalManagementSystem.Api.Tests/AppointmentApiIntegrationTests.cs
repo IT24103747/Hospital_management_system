@@ -44,7 +44,6 @@ public class AppointmentApiIntegrationTests
         var response = await client.PostAsJsonAsync("/api/appointment", new CreateAppointmentDto
         {
             DoctorTimeSlotId = seed.PatientBookingSlotId,
-            AppointmentNumber = 1,
             PatientName = "Spoofed Name",
             PatientPhone = "0771112222",
             PatientEmail = "spoof@example.com",
@@ -56,6 +55,24 @@ public class AppointmentApiIntegrationTests
         Assert.NotNull(appointment);
         Assert.Equal(seed.AmalPatientId, appointment!.PatientId);
         Assert.Equal("amal.perera@email.com", appointment.PatientEmail);
+        Assert.True(appointment.AppointmentId > 0);
+        Assert.Equal(1, appointment.AppointmentNumber);
+
+        // Legacy clients cannot override backend-generated identifiers.
+        var secondResponse = await client.PostAsJsonAsync("/api/appointment", new
+        {
+            DoctorTimeSlotId = seed.PatientBookingSlotId,
+            AppointmentNumber = 99,
+            AppointmentId = 99999,
+            PatientName = "Amal Perera",
+            PatientPhone = "0771112222",
+            AppointmentType = "Consultation",
+        });
+        Assert.Equal(HttpStatusCode.Created, secondResponse.StatusCode);
+        var second = await secondResponse.Content.ReadFromJsonAsync<AppointmentDto>();
+        Assert.Equal(2, second!.AppointmentNumber);
+        Assert.NotEqual(appointment.AppointmentId, second.AppointmentId);
+        Assert.NotEqual(99999, second.AppointmentId);
     }
 
     [Fact]
@@ -223,7 +240,7 @@ public class AppointmentApiIntegrationTests
         DoctorTimeSlotId = slot.DoctorTimeSlotId,
         PatientId = patient.PatientId,
         AppointmentNumber = number,
-        EstimatedStartAt = slot.StartAt.AddMinutes(30 * (number - 1)),
+
         PatientName = $"{patient.FirstName} {patient.LastName}",
         PatientPhone = patient.PhoneNumber,
         PatientEmail = patient.Email,

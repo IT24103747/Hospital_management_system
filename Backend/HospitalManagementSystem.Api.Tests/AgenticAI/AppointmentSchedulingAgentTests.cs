@@ -24,11 +24,11 @@ public class AppointmentSchedulingAgentTests
         var slot = Assert.Single(result.Slots);
         Assert.Equal(2, slot.AppointmentNumber);
         Assert.Equal(2500m, slot.ConsultationFee);
-        Assert.Equal(setup.Slot.StartAt.AddMinutes(30), slot.EstimatedStartAt.UtcDateTime);
-        Assert.Equal(TimeSpan.FromMinutes(330), slot.EstimatedStartAt.Offset);
+        Assert.Equal(setup.Slot.StartAt, slot.StartAt.UtcDateTime);
+        Assert.Equal(TimeSpan.FromMinutes(330), slot.StartAt.Offset);
         Assert.Equal(3, model.Calls);
         Assert.Contains("Dr. Ada Doctor", model.LastHistory);
-        Assert.Contains("estimatedStartAt", model.LastHistory);
+        Assert.Contains("startAt", model.LastHistory);
         Assert.DoesNotContain(setup.Patient.Email, model.LastHistory);
         Assert.DoesNotContain("PRIVATE-NIC", model.LastHistory);
         Assert.Single(await setup.Db.Appointments.ToListAsync());
@@ -47,7 +47,7 @@ public class AppointmentSchedulingAgentTests
         Assert.Equal(setup.Patient.Email, booked.PatientEmail);
         Assert.Equal(setup.Patient.FullName, booked.PatientName);
         Assert.Equal(2, booked.AppointmentNumber);
-        Assert.Equal(setup.Slot.StartAt.AddMinutes(30), booked.EstimatedStartAt);
+        Assert.Equal(setup.Slot.StartAt, booked.DoctorTimeSlot!.StartAt);
         Assert.Equal("Confirmed", booked.Status);
         Assert.Equal(3, model.Calls);
         Assert.Equal(2, await setup.Db.Appointments.CountAsync());
@@ -238,7 +238,7 @@ public class AppointmentSchedulingAgentTests
             db.Doctors.Add(doctor);
             db.DoctorTimeSlots.Add(slot);
             db.Appointments.Add(new Appointment { DoctorTimeSlot = slot, AppointmentNumber = 1,
-                EstimatedStartAt = slot.StartAt, Status = "Confirmed", PatientName = "Existing booking", PatientPhone = "0772222222" });
+                Status = "Confirmed", PatientName = "Existing booking", PatientPhone = "0772222222" });
             await db.SaveChangesAsync();
             var patientService = new PatientService(new PatientRepository(db));
             return new Scenario { Db = db, Patient = (await patientService.GetPatientByIdAsync(patient.PatientId))!, Slot = slot,

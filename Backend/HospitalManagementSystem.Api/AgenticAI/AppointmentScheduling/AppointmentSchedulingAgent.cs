@@ -24,8 +24,8 @@ public sealed class AppointmentSchedulingAgent(
     - find_doctors: query is a name or specialty search term. Use query "" to discover approved doctors/specialties when unsure.
       Results are limited to 20 doctors; narrow the query if needed. Do not guess a specialty from symptoms; ask for clarification.
     - find_slots: doctorRef from find_doctors, date in YYYY-MM-DD or "" for upcoming slots on any date.
-      Returns up to 12 real upcoming sessions and the next available patient's estimated time and number.
-      Dates/times are Asia/Colombo. Match the user's date/time preferences against estimatedStartAt.
+      Returns up to 12 real upcoming sessions and scheduled session times and the next available appointment number.
+      Dates/times are Asia/Colombo. Match the user's date/time preferences against startAt.
       If no exact options exist, search another date or suitable doctor and recommend alternatives, never book an unwanted alternative.
     - book_appointment: slotRef from find_slots. Only if allowBooking is true AND the user explicitly asks to book
       and the slot matches their stated preferences. Use final/recommend if choices or alternatives need the user's selection.
@@ -90,7 +90,7 @@ public sealed class AppointmentSchedulingAgent(
                             foreach (var slot in found) slots[slot.Reference] = slot;
                             lastSearchEmpty = found.Count == 0;
                             Result(new { slots = found.Select(s => new { s.Reference, s.DoctorName, s.Specialty, s.StartAt, s.EndAt,
-                                s.AppointmentNumber, s.EstimatedStartAt, s.AvailableCount, s.ConsultationFee, s.Location }) });
+                                s.AppointmentNumber, s.AvailableCount, s.ConsultationFee, s.Location }) });
                             break;
                         }
                         case "book_appointment":
@@ -106,7 +106,7 @@ public sealed class AppointmentSchedulingAgent(
                                 return new("BookingUnavailable", exception.Message, [], []);
                             }
                             return new("Booked", $"Appointment #{booking.AppointmentNumber} with {booking.DoctorName} is {booking.Status.ToLowerInvariant()}. " +
-                                $"Estimated time: {booking.EstimatedStartAt:dd MMM yyyy, h:mm tt} (Sri Lanka time).", [], [], booking);
+                                $"Appointment time: {booking.StartAt:dd MMM yyyy, h:mm tt} (Sri Lanka time).", [], [], booking);
                         }
                         case "final":
                         {
@@ -125,7 +125,7 @@ public sealed class AppointmentSchedulingAgent(
                                         throw new InvalidOperationException("A recommended slot changed. Search again before returning recommendations.");
                                     }
                                 }
-                                return new("Recommendations", "Available options from hospital schedules are listed below. Check the dates and estimated patient times before booking; these may be alternatives to your request.", [], selected);
+                                return new("Recommendations", "Available options from hospital schedules are listed below. Check the dates and session times before booking; these may be alternatives to your request.", [], selected);
                             }
                             if (decision.Outcome == "doctors")
                             {

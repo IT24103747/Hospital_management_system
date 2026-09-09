@@ -188,7 +188,6 @@ namespace HospitalManagementSystem.Api.Data
                         "\"Status\" IN ('Confirmed', 'Completed', 'Cancelled')"));
                 entity.HasKey(a => a.AppointmentId);
                 entity.Property(a => a.AppointmentNumber).IsRequired();
-                entity.Property(a => a.EstimatedStartAt).IsRequired();
                 entity.Property(a => a.PatientName).IsRequired().HasMaxLength(150);
                 entity.Property(a => a.PatientPhone).IsRequired().HasMaxLength(30);
                 entity.Property(a => a.PatientEmail).HasMaxLength(200);
@@ -202,7 +201,6 @@ namespace HospitalManagementSystem.Api.Data
                 entity.HasIndex(a => new { a.DoctorTimeSlotId, a.AppointmentNumber })
                     .IsUnique()
                     .HasFilter("\"Status\" <> 'Cancelled'");
-                entity.HasIndex(a => a.EstimatedStartAt);
                 entity.HasOne(a => a.DoctorTimeSlot)
                     .WithMany(s => s.Appointments)
                     .HasForeignKey(a => a.DoctorTimeSlotId)
