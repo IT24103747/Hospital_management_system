@@ -28,8 +28,8 @@ namespace HospitalManagementSystem.Api.Repositories
                 "status" => descending ? query.OrderByDescending(a => a.Status) : query.OrderBy(a => a.Status),
                 "created" => descending ? query.OrderByDescending(a => a.CreatedAt) : query.OrderBy(a => a.CreatedAt),
                 _ => descending
-                    ? query.OrderByDescending(a => a.EstimatedStartAt).ThenByDescending(a => a.AppointmentNumber)
-                    : query.OrderBy(a => a.EstimatedStartAt).ThenBy(a => a.AppointmentNumber)
+                    ? query.OrderByDescending(a => a.DoctorTimeSlot!.StartAt).ThenByDescending(a => a.AppointmentNumber)
+                    : query.OrderBy(a => a.DoctorTimeSlot!.StartAt).ThenBy(a => a.AppointmentNumber)
             };
 
             return await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
@@ -49,8 +49,33 @@ namespace HospitalManagementSystem.Api.Repositories
 
         public async Task<Appointment> CreateAsync(Appointment appointment)
         {
+            // Serialize bookings for the same session across API instances.
+            // The existing unique index remains the final duplicate-number guard.
+            await using var transaction = _context.Database.IsRelational()
+                ? await _context.Database.BeginTransactionAsync()
+                : null;
+            if (_context.Database.IsNpgsql())
+            {
+                await _context.Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT 1 FROM \"DoctorTimeSlots\" WHERE \"DoctorTimeSlotId\" = {appointment.DoctorTimeSlotId} FOR UPDATE");
+            }
+
+            var slot = await _context.DoctorTimeSlots.AsNoTracking()
+                .SingleOrDefaultAsync(s => s.DoctorTimeSlotId == appointment.DoctorTimeSlotId);
+            if (slot is null || !slot.IsActive)
+                throw new InvalidOperationException("Selected doctor time slot is not available.");
+            if (slot.StartAt <= DateTime.UtcNow)
+                throw new InvalidOperationException("Past doctor time slots cannot be booked.");
+
+            var bookedNumbers = (await GetBookedAppointmentNumbersAsync(slot.DoctorTimeSlotId)).ToHashSet();
+            // Recalculate after acquiring the lock; the displayed preview is not a reservation.
+            appointment.AppointmentNumber = AppointmentNumbering.NextAvailable(slot.Capacity, bookedNumbers);
+            if (appointment.AppointmentNumber == 0)
+                throw new InvalidOperationException("Selected doctor time slot is fully booked.");
+
             _context.Appointments.Add(appointment);
             await _context.SaveChangesAsync();
+            if (transaction is not null) await transaction.CommitAsync();
             return (await GetByIdAsync(appointment.AppointmentId))!;
         }
 

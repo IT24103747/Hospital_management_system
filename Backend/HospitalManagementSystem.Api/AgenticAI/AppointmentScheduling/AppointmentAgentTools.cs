@@ -13,7 +13,7 @@ public interface IAppointmentAgentTools
 }
 
 // No repositories or DbContext: Doctor Management owns doctor eligibility, and
-// AppointmentService owns available numbers, estimated times, and booking rules.
+// AppointmentService owns available numbers, session times, and booking rules.
 public sealed class AppointmentAgentTools(IDoctorService doctors, IAppointmentService appointments) : IAppointmentAgentTools
 {
     public static readonly TimeZoneInfo HospitalTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Colombo");
@@ -36,8 +36,8 @@ public sealed class AppointmentAgentTools(IDoctorService doctors, IAppointmentSe
         var slots = await appointments.GetSlotsAsync(null, null, true, doctor.DoctorId);
         return slots.Where(s => s.DoctorId == doctor.DoctorId && s.IsActive &&
                 s.StartAt > DateTime.UtcNow && s.AvailableCount > 0 && s.NextAppointmentNumber > 0 &&
-                s.NextEstimatedStartAt.HasValue && (!date.HasValue || DateOnly.FromDateTime(Local(s.StartAt).DateTime) == date.Value))
-            .OrderBy(s => s.NextEstimatedStartAt).Take(12).Select(MapSlot).ToList();
+                (!date.HasValue || DateOnly.FromDateTime(Local(s.StartAt).DateTime) == date.Value))
+            .OrderBy(s => s.StartAt).Take(12).Select(MapSlot).ToList();
     }
 
     public async Task<AgentBooking> BookAsync(AgentSlot observedSlot, PatientDto patient)
@@ -50,7 +50,7 @@ public sealed class AppointmentAgentTools(IDoctorService doctors, IAppointmentSe
 
         var dto = new CreateAppointmentDto
         {
-            DoctorTimeSlotId = slot.DoctorTimeSlotId, AppointmentNumber = slot.AppointmentNumber,
+            DoctorTimeSlotId = slot.DoctorTimeSlotId,
             PatientId = patient.PatientId, PatientName = patient.FullName,
             PatientEmail = patient.Email, PatientPhone = patient.PhoneNumber,
             AppointmentType = "Consultation"
@@ -60,7 +60,7 @@ public sealed class AppointmentAgentTools(IDoctorService doctors, IAppointmentSe
             throw new InvalidOperationException("The patient profile needs valid contact details before booking.");
         var booked = await appointments.CreateAppointmentAsync(dto);
         return new AgentBooking(booked.AppointmentId, booked.DoctorTimeSlotId, booked.AppointmentNumber,
-            booked.DoctorName, Local(booked.EstimatedStartAt), booked.Status);
+            booked.DoctorName, Local(booked.StartAt), booked.Status);
     }
 
     private async Task<DoctorDto> RequireApprovedDoctorAsync(int id)
@@ -76,6 +76,6 @@ public sealed class AppointmentAgentTools(IDoctorService doctors, IAppointmentSe
 
     private static AgentSlot MapSlot(DoctorTimeSlotDto s) => new($"S{s.DoctorTimeSlotId}", s.DoctorTimeSlotId,
         s.DoctorId!.Value, s.DoctorName, s.Specialty, Local(s.StartAt), Local(s.EndAt), s.NextAppointmentNumber,
-        Local(s.NextEstimatedStartAt!.Value), s.AvailableCount, s.ConsultationFee,
+        s.AvailableCount, s.ConsultationFee,
         string.Join(", ", new[] { s.RoomNumber, s.RoomName, s.Floor }.Where(v => !string.IsNullOrWhiteSpace(v))));
 }

@@ -164,7 +164,7 @@ public class RoomSchedulingServiceTests
         db.Appointments.Add(new Appointment
         {
             DoctorTimeSlotId = schedule.DoctorTimeSlotId, AppointmentNumber = 1,
-            EstimatedStartAt = start, PatientName = "Booked Patient", PatientPhone = "0770000000",
+            PatientName = "Booked Patient", PatientPhone = "0770000000",
             AppointmentType = "Consultation", Reason = "Checkup", Status = "Confirmed"
         });
         await db.SaveChangesAsync();
@@ -177,7 +177,7 @@ public class RoomSchedulingServiceTests
         var deleteError = await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteAsync(setup.FirstUserId, schedule.DoctorTimeSlotId));
 
         Assert.NotNull(updated);
-        Assert.Equal(start.AddHours(2), (await db.Appointments.SingleAsync()).EstimatedStartAt);
+        Assert.Equal(start.AddHours(2), (await db.Appointments.Include(a => a.DoctorTimeSlot).SingleAsync()).DoctorTimeSlot!.StartAt);
         Assert.Equal(1, (await db.Appointments.SingleAsync()).AppointmentNumber);
         Assert.Contains("has been updated", (await db.AppointmentNotifications.SingleAsync()).Message);
         Assert.Contains("cannot be cancelled", cancelError.Message);
@@ -193,7 +193,7 @@ public class RoomSchedulingServiceTests
         var start = DateTime.UtcNow.AddDays(7);
         var schedule = await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
         db.Appointments.Add(new Appointment { DoctorTimeSlotId = schedule.DoctorTimeSlotId,
-            AppointmentNumber = 5, EstimatedStartAt = start.AddMinutes(48), Status = "Confirmed" });
+            AppointmentNumber = 5, Status = "Confirmed" });
         await db.SaveChangesAsync();
         var dto = new UpdateDoctorScheduleDto { RoomId = setup.RoomId, StartAt = start,
             EndAt = start.AddHours(1), Capacity = 4, ConsultationFee = 2500m };
@@ -205,7 +205,7 @@ public class RoomSchedulingServiceTests
         dto.StartAt = start.AddHours(2);
         dto.EndAt = start.AddHours(3);
         await service.UpdateAsync(setup.FirstUserId, schedule.DoctorTimeSlotId, dto);
-        Assert.Equal(start.AddHours(2).AddMinutes(48), (await db.Appointments.SingleAsync()).EstimatedStartAt);
+        Assert.Equal(start.AddHours(2), (await db.Appointments.Include(a => a.DoctorTimeSlot).SingleAsync()).DoctorTimeSlot!.StartAt);
         Assert.Single(await db.AppointmentNotifications.ToListAsync());
     }
 

@@ -87,6 +87,10 @@ namespace HospitalManagementSystem.Api.Controllers
             return Ok(appointment);
         }
 
+        /// <summary>
+        /// Books the selected doctor session. The server assigns both the
+        /// appointment ID and the next available number in that session.
+        /// </summary>
         [HttpPost]
         [Authorize(Roles = AppointmentBookingRoles)]
         [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status201Created)]
