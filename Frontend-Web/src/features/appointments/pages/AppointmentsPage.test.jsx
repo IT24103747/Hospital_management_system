@@ -16,7 +16,6 @@ const appointment = {
   appointmentId: 42,
   doctorTimeSlotId: 7,
   appointmentNumber: 1,
-  estimatedStartAt: '2026-09-10T08:00:00Z',
   patientName: 'Ravi Patient',
   patientPhone: '0771234567',
   patientEmail: 'ravi@example.com',
@@ -41,7 +40,6 @@ const slot = {
   availableCount: 1,
   bookedAppointmentNumbers: [1],
   nextAppointmentNumber: 2,
-  nextEstimatedStartAt: '2026-09-10T08:30:00Z',
   consultationFee: 4500,
   isActive: true,
   roomId: 3,
@@ -125,6 +123,49 @@ describe('AppointmentsPage', () => {
 
     expect(state.createAppointment).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog', { name: /create appointment/i })).toBeInTheDocument()
+  })
+
+  it('shows the session start for a later queue number', () => {
+    mockAppointments({ appointments: [{ ...appointment, appointmentNumber: 2 }] })
+    render(<AppointmentsPage />)
+    const row = screen.getByText('Ravi Patient').closest('tr')
+    const time = new Intl.DateTimeFormat('en-LK', { hour: '2-digit', minute: '2-digit' })
+    expect(within(row).getByText('#2')).toBeInTheDocument()
+    expect(within(row).getByText(time.format(new Date(slot.startAt)))).toBeInTheDocument()
+    expect(within(row).queryByText(time.format(new Date('2026-09-10T08:30:00Z')))).not.toBeInTheDocument()
+  })
+
+  it('books by date and session without sending an appointment number', async () => {
+    const state = mockAppointments()
+    render(<AppointmentsPage />)
+    fireEvent.click(screen.getByRole('button', { name: /new appointment/i }))
+    fireEvent.change(screen.getByLabelText('Specialization'), { target: { value: 'Cardiology' } })
+    fireEvent.change(screen.getByLabelText('Doctor Name'), { target: { value: doctor.doctorName } })
+    fireEvent.change(screen.getByLabelText('Appointment date'), { target: { value: '2026-09-10' } })
+    fireEvent.change(screen.getByLabelText('Appointment session'), { target: { value: '7' } })
+    fireEvent.change(screen.getByPlaceholderText('Select existing patient or type a new name'), { target: { value: patient.fullName } })
+    expect(screen.getByText('Next available appointment number: #2')).toBeInTheDocument()
+    expect(screen.getByText('This number may change if someone books before you confirm.')).toBeInTheDocument()
+    expect(screen.queryByText('Select Appointment No')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^create appointment$/i }))
+    await waitFor(() => expect(state.createAppointment).toHaveBeenCalledTimes(1))
+    const payload = state.createAppointment.mock.calls[0][0]
+    expect(payload.doctorTimeSlotId).toBe(7)
+    expect(payload).not.toHaveProperty('appointmentNumber')
+    expect(payload).not.toHaveProperty('appointmentId')
+  })
+
+  it('clears the selected session when the date changes', () => {
+    mockAppointments({ slots: [slot, { ...slot, doctorTimeSlotId: 8, startAt: '2026-09-11T08:00:00Z', endAt: '2026-09-11T09:00:00Z' }] })
+    render(<AppointmentsPage />)
+    fireEvent.click(screen.getByRole('button', { name: /new appointment/i }))
+    fireEvent.change(screen.getByLabelText('Specialization'), { target: { value: 'Cardiology' } })
+    fireEvent.change(screen.getByLabelText('Doctor Name'), { target: { value: doctor.doctorName } })
+    fireEvent.change(screen.getByLabelText('Appointment date'), { target: { value: '2026-09-10' } })
+    fireEvent.change(screen.getByLabelText('Appointment session'), { target: { value: '7' } })
+    fireEvent.change(screen.getByLabelText('Appointment date'), { target: { value: '2026-09-11' } })
+    expect(screen.getByLabelText('Appointment session')).toHaveValue('')
+    expect(screen.queryByText(/Next available appointment number:/)).not.toBeInTheDocument()
   })
 
   it('requires a cancellation reason before calling the cancel API', () => {
