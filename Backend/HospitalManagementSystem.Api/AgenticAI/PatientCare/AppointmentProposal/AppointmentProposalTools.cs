@@ -3,7 +3,7 @@ using HospitalManagementSystem.Api.DTOs;
 using HospitalManagementSystem.Api.Models;
 using HospitalManagementSystem.Api.Services;
 
-namespace HospitalManagementSystem.Api.AgenticAI.AppointmentScheduling;
+namespace HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 
 public interface IAppointmentAgentTools
 {

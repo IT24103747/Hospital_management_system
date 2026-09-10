@@ -11,10 +11,11 @@ the current JWT email/profile convention. Patients can act only for themselves;
 admins may supply an existing `patientId`. Doctors have no access to this booking API,
 matching the current appointment-booking roles.
 
-`AppointmentSchedulingAgent` asks Ollama for a JSON decision, executes its selected
+`AppointmentSchedulingAgent` asks Gemini for a JSON decision, executes its selected
 tool, adds the result to the local conversation, and repeats (default 8 steps, total
-3-minute deadline). It uses Ollama's `/api/chat` with a structured-output schema:
-https://docs.ollama.com/capabilities/structured-outputs
+3-minute deadline). It uses Gemini's `generateContent` endpoint with a structured-output
+schema. Gemini can select only the allow-listed decision protocol; it never receives
+database access.
 
 The tools reuse:
 
@@ -41,19 +42,18 @@ existing unique index remains a final guard; conflicts do not trigger write retr
 ## Run locally
 
 ```powershell
-ollama pull qwen2.5:3b
-ollama serve
+dotnet user-secrets set "Gemini:ApiKey" "YOUR_GEMINI_API_KEY" --project Backend/HospitalManagementSystem.Api
 dotnet run --project Backend/HospitalManagementSystem.Api
 ```
 
-If Ollama is already running, do not start a second server. Configure `AppointmentAgent`
-in `appsettings.json` or environment variables such as `AppointmentAgent__OllamaUrl`.
-Defaults: `http://127.0.0.1:11434/`, model `qwen2.5:3b`, 60 seconds per model turn, 8 turns.
-The URL must end in `/`. Ollama is local to the backend host, not the mobile device.
+Configure `Gemini:ApiKey` only through User Secrets locally and deployment secrets in
+production. The default model is `gemini-2.5-flash`; it can be changed with
+`AppointmentAgent__Model`. React and Flutter never receive the Gemini API key.
 
 ## API
 
-`POST /api/appointment-agent` with the existing Bearer token.
+The former `POST /api/appointment-agent` endpoint has been removed. Patient-facing
+appointment proposals now use the Patient Care workflow endpoints instead.
 
 Find options (no write):
 
@@ -89,7 +89,7 @@ request is a new operation; clients must prevent duplicate submissions and must 
 automatically retry a booking after an uncertain network response. Use existing appointment
 history to check the result first. No cross-request idempotency infrastructure is added.
 
-Malformed/unavailable Ollama responses return 503; unknown patient profiles return 404;
+Malformed/unavailable Gemini responses return 503; unknown patient profiles return 404;
 cross-patient access is forbidden; raced appointment numbers return 409. Business-rule
 rejections return `BookingUnavailable`, and an exhausted loop returns `NeedsDetails`.
 

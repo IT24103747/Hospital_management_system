@@ -86,7 +86,7 @@ public sealed class SafetyRedFlagAgent : ISafeTriageAgent
 public sealed class ClinicalInformationExtractionWorkflowAgent(IClinicalInformationExtractionAgent extractionTool) : ISafeTriageAgent
 {
     public string Name => "ClinicalInformationExtractionAgent";
-    public string ToolName => "OllamaStructuredExtractionTool";
+    public string ToolName => "GeminiStructuredExtractionTool";
 
     public async Task<SafeTriageAgentExecution> ExecuteAsync(SafeTriageAgentContext context, CancellationToken cancellationToken = default)
     {

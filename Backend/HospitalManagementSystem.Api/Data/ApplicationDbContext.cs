@@ -12,6 +12,8 @@ namespace HospitalManagementSystem.Api.Data
         public DbSet<Patient> Patients => Set<Patient>();
         public DbSet<DoctorTimeSlot> DoctorTimeSlots => Set<DoctorTimeSlot>();
         public DbSet<Appointment> Appointments => Set<Appointment>();
+        public DbSet<AppointmentProposal> AppointmentProposals => Set<AppointmentProposal>();
+        public DbSet<PatientCareAssessment> PatientCareAssessments => Set<PatientCareAssessment>();
         public DbSet<AppointmentNotification> AppointmentNotifications => Set<AppointmentNotification>();
         public DbSet<Doctor> Doctors => Set<Doctor>();
         public DbSet<Room> Rooms => Set<Room>();
@@ -209,6 +211,28 @@ namespace HospitalManagementSystem.Api.Data
                     .WithMany()
                     .HasForeignKey(a => a.PatientId)
                     .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<AppointmentProposal>(entity =>
+            {
+                entity.HasKey(p => p.AppointmentProposalId);
+                entity.Property(p => p.CandidateSlotsJson).IsRequired();
+                entity.Property(p => p.TriageLevel).IsRequired().HasMaxLength(40);
+                entity.Property(p => p.Status).IsRequired().HasMaxLength(40);
+                entity.HasIndex(p => new { p.PatientId, p.Status, p.ExpiresAt });
+                entity.HasOne<Patient>().WithMany().HasForeignKey(p => p.PatientId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<PatientCareAssessment>(entity =>
+            {
+                entity.HasKey(x => x.PatientCareAssessmentId);
+                entity.Property(x => x.Symptoms).IsRequired().HasMaxLength(4000);
+                entity.Property(x => x.RequestedSpecialty).HasMaxLength(100);
+                entity.Property(x => x.TriageLevel).IsRequired().HasMaxLength(40);
+                entity.Property(x => x.Status).IsRequired().HasMaxLength(40);
+                entity.Property(x => x.ClinicalJson).IsRequired();
+                entity.HasIndex(x => new { x.PatientId, x.CreatedAt });
+                entity.HasOne<Patient>().WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
             });
 
             modelBuilder.Entity<TriageWorkflow>(entity =>

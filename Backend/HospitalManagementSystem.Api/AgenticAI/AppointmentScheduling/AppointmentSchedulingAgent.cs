@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using HospitalManagementSystem.Api.DTOs;
 using Microsoft.Extensions.Options;
+using HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 
 namespace HospitalManagementSystem.Api.AgenticAI.AppointmentScheduling;
 
@@ -11,7 +12,7 @@ public interface IAppointmentSchedulingAgent
 }
 
 public sealed class AppointmentSchedulingAgent(
-    IOllamaAppointmentClient model, IAppointmentAgentTools tools,
+    IAppointmentModelClient model, IAppointmentAgentTools tools,
     IOptions<AppointmentAgentOptions> options) : IAppointmentSchedulingAgent
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -49,7 +50,7 @@ public sealed class AppointmentSchedulingAgent(
         var lastSearchEmpty = false;
         var messages = new List<AppointmentAgentMessage>
         {
-            new("system", Prompt + "\nSchema: " + OllamaAppointmentClient.DecisionSchema +
+            new("system", Prompt + "\nSchema: " + GeminiAppointmentClient.DecisionSchema +
                 $"\nCurrent Sri Lanka date/time: {AppointmentAgentTools.Local(DateTime.UtcNow):yyyy-MM-dd HH:mm}. " +
                 $"allowBooking: {request.AllowBooking.ToString().ToLowerInvariant()}."),
             new("user", request.Message)

@@ -10,13 +10,13 @@ The assessed SafeTriage workflow is a bounded C# coordinator with seven speciali
 
 1. `IntakeValidationAgent` → `ValidateVitalsTool`
 2. `SafetyRedFlagAgent` → `EvaluateRedFlagsTool`
-3. `ClinicalInformationExtractionAgent` → `OllamaStructuredExtractionTool`
+3. `ClinicalInformationExtractionAgent` → `GeminiStructuredExtractionTool`
 4. `StructuredSafetyAssessmentAgent` → `EvaluateGroundedClinicalFactsTool`
 5. `AdaptiveQuestionPlanningAgent` → `RankMissingInformationTool`
 6. `CareRoutingAgent` → `CreateEscalationProposalTool`
 7. `SafetyValidationAgent` → `ValidateWorkflowOutcomeTool`
 
-The coordinator permits at most seven workflow steps. The Ollama extraction tool is allowed at most two attempts. Explicit emergency/urgent deterministic safety results take the fast path and skip extraction and question planning. Otherwise the LLM must return structured facts with exact patient-text evidence; deterministic policy evaluates those facts before routing.
+The coordinator permits at most seven workflow steps. The Gemini extraction tool is allowed at most two attempts. Explicit emergency/urgent deterministic safety results take the fast path and skip extraction and question planning. Otherwise the LLM must return structured facts with exact patient-text evidence; deterministic policy evaluates those facts before routing.
 
 ## Golden cases
 
@@ -33,15 +33,15 @@ The coordinator permits at most seven workflow steps. The Ollama extraction tool
 | Nosebleed expressed as a paraphrase | targeted nosebleed questions; no immediate low-risk claim | model supplies normalized `nosebleed` concept, then the controlled protocol owns routing |
 | Ongoing nosebleed for at least 15 minutes | emergency escalation | grounded duration/activity facts are evaluated before any final model output |
 | Stopped, short, light nosebleed without risks | controlled routine information | completion requires every issued question to have a validated response |
-| Impossible vital value | failed safely; no clinical claim | only intake validation runs; no Ollama tool call |
-| Ollama unavailable/invalid result | controlled heuristic fallback | extraction retries once, records the failure, then deterministic safety, planning, routing, and validation continue |
+| Impossible vital value | failed safely; no clinical claim | only intake validation runs; no Gemini tool call |
+| Gemini unavailable/invalid result | controlled heuristic fallback | extraction retries once, records the failure, then deterministic safety, planning, routing, and validation continue |
 | Prompt injection attempt | text is treated only as patient-provided data | model cannot add tools or change deterministic safety policy |
 | Invalid approval decision | workflow remains pending | review action is rejected and audited only when valid |
 | Cross-patient workflow read | access is denied | no workflow content is returned to another patient |
 
 ## Automated evidence
 
-`Backend/HospitalManagementSystem.Api.Tests/TriageWorkflowServiceTests.cs` contains deterministic trajectory assertions for the allowed agent/tool sequence and the bounded Ollama failure retry. Existing tests cover emergency/urgent routing, invalid vitals, prompt injection, approval enforcement, cross-patient isolation, and audit persistence.
+`Backend/HospitalManagementSystem.Api.Tests/TriageWorkflowServiceTests.cs` contains deterministic trajectory assertions for the allowed agent/tool sequence and the bounded Gemini failure retry. Existing tests cover emergency/urgent routing, invalid vitals, prompt injection, approval enforcement, cross-patient isolation, and audit persistence.
 
 Run:
 
