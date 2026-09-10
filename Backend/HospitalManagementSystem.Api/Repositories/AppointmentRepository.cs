@@ -17,6 +17,7 @@ namespace HospitalManagementSystem.Api.Repositories
 
         public async Task<IEnumerable<Appointment>> GetAllAsync(string? search, string? status, string? doctorName, DateTime? date, string? sortBy, string? sortDirection, int page, int pageSize, int? patientId = null, string? patientEmail = null, int? doctorId = null)
         {
+            await AppointmentCompletionService.CompleteDueAsync(_context);
             var query = BuildAppointmentQuery(search, status, doctorName, date, patientId, patientEmail, doctorId);
             var descending = string.Equals(sortDirection, "desc", StringComparison.OrdinalIgnoreCase);
 
@@ -27,8 +28,8 @@ namespace HospitalManagementSystem.Api.Repositories
                 "status" => descending ? query.OrderByDescending(a => a.Status) : query.OrderBy(a => a.Status),
                 "created" => descending ? query.OrderByDescending(a => a.CreatedAt) : query.OrderBy(a => a.CreatedAt),
                 _ => descending
-                    ? query.OrderByDescending(a => a.EstimatedStartAt).ThenByDescending(a => a.AppointmentNumber)
-                    : query.OrderBy(a => a.EstimatedStartAt).ThenBy(a => a.AppointmentNumber)
+                    ? query.OrderByDescending(a => a.DoctorTimeSlot!.StartAt).ThenByDescending(a => a.AppointmentNumber)
+                    : query.OrderBy(a => a.DoctorTimeSlot!.StartAt).ThenBy(a => a.AppointmentNumber)
             };
 
             return await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
@@ -37,16 +38,44 @@ namespace HospitalManagementSystem.Api.Repositories
         public async Task<int> GetTotalCountAsync(string? search, string? status, string? doctorName, DateTime? date, int? patientId = null, string? patientEmail = null, int? doctorId = null) =>
             await BuildAppointmentQuery(search, status, doctorName, date, patientId, patientEmail, doctorId).CountAsync();
 
-        public async Task<Appointment?> GetByIdAsync(int id) =>
-            await _context.Appointments
+        public async Task<Appointment?> GetByIdAsync(int id)
+        {
+            await AppointmentCompletionService.CompleteDueAsync(_context);
+            return await _context.Appointments
                 .Include(a => a.DoctorTimeSlot).ThenInclude(slot => slot!.Room)
                 .Include(a => a.Patient)
                 .FirstOrDefaultAsync(a => a.AppointmentId == id);
+        }
 
         public async Task<Appointment> CreateAsync(Appointment appointment)
         {
+            // Serialize bookings for the same session across API instances.
+            // The existing unique index remains the final duplicate-number guard.
+            await using var transaction = _context.Database.IsRelational()
+                ? await _context.Database.BeginTransactionAsync()
+                : null;
+            if (_context.Database.IsNpgsql())
+            {
+                await _context.Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT 1 FROM \"DoctorTimeSlots\" WHERE \"DoctorTimeSlotId\" = {appointment.DoctorTimeSlotId} FOR UPDATE");
+            }
+
+            var slot = await _context.DoctorTimeSlots.AsNoTracking()
+                .SingleOrDefaultAsync(s => s.DoctorTimeSlotId == appointment.DoctorTimeSlotId);
+            if (slot is null || !slot.IsActive)
+                throw new InvalidOperationException("Selected doctor time slot is not available.");
+            if (slot.StartAt <= DateTime.UtcNow)
+                throw new InvalidOperationException("Past doctor time slots cannot be booked.");
+
+            var bookedNumbers = (await GetBookedAppointmentNumbersAsync(slot.DoctorTimeSlotId)).ToHashSet();
+            // Recalculate after acquiring the lock; the displayed preview is not a reservation.
+            appointment.AppointmentNumber = AppointmentNumbering.NextAvailable(slot.Capacity, bookedNumbers);
+            if (appointment.AppointmentNumber == 0)
+                throw new InvalidOperationException("Selected doctor time slot is fully booked.");
+
             _context.Appointments.Add(appointment);
             await _context.SaveChangesAsync();
+            if (transaction is not null) await transaction.CommitAsync();
             return (await GetByIdAsync(appointment.AppointmentId))!;
         }
 
@@ -56,12 +85,6 @@ namespace HospitalManagementSystem.Api.Repositories
             _context.Appointments.Update(appointment);
             await _context.SaveChangesAsync();
             return (await GetByIdAsync(appointment.AppointmentId))!;
-        }
-
-        public async Task DeleteAsync(Appointment appointment)
-        {
-            _context.Appointments.Remove(appointment);
-            await _context.SaveChangesAsync();
         }
 
         public async Task<int> GetActiveBookingCountAsync(int doctorTimeSlotId, int? excludeAppointmentId = null) =>

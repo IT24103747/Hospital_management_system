@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartcare_mobile/core/constants/app_colors.dart';
+import 'package:smartcare_mobile/features/medical_records/screens/medical_records_screen.dart';
 
 class PatientHomeScreen extends StatefulWidget {
   const PatientHomeScreen({super.key});
@@ -23,6 +24,13 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
     final name = prefs.getString('patient_full_name') ?? 'Patient';
     if (!mounted) return;
     setState(() => _firstName = name.trim().split(' ').first);
+  }
+
+  void _openMedicalRecords() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const MedicalRecordsScreen()),
+    );
   }
 
   @override
@@ -78,22 +86,12 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
                     ),
                     child: const Row(
                       children: [
-                        Icon(Icons.event_available_rounded, color: Colors.white, size: 28),
-                        SizedBox(width: 12),
+                        Icon(Icons.calendar_today_rounded, color: Colors.white, size: 18),
+                        SizedBox(width: 10),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Next appointment',
-                                style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
-                              ),
-                              SizedBox(height: 3),
-                              Text(
-                                'Dr. Silva - Aug 15, 10:30 AM',
-                                style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800),
-                              ),
-                            ],
+                          child: Text(
+                            'Next appointment: Aug 25 at 09:30 AM',
+                            style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
                           ),
                         ),
                       ],
@@ -135,26 +133,27 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
               mainAxisSpacing: 12,
               crossAxisSpacing: 12,
               childAspectRatio: 1.08,
-              children: const [
+              children: [
                 _QuickTile(
                   icon: Icons.medical_information_outlined,
-                  title: 'Recent record',
-                  value: 'Blood test report',
-                  tone: Color(0xFF059669),
+                  title: 'Medical Records',
+                  value: 'History & reports',
+                  tone: const Color(0xFF059669),
+                  onTap: _openMedicalRecords,
                 ),
-                _QuickTile(
+                const _QuickTile(
                   icon: Icons.notifications_active_outlined,
                   title: 'Notifications',
                   value: '3 new updates',
                   tone: Color(0xFFD97706),
                 ),
-                _QuickTile(
+                const _QuickTile(
                   icon: Icons.psychology_alt_outlined,
                   title: 'AI Assistant',
                   value: 'Ask about reports',
                   tone: Color(0xFF4F46E5),
                 ),
-                _QuickTile(
+                const _QuickTile(
                   icon: Icons.health_and_safety_outlined,
                   title: 'Reminders',
                   value: 'Take medicine',
@@ -174,9 +173,10 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
             _InfoCard(
               icon: Icons.description_outlined,
               title: 'Latest medical report',
-              subtitle: 'Lab report uploaded yesterday',
-              trailing: 'New',
+              subtitle: 'View your latest diagnoses & lab notes',
+              trailing: 'View',
               isDark: isDark,
+              onTap: _openMedicalRecords,
             ),
             const SizedBox(height: 12),
             Text(
@@ -231,58 +231,67 @@ class _QuickTile extends StatelessWidget {
   final String title;
   final String value;
   final Color tone;
+  final VoidCallback? onTap;
 
   const _QuickTile({
     required this.icon,
     required this.title,
     required this.value,
     required this.tone,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.surfaceDark : AppColors.bgLightCard,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: tone.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: tone, size: 21),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.surfaceDark : AppColors.bgLightCard,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
           ),
-          const Spacer(),
-          Text(
-            title,
-            style: TextStyle(
-              color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: tone, size: 21),
+              ),
+              const Spacer(),
+              Text(
+                title,
+                style: TextStyle(
+                  color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: TextStyle(
+                  color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: TextStyle(
-              color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -294,6 +303,7 @@ class _InfoCard extends StatelessWidget {
   final String subtitle;
   final String trailing;
   final bool isDark;
+  final VoidCallback? onTap;
 
   const _InfoCard({
     required this.icon,
@@ -301,60 +311,68 @@ class _InfoCard extends StatelessWidget {
     required this.subtitle,
     required this.trailing,
     required this.isDark,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.surfaceDark : AppColors.bgLightCard,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-            child: Icon(icon, color: AppColors.primary),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.surfaceDark : AppColors.bgLightCard,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                  ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+                child: Icon(icon, color: AppColors.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
-                    fontSize: 12,
-                  ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(999),
                 ),
-              ],
-            ),
+                child: Text(
+                  trailing,
+                  style: const TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              trailing,
-              style: const TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.w800),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

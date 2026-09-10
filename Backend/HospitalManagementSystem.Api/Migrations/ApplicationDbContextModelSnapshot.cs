@@ -48,9 +48,6 @@ namespace HospitalManagementSystem.Api.Migrations
                     b.Property<int>("DoctorTimeSlotId")
                         .HasColumnType("integer");
 
-                    b.Property<DateTime>("EstimatedStartAt")
-                        .HasColumnType("timestamp without time zone");
-
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -89,8 +86,6 @@ namespace HospitalManagementSystem.Api.Migrations
 
                     b.HasIndex("CreatedAt");
 
-                    b.HasIndex("EstimatedStartAt");
-
                     b.HasIndex("PatientId");
 
                     b.HasIndex("Status");
@@ -103,6 +98,81 @@ namespace HospitalManagementSystem.Api.Migrations
                         {
                             t.HasCheckConstraint("CK_Appointments_Status", "\"Status\" IN ('Confirmed', 'Completed', 'Cancelled')");
                         });
+                });
+
+            modelBuilder.Entity("HospitalManagementSystem.Api.Models.AppointmentNotification", b =>
+                {
+                    b.Property<int>("AppointmentNotificationId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("AppointmentNotificationId"));
+
+                    b.Property<int>("AppointmentId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("AppointmentNotificationId");
+
+                    b.HasIndex("AppointmentId");
+
+                    b.ToTable("AppointmentNotifications");
+                });
+
+            modelBuilder.Entity("HospitalManagementSystem.Api.Models.AppointmentProposal", b =>
+                {
+                    b.Property<int>("AppointmentProposalId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("AppointmentProposalId"));
+
+                    b.Property<int?>("AppointmentId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CandidateSlotsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int>("PatientId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("RequiresClinicalApproval")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("SelectedDoctorTimeSlotId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("TriageLevel")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.HasKey("AppointmentProposalId");
+
+                    b.HasIndex("PatientId", "Status", "ExpiresAt");
+
+                    b.ToTable("AppointmentProposals");
                 });
 
             modelBuilder.Entity("HospitalManagementSystem.Api.Models.Doctor", b =>
@@ -250,6 +320,127 @@ namespace HospitalManagementSystem.Api.Migrations
 
                             t.HasCheckConstraint("CK_DoctorTimeSlots_TimeRange", "\"EndAt\" > \"StartAt\"");
                         });
+                });
+
+            modelBuilder.Entity("HospitalManagementSystem.Api.Models.MedicalRecord", b =>
+                {
+                    b.Property<int>("MedicalRecordId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("MedicalRecordId"));
+
+                    b.Property<int?>("AppointmentId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Diagnosis")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("DoctorId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("FollowUpDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("LabNotes")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<int>("PatientId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PrescriptionNotes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("RecordDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("RecordType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Symptoms")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("TreatmentPlan")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("MedicalRecordId");
+
+                    b.HasIndex("AppointmentId");
+
+                    b.HasIndex("DoctorId");
+
+                    b.HasIndex("RecordType");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("PatientId", "RecordDate");
+
+                    b.ToTable("MedicalRecords", t =>
+                        {
+                            t.HasCheckConstraint("CK_MedicalRecords_RecordType", "\"RecordType\" IN ('Consultation', 'LabReport', 'DischargeSummary', 'Prescription', 'GeneralNote')");
+
+                            t.HasCheckConstraint("CK_MedicalRecords_Status", "\"Status\" IN ('Draft', 'Finalized', 'Archived')");
+                        });
+                });
+
+            modelBuilder.Entity("HospitalManagementSystem.Api.Models.MedicalRecordAttachment", b =>
+                {
+                    b.Property<int>("AttachmentId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("AttachmentId"));
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("FileType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FileUrl")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("MedicalRecordId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("AttachmentId");
+
+                    b.HasIndex("MedicalRecordId");
+
+                    b.ToTable("MedicalRecordAttachments");
                 });
 
             modelBuilder.Entity("HospitalManagementSystem.Api.Models.Patient", b =>
@@ -566,6 +757,26 @@ namespace HospitalManagementSystem.Api.Migrations
                     b.Navigation("Patient");
                 });
 
+            modelBuilder.Entity("HospitalManagementSystem.Api.Models.AppointmentNotification", b =>
+                {
+                    b.HasOne("HospitalManagementSystem.Api.Models.Appointment", "Appointment")
+                        .WithMany("Notifications")
+                        .HasForeignKey("AppointmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Appointment");
+                });
+
+            modelBuilder.Entity("HospitalManagementSystem.Api.Models.AppointmentProposal", b =>
+                {
+                    b.HasOne("HospitalManagementSystem.Api.Models.Patient", null)
+                        .WithMany()
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("HospitalManagementSystem.Api.Models.Doctor", b =>
                 {
                     b.HasOne("HospitalManagementSystem.Api.Models.User", "ReviewedByUser")
@@ -599,6 +810,42 @@ namespace HospitalManagementSystem.Api.Migrations
                     b.Navigation("Doctor");
 
                     b.Navigation("Room");
+                });
+
+            modelBuilder.Entity("HospitalManagementSystem.Api.Models.MedicalRecord", b =>
+                {
+                    b.HasOne("HospitalManagementSystem.Api.Models.Appointment", "Appointment")
+                        .WithMany()
+                        .HasForeignKey("AppointmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("HospitalManagementSystem.Api.Models.Doctor", "Doctor")
+                        .WithMany()
+                        .HasForeignKey("DoctorId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("HospitalManagementSystem.Api.Models.Patient", "Patient")
+                        .WithMany()
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Appointment");
+
+                    b.Navigation("Doctor");
+
+                    b.Navigation("Patient");
+                });
+
+            modelBuilder.Entity("HospitalManagementSystem.Api.Models.MedicalRecordAttachment", b =>
+                {
+                    b.HasOne("HospitalManagementSystem.Api.Models.MedicalRecord", "MedicalRecord")
+                        .WithMany("Attachments")
+                        .HasForeignKey("MedicalRecordId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MedicalRecord");
                 });
 
             modelBuilder.Entity("HospitalManagementSystem.Api.Models.Room", b =>
@@ -650,6 +897,11 @@ namespace HospitalManagementSystem.Api.Migrations
                     b.Navigation("PatientProfile");
                 });
 
+            modelBuilder.Entity("HospitalManagementSystem.Api.Models.Appointment", b =>
+                {
+                    b.Navigation("Notifications");
+                });
+
             modelBuilder.Entity("HospitalManagementSystem.Api.Models.Doctor", b =>
                 {
                     b.Navigation("DoctorTimeSlots");
@@ -658,6 +910,11 @@ namespace HospitalManagementSystem.Api.Migrations
             modelBuilder.Entity("HospitalManagementSystem.Api.Models.DoctorTimeSlot", b =>
                 {
                     b.Navigation("Appointments");
+                });
+
+            modelBuilder.Entity("HospitalManagementSystem.Api.Models.MedicalRecord", b =>
+                {
+                    b.Navigation("Attachments");
                 });
 
             modelBuilder.Entity("HospitalManagementSystem.Api.Models.Room", b =>

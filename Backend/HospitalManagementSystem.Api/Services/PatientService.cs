@@ -52,7 +52,7 @@ namespace HospitalManagementSystem.Api.Services
             return appointments.Select(appointment => new PatientAppointmentHistoryDto
             {
                 AppointmentId = appointment.AppointmentId,
-                ScheduledAt = appointment.EstimatedStartAt,
+                ScheduledAt = appointment.DoctorTimeSlot!.StartAt,
                 DoctorName = appointment.DoctorTimeSlot?.DoctorName ?? "Not assigned",
                 Specialty = appointment.DoctorTimeSlot?.Specialty ?? "—",
                 AppointmentType = appointment.AppointmentType,

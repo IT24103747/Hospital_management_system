@@ -10,6 +10,7 @@ appsettings.Production.json
 appsettings.Development.json
 appsettings.Local.json
 appsettings.*.json
+!Backend/HospitalManagementSystem.Api/appsettings.example.json
 
 
 # Backend (ASP.NET Core / .NET C#)
@@ -44,3 +45,4 @@ Backend/android/local.properties
 .DS_Store
 Thumbs.db
 .idea/
+*.pdf

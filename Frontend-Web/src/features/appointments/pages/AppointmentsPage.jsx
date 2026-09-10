@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AlertTriangle, CalendarClock, CheckCircle, Clock, LayoutGrid, MapPin, Pencil, Plus, RefreshCw, Search, Stethoscope, Table2, X, XCircle } from 'lucide-react'
 import Button from '../../../components/Button'
 import Modal from '../../../components/Modal'
@@ -9,7 +9,6 @@ import { roomApi } from '../../rooms/services/roomApi'
 import './AppointmentsPage.css'
 
 const STATUS_FILTERS = ['Confirmed', 'Completed', 'Cancelled']
-const STATUS_ACTIONS = ['Confirmed', 'Completed']
 const SLOT_STATUS_FILTERS = ['Upcoming', 'Completed', 'Cancelled']
 const TYPES = ['Consultation', 'Follow-up', 'Check-up', 'Procedure Review', 'Emergency']
 const DEFAULT_CONSULTATION_FEE = 2500
@@ -34,7 +33,7 @@ const emptyAppointment = {
   specialty: '',
   doctorName: '',
   doctorTimeSlotId: '',
-  appointmentNumber: '',
+  appointmentDate: '',
   patientId: '',
   patientName: '',
   patientAge: '',
@@ -61,7 +60,6 @@ export default function AppointmentsPage() {
   const [date, setDate] = useState('')
   const [appointmentOpen, setAppointmentOpen] = useState(false)
   const [editTarget, setEditTarget] = useState(null)
-  const [appointmentNumberOpen, setAppointmentNumberOpen] = useState(false)
   const [slotOpen, setSlotOpen] = useState(false)
   const [slotView, setSlotView] = useState('table')
   const [slotStatus, setSlotStatus] = useState('Upcoming')
@@ -76,7 +74,6 @@ export default function AppointmentsPage() {
   const [availableRooms, setAvailableRooms] = useState([])
   const [checkingRooms, setCheckingRooms] = useState(false)
   const [roomError, setRoomError] = useState('')
-  const appointmentNumberRef = useRef(null)
   const debouncedSearch = useDebounce(search, 300)
   const debouncedSlotSearch = useDebounce(slotSearch, 300)
 
@@ -97,7 +94,6 @@ export default function AppointmentsPage() {
     createSlot,
     updateSlot,
     cancelSlot,
-    updateStatus,
     cancelAppointment,
   } = useAppointments(filters)
 
@@ -126,7 +122,7 @@ export default function AppointmentsPage() {
     return slots.filter(slot =>
       slot.doctorName.toLowerCase() === term &&
       sameText(slot.specialty, appointmentForm.specialty) &&
-      isFutureSlot(slot) &&
+      slot.isActive && isFutureSlot(slot) &&
       (
         (slot.availableCount ?? slot.capacity - slot.bookedCount) > 0 ||
         String(slot.doctorTimeSlotId) === String(appointmentForm.doctorTimeSlotId)
@@ -153,7 +149,7 @@ export default function AppointmentsPage() {
         appointment.specialty,
       ].some(value => String(value || '').toLowerCase().includes(term))
       const matchesStatus = appointment.status === status
-      const matchesDate = !date || (appointment.startAt || appointment.estimatedStartAt || '').slice(0, 10) === date
+      const matchesDate = !date || (appointment.startAt || '').slice(0, 10) === date
       return matchesSearch && matchesStatus && matchesDate
     })
   }, [appointments, date, debouncedSearch, status])
@@ -177,46 +173,15 @@ export default function AppointmentsPage() {
     })
   }, [debouncedSlotSearch, slots, slotStatus])
 
-  const getBookedNumbersForSlot = (slot) => {
-    const bySlot = appointments
-      .filter(a => String(a.doctorTimeSlotId) === String(slot.doctorTimeSlotId))
-      .filter(a => !editTarget || a.appointmentId !== editTarget.appointmentId)
-      .filter(a => ['Confirmed', 'Completed'].includes(a.status))
-      .map(a => Number(a.appointmentNumber))
-
-    const fromSlot = (slot.bookedAppointmentNumbers || []).map(n => Number(n))
-    const bookedNumbers = new Set([...bySlot, ...fromSlot])
-    if (editTarget && String(editTarget.doctorTimeSlotId) === String(slot.doctorTimeSlotId)) {
-      bookedNumbers.delete(Number(editTarget.appointmentNumber))
-    }
-    return bookedNumbers
-  }
-
-  useEffect(() => {
-    if (!appointmentNumberOpen) return
-
-    const onPointerDown = (event) => {
-      if (!appointmentNumberRef.current) return
-      if (!appointmentNumberRef.current.contains(event.target)) {
-        setAppointmentNumberOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', onPointerDown)
-    return () => document.removeEventListener('mousedown', onPointerDown)
-  }, [appointmentNumberOpen])
-
   const closeAppointmentModal = () => {
     setAppointmentOpen(false)
     setEditTarget(null)
     setAppointmentForm(emptyAppointment)
-    setAppointmentNumberOpen(false)
   }
 
   const openCreateAppointment = () => {
     setEditTarget(null)
     setAppointmentForm(emptyAppointment)
-    setAppointmentNumberOpen(false)
     setAppointmentOpen(true)
   }
 
@@ -227,7 +192,7 @@ export default function AppointmentsPage() {
       specialty: appointment.specialty || '',
       doctorName: appointment.doctorName || '',
       doctorTimeSlotId: String(appointment.doctorTimeSlotId || ''),
-      appointmentNumber: String(appointment.appointmentNumber || ''),
+      appointmentDate: toDateInputValue(appointment.startAt),
       patientId: appointment.patientId ? String(appointment.patientId) : '',
       patientName: appointment.patientName || '',
       patientAge: patient ? String(getPatientAge(patient)) : '',
@@ -235,13 +200,12 @@ export default function AppointmentsPage() {
       patientEmail: appointment.patientEmail || '',
       appointmentType: appointment.appointmentType || 'Consultation',
     })
-    setAppointmentNumberOpen(false)
     setAppointmentOpen(true)
   }
 
   const handleAppointmentSubmit = async (e) => {
     e.preventDefault()
-    if (!appointmentForm.doctorTimeSlotId || !appointmentForm.appointmentNumber) return
+    if (!appointmentForm.doctorTimeSlotId || !appointmentForm.appointmentDate) return
     if (!selectedSlot || !isFutureSlot(selectedSlot)) return
 
     const payload = {
@@ -251,10 +215,7 @@ export default function AppointmentsPage() {
       patientEmail: appointmentForm.patientEmail,
       appointmentType: appointmentForm.appointmentType,
       consultationFee: selectedConsultationFee,
-      reason: 'Appointment',
-      notes: '',
       doctorTimeSlotId: Number(appointmentForm.doctorTimeSlotId),
-      appointmentNumber: Number(appointmentForm.appointmentNumber),
     }
     if (editTarget) {
       await updateAppointment(editTarget.appointmentId, {
@@ -462,7 +423,7 @@ export default function AppointmentsPage() {
     {
       key: 'date',
       label: 'Date',
-      render: (a) => formatDateOnly(a.estimatedStartAt || a.startAt),
+      render: (a) => formatDateOnly(a.startAt),
     },
     {
       key: 'number',
@@ -470,7 +431,7 @@ export default function AppointmentsPage() {
       render: (a) => (
         <div className="appt-number-cell">
           <strong>#{a.appointmentNumber || '-'}</strong>
-          <span>{formatTime(a.estimatedStartAt || a.startAt)}</span>
+          <span>{formatTime(a.startAt)}</span>
         </div>
       ),
     },
@@ -502,15 +463,6 @@ export default function AppointmentsPage() {
       width: '150px',
       render: (a) => (
         <div className="appt-actions">
-          <select
-            className="appt-inline-select"
-            value={a.status}
-            onChange={(e) => updateStatus(a.appointmentId, e.target.value)}
-            disabled={saving || a.status === 'Cancelled' || a.status === 'Completed'}
-            aria-label={`Update status for ${a.patientName}`}
-          >
-            {STATUS_ACTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
           <Button
             variant="secondary"
             size="sm"
@@ -640,7 +592,7 @@ export default function AppointmentsPage() {
                     </td>
                     <td className="slot-col-next">
                       {slot.nextAppointmentNumber > 0
-                        ? `#${slot.nextAppointmentNumber} at ${formatTime(slot.nextEstimatedStartAt)}`
+                        ? `#${slot.nextAppointmentNumber} at ${formatTime(slot.startAt)}`
                         : '-'}
                     </td>
                     <td className="slot-col-status"><StatusPill status={getSlotDisplayStatus(slot)} /></td>
@@ -685,7 +637,7 @@ export default function AppointmentsPage() {
               )}
               <meter min="0" max={slot.capacity} value={slot.bookedCount} />
               {slot.nextAppointmentNumber > 0 && (
-                <small>Next #{slot.nextAppointmentNumber} at {formatTime(slot.nextEstimatedStartAt)}</small>
+                <small>Next #{slot.nextAppointmentNumber} at {formatTime(slot.startAt)}</small>
               )}
               <small>{slot.bookedCount}/{slot.capacity} booked · {slot.availableCount ?? slot.capacity - slot.bookedCount} available</small>
               <div className="appt-slot__actions">
@@ -734,9 +686,8 @@ export default function AppointmentsPage() {
                     specialty: e.target.value,
                     doctorName: '',
                     doctorTimeSlotId: '',
-                    appointmentNumber: '',
+                    appointmentDate: '',
                   })
-                  setAppointmentNumberOpen(false)
                 }}
                 disabled={Boolean(doctorError) || appointmentSpecializations.length === 0}
               >
@@ -751,8 +702,7 @@ export default function AppointmentsPage() {
                 required
                 value={appointmentForm.doctorName}
                 onChange={e => {
-                  setAppointmentForm({ ...appointmentForm, doctorName: e.target.value, doctorTimeSlotId: '', appointmentNumber: '' })
-                  setAppointmentNumberOpen(false)
+                  setAppointmentForm({ ...appointmentForm, doctorName: e.target.value, doctorTimeSlotId: '', appointmentDate: '' })
                 }}
                 disabled={!appointmentForm.specialty || appointmentDoctorOptions.length === 0}
               >
@@ -764,71 +714,27 @@ export default function AppointmentsPage() {
                 ))}
               </select>
             </label>
-            <label>Select Appointment No
-              <div className="appt-number-select" role="group" aria-label="Select appointment number" ref={appointmentNumberRef}>
-                <button
-                  type="button"
-                  className="appt-number-trigger"
-                  onClick={() => setAppointmentNumberOpen(open => !open)}
-                  aria-expanded={appointmentNumberOpen}
-                  aria-haspopup="dialog"
-                  disabled={!appointmentForm.doctorName || selectedDoctorSlots.length === 0}
-                >
-                  {appointmentForm.appointmentNumber && selectedSlot
-                    ? `#${appointmentForm.appointmentNumber} · ${formatTime(getEstimatedTimeForNumber(selectedSlot, Number(appointmentForm.appointmentNumber)))} (${formatTime(selectedSlot.startAt)}-${formatTime(selectedSlot.endAt)})`
-                    : 'Select appointment no'}
-                </button>
-                {appointmentNumberOpen && (
-                  <div className="appt-number-popover">
-                    {selectedDoctorSlots.map(slot => {
-                      const selectableNumbers = Array.from({ length: slot.capacity }, (_, i) => i + 1)
-                      const bookedNumbers = getBookedNumbersForSlot(slot)
-                      return (
-                        <div className="appt-number-slot-group" key={slot.doctorTimeSlotId}>
-                          <p className="appt-number-slot-title">
-                            {formatDateTime(slot.startAt)}-{formatTime(slot.endAt)}
-                          </p>
-                          {formatSlotLocation(slot) && (
-                            <p className="appt-number-slot-location">
-                              <MapPin size={12} /> {formatSlotLocation(slot)}
-                            </p>
-                          )}
-                          <div className="appt-number-grid">
-                            {selectableNumbers.map(number => {
-                              const isBooked = bookedNumbers.has(number)
-                              const isSelected =
-                                String(appointmentForm.doctorTimeSlotId) === String(slot.doctorTimeSlotId) &&
-                                String(appointmentForm.appointmentNumber) === String(number)
-                              return (
-                                <button
-                                  key={`${slot.doctorTimeSlotId}-${number}`}
-                                  type="button"
-                                  className={`appt-number-btn${isSelected ? ' is-selected' : ''}${isBooked ? ' is-booked' : ''}`}
-                                  onClick={() => {
-                                    if (isBooked) return
-                                    setAppointmentForm({
-                                      ...appointmentForm,
-                                      doctorTimeSlotId: String(slot.doctorTimeSlotId),
-                                      appointmentNumber: String(number),
-                                    })
-                                    setAppointmentNumberOpen(false)
-                                  }}
-                                  disabled={isBooked}
-                                  aria-pressed={isSelected}
-                                  aria-label={`Appointment number ${number}${isBooked ? ' already booked' : ''}`}
-                                >
-                                  #{number}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )
-                    })}
-                    <small>Booked numbers are disabled.</small>
-                  </div>
-                )}
-              </div>
+            <label>Appointment date
+              <select required value={appointmentForm.appointmentDate}
+                disabled={!appointmentForm.doctorName || selectedDoctorSlots.length === 0}
+                onChange={e => setAppointmentForm({ ...appointmentForm, appointmentDate: e.target.value, doctorTimeSlotId: '' })}>
+                <option value="">Select appointment date</option>
+                {Array.from(new Set(selectedDoctorSlots.map(slot => toDateInputValue(slot.startAt)))).sort().map(day => (
+                  <option key={day} value={day}>{formatDateOnly(`${day}T00:00:00`)}</option>
+                ))}
+              </select>
+            </label>
+            <label>Appointment session
+              <select required value={appointmentForm.doctorTimeSlotId}
+                disabled={!appointmentForm.appointmentDate}
+                onChange={e => setAppointmentForm({ ...appointmentForm, doctorTimeSlotId: e.target.value })}>
+                <option value="">Select appointment session</option>
+                {selectedDoctorSlots.filter(slot => toDateInputValue(slot.startAt) === appointmentForm.appointmentDate).map(slot => (
+                  <option key={slot.doctorTimeSlotId} value={slot.doctorTimeSlotId}>
+                    {formatTime(slot.startAt)} - {formatTime(slot.endAt)}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
           {doctorError && (
@@ -841,20 +747,24 @@ export default function AppointmentsPage() {
             <p className="appt-form__hint appt-form__wide">No approved doctors are available for this specialization.</p>
           )}
           {appointmentForm.doctorName && selectedDoctorSlots.length === 0 && (
-            <p className="appt-form__hint appt-form__wide">No upcoming appointment numbers are available for this doctor.</p>
+            <p className="appt-form__hint appt-form__wide">No upcoming sessions are available for this doctor.</p>
           )}
           {selectedSlot && (
-            <div className="appt-estimate appt-form__wide">
+            <div className="appt-details appt-form__wide">
               <div>
-                <strong>Appointment #{appointmentForm.appointmentNumber || '-'}</strong>
+                <strong>{editTarget ? `Appointment #${editTarget.appointmentNumber}` : 'Appointment details'}</strong>
+                {!editTarget && (
+                  <>
+                    <span>Next available appointment number: {selectedSlot.nextAppointmentNumber > 0 ? `#${selectedSlot.nextAppointmentNumber}` : 'Unavailable'}</span>
+                    <small>This number may change if someone books before you confirm.</small>
+                  </>
+                )}
                 <span>
-                  Estimated patient time:{' '}
-                  {appointmentForm.appointmentNumber
-                    ? formatDateTime(getEstimatedTimeForNumber(selectedSlot, Number(appointmentForm.appointmentNumber)))
-                    : 'Select a number'}
+                  Appointment time:{' '}
+                  {formatDateTime(selectedSlot.startAt)}
                 </span>
                 {formatSlotLocation(selectedSlot) && (
-                  <span className="appt-estimate__location">
+                  <span className="appt-details__location">
                     <MapPin size={13} /> Location: {formatSlotLocation(selectedSlot)}
                   </span>
                 )}
@@ -984,7 +894,7 @@ export default function AppointmentsPage() {
             <p className="appt-form__hint appt-form__hint--error appt-form__wide">{roomError}</p>
           )}
           <p className="appt-form__hint appt-form__wide">
-            Appointment times are automatically estimated by dividing the selected time range by capacity.
+            Appointments use the scheduled session start time. Appointment numbers indicate queue order.
           </p>
           <div className="appt-form__actions appt-form__wide">
             <Button type="button" variant="outline" icon={RefreshCw} loading={checkingRooms} onClick={checkAvailableRooms}>Check Available Rooms</Button>
@@ -1130,14 +1040,4 @@ function toTimeInputValue(value) {
   const date = new Date(value)
   const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000))
   return localDate.toISOString().slice(11, 16)
-}
-
-function getEstimatedTimeForNumber(slot, appointmentNumber) {
-  const startAt = new Date(slot.startAt)
-  const endAt = new Date(slot.endAt)
-  const totalMs = endAt.getTime() - startAt.getTime()
-  if (totalMs <= 0 || slot.capacity <= 0) return startAt
-
-  const intervalMs = totalMs / slot.capacity
-  return new Date(startAt.getTime() + ((appointmentNumber - 1) * intervalMs))
 }

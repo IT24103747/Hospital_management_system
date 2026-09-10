@@ -58,7 +58,7 @@ namespace HospitalManagementSystem.Api.Repositories
                 .AsNoTracking()
                 .Include(appointment => appointment.DoctorTimeSlot)
                 .Where(appointment => appointment.PatientId == patientId)
-                .OrderByDescending(appointment => appointment.EstimatedStartAt)
+                .OrderByDescending(appointment => appointment.DoctorTimeSlot!.StartAt)
                 .ToListAsync();
 
         public async Task<Patient?> GetByEmailAsync(string email) =>

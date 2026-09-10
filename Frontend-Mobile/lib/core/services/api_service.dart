@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
 import 'package:smartcare_mobile/models/appointment.dart';
 import 'package:smartcare_mobile/models/doctor.dart';
+import 'package:smartcare_mobile/models/medical_record.dart';
 import 'package:smartcare_mobile/models/patient.dart';
 import 'package:smartcare_mobile/models/triage_workflow.dart';
 
@@ -36,6 +37,20 @@ class ApiService {
     };
   }
 
+  static Future<List<Map<String, dynamic>>>
+      getAppointmentNotifications() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/appointment/notifications'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Unable to load notifications.');
+    }
+    return (jsonDecode(response.body) as List<dynamic>)
+        .map((item) => item as Map<String, dynamic>)
+        .toList();
+  }
+
   static Future<List<Patient>> getPatients({String search = ''}) async {
     final query = <String, String>{
       'page': '1',
@@ -66,7 +81,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
-    throw Exception('Invalid email or password.');
+    throw Exception(_errorMessage(response.body));
   }
 
   static Future<List<DoctorSearchResult>> searchDoctors(
@@ -304,7 +319,6 @@ class ApiService {
 
   static Future<Appointment> bookAppointment({
     required int doctorTimeSlotId,
-    required int appointmentNumber,
     required String patientName,
     required String patientPhone,
     String? patientEmail,
@@ -315,13 +329,11 @@ class ApiService {
       headers: await _authHeaders(),
       body: jsonEncode({
         'doctorTimeSlotId': doctorTimeSlotId,
-        'appointmentNumber': appointmentNumber,
         'patientName': patientName.trim(),
         'patientPhone': patientPhone.trim(),
         if (patientEmail != null && patientEmail.trim().isNotEmpty)
           'patientEmail': patientEmail.trim().toLowerCase(),
         'appointmentType': appointmentType.trim(),
-        'reason': 'Appointment',
       }),
     );
     if (response.statusCode == 201 || response.statusCode == 200) {
@@ -393,9 +405,22 @@ class ApiService {
     throw Exception(_errorMessage(response.body));
   }
 
+  static Future<List<TriageWorkflow>> getTriageWorkflowHistory() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/triage-workflows/history'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode == 200) {
+      return (jsonDecode(response.body) as List<dynamic>)
+          .map((item) => TriageWorkflow.fromJson(item as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
   static Future<TriageWorkflow> continueTriageWorkflow({
     required int workflowId,
-    required String answers,
+    required List<Map<String, dynamic>> answers,
   }) async {
     final response = await http
         .post(Uri.parse('$baseUrl/triage-workflows/$workflowId/continue'),
@@ -404,6 +429,111 @@ class ApiService {
         .timeout(const Duration(seconds: 85));
     if (response.statusCode == 200) {
       return TriageWorkflow.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  // ---------- Patient Care Agent Workflow ----------
+
+  static Future<Map<String, dynamic>> createTriageAppointmentProposal({
+    required String symptoms,
+    String? specialty,
+    bool requestAppointmentProposal = false,
+    Map<String, dynamic>? vitals,
+  }) async {
+    final response = await _client
+        .post(
+          Uri.parse('$baseUrl/patient-care/triage-appointment-proposal'),
+          headers: await _authHeaders(),
+          body: jsonEncode({
+            'symptoms': symptoms.trim(),
+            'requestAppointmentProposal': requestAppointmentProposal,
+            if (specialty != null && specialty.trim().isNotEmpty)
+              'specialty': specialty.trim(),
+            if (vitals != null) 'vitals': vitals,
+          }),
+        )
+        .timeout(const Duration(seconds: 85));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<Map<String, dynamic>> confirmAppointmentProposal({
+    required int proposalId,
+    required int doctorTimeSlotId,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/appointment-proposals/$proposalId/confirm'),
+      headers: await _authHeaders(),
+      body: jsonEncode({'doctorTimeSlotId': doctorTimeSlotId}),
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<List<Map<String, dynamic>>> getPatientCareHistory() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/patient-care/history'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode == 200) {
+      return (jsonDecode(response.body) as List<dynamic>)
+          .map((item) => item as Map<String, dynamic>)
+          .toList();
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  // ---------- Medical Records Endpoints ----------
+
+  static Future<List<MedicalRecord>> getMyMedicalRecords() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/medicalrecord/me'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode == 200) {
+      final list = jsonDecode(response.body) as List<dynamic>;
+      return list
+          .map((item) => MedicalRecord.fromJson(item as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<MedicalRecord> getMedicalRecordById(int id) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/medicalrecord/$id'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode == 200) {
+      return MedicalRecord.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<MedicalRecordAttachment> addMedicalRecordAttachment(
+    int recordId, {
+    required String fileName,
+    required String fileType,
+    required String fileUrl,
+    required int fileSize,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/medicalrecord/$recordId/attachments'),
+      headers: await _authHeaders(),
+      body: jsonEncode({
+        'fileName': fileName,
+        'fileType': fileType,
+        'fileUrl': fileUrl,
+        'fileSize': fileSize,
+      }),
+    );
+    if (response.statusCode == 201) {
+      return MedicalRecordAttachment.fromJson(jsonDecode(response.body));
     }
     throw Exception(_errorMessage(response.body));
   }
