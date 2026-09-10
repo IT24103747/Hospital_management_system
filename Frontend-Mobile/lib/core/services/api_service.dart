@@ -36,7 +36,8 @@ class ApiService {
     };
   }
 
-  static Future<List<Map<String, dynamic>>> getAppointmentNotifications() async {
+  static Future<List<Map<String, dynamic>>>
+      getAppointmentNotifications() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/appointment/notifications'),
       headers: await _authHeaders(),
@@ -45,7 +46,8 @@ class ApiService {
       throw Exception('Unable to load notifications.');
     }
     return (jsonDecode(response.body) as List<dynamic>)
-        .map((item) => item as Map<String, dynamic>).toList();
+        .map((item) => item as Map<String, dynamic>)
+        .toList();
   }
 
   static Future<List<Patient>> getPatients({String search = ''}) async {
@@ -251,7 +253,8 @@ class ApiService {
   }
 
   static Future<List<DoctorLookup>> getAppointmentDoctors() async {
-    final response = await _client.get(Uri.parse('$baseUrl/appointment/doctors'),
+    final response = await _client.get(
+        Uri.parse('$baseUrl/appointment/doctors'),
         headers: await _authHeaders());
     if (response.statusCode == 200) {
       final items = jsonDecode(response.body) as List<dynamic>? ?? [];
@@ -393,6 +396,61 @@ class ApiService {
         .timeout(const Duration(seconds: 85));
     if (response.statusCode == 200) {
       return TriageWorkflow.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  // ---------- Patient Care Agent Workflow ----------
+
+  static Future<Map<String, dynamic>> createTriageAppointmentProposal({
+    required String symptoms,
+    String? specialty,
+    bool requestAppointmentProposal = false,
+    Map<String, dynamic>? vitals,
+  }) async {
+    final response = await _client
+        .post(
+          Uri.parse('$baseUrl/patient-care/triage-appointment-proposal'),
+          headers: await _authHeaders(),
+          body: jsonEncode({
+            'symptoms': symptoms.trim(),
+            'requestAppointmentProposal': requestAppointmentProposal,
+            if (specialty != null && specialty.trim().isNotEmpty)
+              'specialty': specialty.trim(),
+            if (vitals != null) 'vitals': vitals,
+          }),
+        )
+        .timeout(const Duration(seconds: 85));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<Map<String, dynamic>> confirmAppointmentProposal({
+    required int proposalId,
+    required int doctorTimeSlotId,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/appointment-proposals/$proposalId/confirm'),
+      headers: await _authHeaders(),
+      body: jsonEncode({'doctorTimeSlotId': doctorTimeSlotId}),
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<List<Map<String, dynamic>>> getPatientCareHistory() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/patient-care/history'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode == 200) {
+      return (jsonDecode(response.body) as List<dynamic>)
+          .map((item) => item as Map<String, dynamic>)
+          .toList();
     }
     throw Exception(_errorMessage(response.body));
   }

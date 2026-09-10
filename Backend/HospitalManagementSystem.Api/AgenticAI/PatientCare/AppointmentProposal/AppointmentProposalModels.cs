@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
-namespace HospitalManagementSystem.Api.AgenticAI.AppointmentScheduling;
+namespace HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 
 public sealed class AppointmentAgentRequest
 {
@@ -30,8 +30,10 @@ public sealed record AgentBooking(int AppointmentId, int DoctorTimeSlotId, int A
 public sealed class AppointmentAgentOptions
 {
     public const string SectionName = "AppointmentAgent";
-    public string OllamaUrl { get; set; } = "http://127.0.0.1:11434/";
-    public string Model { get; set; } = "qwen2.5:3b";
+    // Keep this key in User Secrets locally and the cloud platform's secret store in deployment.
+    // It must never be returned to React or Flutter.
+    public string GeminiApiKey { get; set; } = string.Empty;
+    public string Model { get; set; } = "gemini-2.5-flash";
     public int TimeoutSeconds { get; set; } = 60;
     public int MaxSteps { get; set; } = 8;
 }

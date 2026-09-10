@@ -9,7 +9,10 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
-using HospitalManagementSystem.Api.AgenticAI.AppointmentScheduling;
+using HospitalManagementSystem.Api.AgenticAI.PatientCare.ClinicalSafety;
+using HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
+using HospitalManagementSystem.Api.AgenticAI.PatientCare.SafetyApproval;
+using HospitalManagementSystem.Api.AgenticAI.PatientCare.Shared;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
@@ -80,7 +83,6 @@ builder.Services.AddScoped<IPatientRepository, PatientRepository>();
 builder.Services.AddScoped<IPatientService, PatientService>();
 builder.Services.AddScoped<IAppointmentRepository, AppointmentRepository>();
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
-builder.Services.AddAppointmentAgent(builder.Configuration);
 builder.Services.AddHostedService<AppointmentCompletionService>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<IDoctorService, DoctorService>();
@@ -88,11 +90,21 @@ builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IDoctorScheduleService, DoctorScheduleService>();
 builder.Services.AddScoped<ITriageWorkflowService, TriageWorkflowService>();
+builder.Services.AddScoped<IClinicalSafetyTriageAgent, ClinicalSafetyTriageAgent>();
+builder.Services.AddScoped<IPatientCareAssessmentStore, PatientCareAssessmentStore>();
+// Reusable controlled tools for the Member 3 proposal and Member 4 confirmation agents.
+builder.Services.AddScoped<IAppointmentAgentTools, AppointmentAgentTools>();
+builder.Services.AddScoped<IHospitalAppointmentProposalAgent, HospitalAppointmentProposalAgent>();
+builder.Services.AddScoped<IAppointmentProposalStore, AppointmentProposalStore>();
+builder.Services.AddScoped<ISafetyApprovalTools, SafetyApprovalTools>();
+builder.Services.AddScoped<ISafetyValidationApprovalAgent, SafetyValidationApprovalAgent>();
 builder.Services.AddScoped<IMedicalRecordRepository, MedicalRecordRepository>();
 builder.Services.AddScoped<IMedicalRecordService, MedicalRecordService>();
-builder.Services.AddHttpClient<IClinicalInformationExtractionAgent, OllamaClinicalInformationExtractionAgent>(client =>
+builder.Services.AddHttpClient<IClinicalInformationExtractionAgent, GeminiClinicalInformationExtractionAgent>((provider, client) =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["SafeTriage:OllamaUrl"] ?? "http://127.0.0.1:11434/");
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
 });
 
 // In Development mode, dynamically allow any localhost origin (supporting changing Flutter Web ports).

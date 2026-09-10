@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using HospitalManagementSystem.Api.AgenticAI.AppointmentScheduling;
+using HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 using HospitalManagementSystem.Api.DTOs;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;

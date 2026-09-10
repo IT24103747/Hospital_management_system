@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:smartcare_mobile/core/constants/app_colors.dart';
 import 'package:smartcare_mobile/core/services/api_service.dart';
 import 'package:smartcare_mobile/features/clinic_finder/screens/emergency_clinic_screen.dart';
+import 'package:smartcare_mobile/features/triage/screens/patient_care_flow_screen.dart';
 import 'package:smartcare_mobile/models/triage_workflow.dart';
 
 class AiTriageScreen extends StatefulWidget {
@@ -354,6 +355,17 @@ class _AiTriageScreenState extends State<AiTriageScreen> {
                 label: Text(_isSubmitting
                     ? 'Submitting safely…'
                     : 'Submit for SafeTriage'))),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: _isSubmitting
+              ? null
+              : () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const PatientCareFlowScreen())),
+          icon: const Icon(Icons.calendar_month_outlined),
+          label: const Text('Test Patient Care appointment workflow'),
+        ),
         if (_isSubmitting) ...[
           const SizedBox(height: 18),
           Container(key: _processingKey, child: _buildLiveWorkflowProgress()),

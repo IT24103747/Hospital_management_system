@@ -1,4 +1,5 @@
 using HospitalManagementSystem.Api.AgenticAI.AppointmentScheduling;
+using HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 using HospitalManagementSystem.Api.Data;
 using HospitalManagementSystem.Api.DTOs;
 using HospitalManagementSystem.Api.Models;
@@ -200,7 +201,7 @@ public class AppointmentSchedulingAgentTests
     private static AppointmentAgentDecision Recommend() => new() { Action = "final", Outcome = "recommend", SlotRefs = ["S1"] };
     private static AppointmentAgentDecision Book() => new() { Action = "book_appointment", SlotRef = "S1" };
 
-    private sealed class ScriptedModel(params AppointmentAgentDecision[] decisions) : IOllamaAppointmentClient
+    private sealed class ScriptedModel(params AppointmentAgentDecision[] decisions) : IAppointmentModelClient
     {
         public int Calls { get; private set; }
         public string LastHistory { get; private set; } = "";
@@ -220,7 +221,7 @@ public class AppointmentSchedulingAgentTests
         public required PatientDto Patient { get; init; }
         public required DoctorTimeSlot Slot { get; init; }
         public required AppointmentAgentTools Tools { get; init; }
-        public AppointmentSchedulingAgent Agent(IOllamaAppointmentClient model) => new(model, Tools, Options.Create(new AppointmentAgentOptions()));
+        public AppointmentSchedulingAgent Agent(IAppointmentModelClient model) => new(model, Tools, Options.Create(new AppointmentAgentOptions()));
         public ValueTask DisposeAsync() => Db.DisposeAsync();
 
         public static async Task<Scenario> CreateAsync()

@@ -518,7 +518,7 @@ public class TriageWorkflowServiceTests
             ["IntakeValidationAgent", "SafetyRedFlagAgent", "ClinicalInformationExtractionAgent", "StructuredSafetyAssessmentAgent", "AdaptiveQuestionPlanningAgent", "CareRoutingAgent", "SafetyValidationAgent"],
             trace.Select(item => item.Stage));
         Assert.Equal(
-            ["ValidateVitalsTool", "EvaluateRedFlagsTool", "OllamaStructuredExtractionTool", "EvaluateGroundedClinicalFactsTool", "RankMissingInformationTool", "CreateEscalationProposalTool", "ValidateWorkflowOutcomeTool"],
+            ["ValidateVitalsTool", "EvaluateRedFlagsTool", "GeminiStructuredExtractionTool", "EvaluateGroundedClinicalFactsTool", "RankMissingInformationTool", "CreateEscalationProposalTool", "ValidateWorkflowOutcomeTool"],
             trace.Select(item => item.Tool));
         Assert.All(trace, item => Assert.True(item.ValidationPassed));
         Assert.Equal(trace.Select(item => item.Stage), result.Plan.Select(item => item.Agent));
@@ -538,7 +538,7 @@ public class TriageWorkflowServiceTests
 
         Assert.Equal(2, extraction.Calls);
         Assert.Equal("FailedSafely", extractionEvent.EventType);
-        Assert.Equal("OllamaStructuredExtractionTool", extractionEvent.Tool);
+        Assert.Equal("GeminiStructuredExtractionTool", extractionEvent.Tool);
         Assert.Equal(1, extractionEvent.RetryCount);
         Assert.Equal("ExtractionUnavailable", extractionEvent.ErrorCode);
         Assert.False(result.RequiresHumanReview);
