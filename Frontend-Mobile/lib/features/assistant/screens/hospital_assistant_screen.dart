@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:smartcare_mobile/core/constants/app_colors.dart';
 import 'package:smartcare_mobile/core/services/api_service.dart';
 import 'package:smartcare_mobile/models/hospital_assistant.dart';
 
@@ -65,13 +66,10 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
       final capabilities = await ApiService.getAssistantCapabilities();
       if (!mounted) return;
       setState(() => _capabilities = capabilities);
-      final history = await ApiService.getAssistantHistory();
-      if (history.isNotEmpty) {
-        final conversation = await ApiService.getAssistantConversation(
-            history.first['conversationId'] as String);
-        if (!mounted) return;
-        _accept(conversation);
-      }
+      // Do not automatically reopen the latest conversation. It may contain a
+      // previous urgent safety state, and a patient opening the assistant should
+      // begin with a genuinely new conversation unless they explicitly choose one
+      // from the History button.
     } catch (_) {
       if (mounted) {
         setState(() => _error =
@@ -443,7 +441,7 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                           ),
                         if (_conversation != null && !_busy) ...[
                           ..._conversation!.questions.map((question) => _bubble(
-                              question['prompt']?.toString() ?? '',
+                              _naturalQuestion(question['prompt']?.toString() ?? ''),
                               user: false)),
                           ..._conversation!.doctors.map((doctor) => ListTile(
                                 contentPadding: EdgeInsets.zero,
@@ -456,8 +454,9 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                           if (_conversation!.pendingAction == null)
                             ..._conversation!.slots.map(
                                 (slot) => _detailsCard(slot, isSlot: true)),
-                          ..._conversation!.appointments.map((appointment) =>
-                              _detailsCard(appointment, isSlot: false)),
+                          if (_conversation!.pendingAction == null)
+                            ..._conversation!.appointments.map(
+                                _confirmedAppointmentCard),
                           if (_conversation!.pendingAction != null)
                             _approval(_conversation!.pendingAction!),
                         ],
@@ -572,6 +571,21 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
     );
   }
 
+  // The current assistant accepts a natural-language answer, rather than a
+  // checkbox selection. Translate legacy template wording for clarity.
+  String _naturalQuestion(String prompt) => prompt
+      .replaceFirst(
+          RegExp(r'^Select any red-flag respiratory warning signs:', caseSensitive: false),
+          'Do you have any of these respiratory warning signs?')
+      .replaceFirst(
+          RegExp(r'^Select every warning sign that applies\\.?$', caseSensitive: false),
+          'Do you have any of these warning signs?')
+      .replaceFirst(
+          RegExp(r'^Select every health context that applies\\.?$', caseSensitive: false),
+          'Do any of these health conditions or situations apply to you?')
+      .replaceFirst(RegExp(r'^Select any ', caseSensitive: false), 'Do you have any ')
+      .replaceFirst(RegExp(r'^Select every ', caseSensitive: false), 'Do you have any ');
+
   Widget _approval(AssistantAction action) {
     final expired = action.expiresAt?.isBefore(DateTime.now()) ?? false;
     final isBooking = action.type == 'book';
@@ -681,6 +695,48 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
             padding: const EdgeInsets.all(14),
             child: _details(item, isSlot: isSlot)),
       );
+
+  Widget _confirmedAppointmentCard(AssistantJson appointment) {
+    final colors = Theme.of(context).colorScheme;
+    final number = appointment['appointmentNumber'];
+    final status = appointment['status']?.toString() ?? 'Confirmed';
+    final cancelled = status.toLowerCase() == 'cancelled';
+    final tone = cancelled ? colors.error : AppColors.success;
+    return Container(
+      margin: const EdgeInsets.only(top: 8, bottom: 14),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: .09),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: tone.withValues(alpha: .35)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: tone.withValues(alpha: .14), shape: BoxShape.circle),
+            child: Icon(cancelled ? Icons.cancel_outlined : Icons.check_circle_outline_rounded, color: tone),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(cancelled ? 'Appointment cancelled' : 'Appointment confirmed', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: tone)),
+            Text(cancelled ? 'This appointment is no longer active.' : 'Your hospital visit has been saved.', style: const TextStyle(fontSize: 12)),
+          ])),
+        ]),
+        const SizedBox(height: 16),
+        _details(appointment, isSlot: false),
+        if (!cancelled && number is num) ...[
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(12)),
+            child: Text('Please arrive before your session. Keep Appointment No. $number for check-in.', style: const TextStyle(fontWeight: FontWeight.w600, height: 1.35)),
+          ),
+        ],
+      ]),
+    );
+  }
 
   Widget _details(AssistantJson item, {required bool isSlot}) {
     final number = item['appointmentNumber'];

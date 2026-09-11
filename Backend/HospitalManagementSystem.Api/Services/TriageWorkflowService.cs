@@ -285,7 +285,9 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
     public async Task<TriageWorkflowDto?> ReviewAsync(int workflowId, int reviewerUserId, ReviewTriageWorkflowDto request)
     {
         var workflow = await _db.TriageWorkflows.SingleOrDefaultAsync(x => x.TriageWorkflowId == workflowId);
-        if (workflow is null || workflow.ApprovalStatus != TriageApprovalStatuses.Pending) return null;
+        // RevisionRequested workflows remain in the clinical-review queue and
+        // must be reviewable again after the requested information is provided.
+        if (workflow is null || workflow.ApprovalStatus is not (TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested)) return null;
 
         var decision = request.Decision.Trim();
         if (decision is not (TriageApprovalStatuses.Approved or TriageApprovalStatuses.Rejected or TriageApprovalStatuses.RevisionRequested))
@@ -709,11 +711,11 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
     private static TriageGuidanceDto GetClinicalReviewGuidance() => new()
     {
         Heading = "Professional clinical review is required",
-        Summary = "A serious condition, treatment, or high-risk health context was reported. The available text is not enough to determine urgency safely.",
-        Actions = ["Contact the relevant care team or a qualified healthcare professional for assessment.", "Have current symptoms, treatment details, medicines, allergies, and measured vital signs available."],
-        SeekHelpIf = ["Seek emergency care immediately for severe breathing difficulty, severe chest pain, loss of consciousness, stroke signs, seizure, heavy bleeding, or another life-threatening emergency.", "During or soon after cancer treatment, promptly contact the treating team for fever, shivering, infection symptoms, unusual bleeding, or feeling very unwell."],
+        Summary = "A higher-risk health context was reported. A clinician should review the symptoms before this is treated as routine self-care.",
+        Actions = ["Contact the relevant care team or a qualified healthcare professional for assessment.", "Have your current symptoms, medicines, allergies, and any measured vital signs available."],
+        SeekHelpIf = ["Seek emergency care immediately for severe breathing difficulty, severe chest pain, loss of consciousness, stroke signs, seizure, heavy bleeding, or another life-threatening emergency."],
         FollowUpQuestions = GetHighRiskContextQuestions(),
-        EvidenceSource = "Safety-netting based on NHS chemotherapy and acute oncology guidance; this is not a diagnosis or personalized treatment plan."
+        EvidenceSource = "Controlled higher-risk-context safety template; this is not a diagnosis or personalized treatment plan."
     };
 
     private static TriageGuidanceDto GetClarificationGuidance() => new()

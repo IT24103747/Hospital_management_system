@@ -241,9 +241,15 @@ public sealed class HospitalAssistantService(
         }
         if (state.SafetyBlocked && (appointmentIntent || state.WantsAppointment || askingCancel))
         {
-            await InvalidateAsync(state, "BlockedByClinicalSafety", token);
-            Reply(state, "Appointment actions are paused for this conversation. Follow the safety guidance above. If clinical review is pending, use Refresh conversation to check its status; do not delay urgent care.", "WAITING_FOR_HUMAN_APPROVAL");
-            return;
+            // Re-evaluate persisted safety state. Conversations created before a
+            // clinical-review decision may carry an old cached SafetyBlocked value.
+            await CheckPatientSafetyAsync(patient.PatientId, state);
+            if (state.SafetyBlocked)
+            {
+                await InvalidateAsync(state, "BlockedByClinicalSafety", token);
+                Reply(state, "Appointment booking is paused because urgent safety guidance needs attention. Follow the guidance shown above and do not delay urgent care.", "WAITING_FOR_HUMAN_APPROVAL");
+                return;
+            }
         }
         if (state.Awaiting == "cancellation-reason")
         {
@@ -287,6 +293,15 @@ public sealed class HospitalAssistantService(
                 : $"Here are {state.Appointments.Count} of your appointments.", "COMPLETED", ["Your appointment records were retrieved from the hospital."]);
             return;
         }
+        // A patient declining a further search must never be interpreted as a
+        // doctor/specialty name (for example, "no need" used to become a search).
+        if (state.Awaiting == "preferences" && Has(text, @"^(no need|not needed|nothing else|no thanks|that's all|that is all)[.! ]*$"))
+        {
+            state.WantsAppointment = false;
+            state.Awaiting = null;
+            Reply(state, "No problem. I have not created an appointment. You can ask me to find a doctor whenever you are ready.", "COMPLETED");
+            return;
+        }
         if (appointmentIntent || state.Awaiting == "preferences" || state.WantsAppointment)
         {
             await InvalidateAsync(state, "Superseded", token);
@@ -299,8 +314,9 @@ public sealed class HospitalAssistantService(
                 Reply(state, "I can look for a separate appointment. Your current appointment will remain active unless you request and confirm its cancellation.", "GATHERING_INFORMATION");
             }
             if (query != null) state.SearchQuery = query;
-            else if (state.Awaiting == "preferences" && !Has(text, @"\b(today|tomorrow|next|morning|afternoon|evening|earliest|any|week)\b") && text.Length <= 100)
-                state.SearchQuery = text;
+            // Do not treat arbitrary conversational text as a specialty. Keep the
+            // existing valid preference until the patient supplies a recognised
+            // doctor/specialty or an explicit date/time preference.
             state.WantsAppointment = true;
             var error = ApplyDates(text, state, Today());
             if (error != null) { state.Awaiting = "preferences"; Reply(state, error, "GATHERING_INFORMATION"); return; }
@@ -314,6 +330,18 @@ public sealed class HospitalAssistantService(
     {
         state.State = "GATHERING_INFORMATION";
         state.Answers = [];
+        // Keep one active review per patient. Repeated messages/conversations must
+        // not flood clinicians with duplicate cases for the same unresolved issue.
+        var existingReview = (await workflows.GetHistoryForPatientAsync(patient.PatientId))
+            .FirstOrDefault(item => item.RequiresHumanReview &&
+                item.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested);
+        if (existingReview is not null)
+        {
+            state.WorkflowId = existingReview.WorkflowId;
+            ApplyWorkflow(state, existingReview);
+            ClinicalReply(state, existingReview);
+            return;
+        }
         var workflow = await workflows.StartForPatientAsync(patient.PatientId, new() { Symptoms = text });
         state.WorkflowId = workflow.WorkflowId;
         ApplyWorkflow(state, workflow);
@@ -323,10 +351,15 @@ public sealed class HospitalAssistantService(
     private static void ApplyWorkflow(AssistantState state, TriageWorkflowDto workflow)
     {
         var unsafeResult = workflow.TriageLevel is "Emergency" or "Urgent" || workflow.Status == TriageWorkflowStatuses.FailedSafely;
-        var needsReview = workflow.RequiresHumanReview && workflow.ApprovalStatus != TriageApprovalStatuses.Approved;
+        var needsReview = workflow.RequiresHumanReview &&
+            workflow.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested;
         // Emergency/urgent outcomes are never downgraded by a later conversational message.
         var alreadyUrgent = state.Clinical?.TriageLevel is "Emergency" or "Urgent" || state.Clinical?.FailedSafely == true;
-        state.SafetyBlocked = unsafeResult || alreadyUrgent || needsReview || workflow.Status == TriageWorkflowStatuses.PendingPatientInput;
+        // A clinical review requires staff approval after the patient's explicit slot
+        // selection; it must not prevent the patient from receiving a safe proposal.
+        // Only urgent/emergency, failed-safe, and missing-required-information states
+        // block normal appointment actions.
+        state.SafetyBlocked = unsafeResult || alreadyUrgent || workflow.Status == TriageWorkflowStatuses.PendingPatientInput;
         if (!alreadyUrgent)
             state.Clinical = new(workflow.TriageLevel, "Existing safety workflow", needsReview,
                 workflow.Status == TriageWorkflowStatuses.FailedSafely, [], workflow.RedFlags, workflow.UrgentFlags,
@@ -345,7 +378,7 @@ public sealed class HospitalAssistantService(
         parts.AddRange(guidance?.SeekHelpIf ?? []);
         if (state.Awaiting == "clinical-review") parts.Add("Clinical review is pending. You can refresh this conversation to check its status.");
         Reply(state, string.Join("\n\n", parts.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct()),
-            state.Questions.Count > 0 ? "GATHERING_INFORMATION" : state.SafetyBlocked ? "WAITING_FOR_HUMAN_APPROVAL" : "COMPLETED",
+            state.Questions.Count > 0 ? "GATHERING_INFORMATION" : state.SafetyBlocked || state.Awaiting == "clinical-review" ? "WAITING_FOR_HUMAN_APPROVAL" : "COMPLETED",
             ["The existing safety workflow checked your report.", "Guidance and any required clinical review were saved."]);
     }
 
@@ -354,7 +387,7 @@ public sealed class HospitalAssistantService(
         await CheckPatientSafetyAsync(patient.PatientId, state);
         if (state.SafetyBlocked)
         {
-            Reply(state, "Appointment booking is paused because your safety assessment needs attention. Follow your clinical guidance and refresh to check any pending review.", "WAITING_FOR_HUMAN_APPROVAL");
+            Reply(state, "Appointment booking is paused because urgent safety guidance needs attention. Follow the guidance shown above and do not delay urgent care.", "WAITING_FOR_HUMAN_APPROVAL");
             return;
         }
         if (string.IsNullOrWhiteSpace(state.SearchQuery))
@@ -400,8 +433,12 @@ public sealed class HospitalAssistantService(
     {
         // Opening a new conversation must not bypass an unresolved safety assessment.
         var history = await workflows.GetHistoryForPatientAsync(patientId);
-        var unresolved = history.FirstOrDefault(w => w.ApprovalStatus != TriageApprovalStatuses.Approved &&
-            (w.RequiresHumanReview || w.Status is TriageWorkflowStatuses.FailedSafely or TriageWorkflowStatuses.PendingPatientInput));
+        // Only genuinely open review states lock a future conversation. A rejected
+        // review is finalized; it must show its care-team guidance, but it must not
+        // permanently prevent the patient from starting an unrelated conversation.
+        var unresolved = history.FirstOrDefault(w =>
+            w.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested ||
+            w.Status is TriageWorkflowStatuses.FailedSafely or TriageWorkflowStatuses.PendingPatientInput);
         if (unresolved == null) return;
         if (state.WorkflowId != unresolved.WorkflowId) state.Answers = [];
         state.WorkflowId = unresolved.WorkflowId;
