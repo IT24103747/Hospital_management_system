@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
 import 'package:smartcare_mobile/models/appointment.dart';
+import 'package:smartcare_mobile/models/doctor.dart';
 import 'package:smartcare_mobile/models/medical_record.dart';
 import 'package:smartcare_mobile/models/patient.dart';
 import 'package:smartcare_mobile/models/triage_workflow.dart';
@@ -81,6 +82,38 @@ class ApiService {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
     throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<List<DoctorSearchResult>> searchDoctors(
+      {String query = '', int limit = 20}) async {
+    final uri = Uri.parse('$baseUrl/patient/doctors').replace(
+      queryParameters: {
+        if (query.trim().isNotEmpty) 'query': query.trim(),
+        'limit': limit.clamp(1, 50).toString(),
+      },
+    );
+    final response = await _client.get(uri, headers: await _authHeaders());
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessage(response.body));
+    }
+
+    final body = jsonDecode(response.body) as List<dynamic>;
+    return body
+        .map(
+            (item) => DoctorSearchResult.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<DoctorPublicProfile> getDoctorProfile(int doctorId) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/patient/doctors/$doctorId'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessage(response.body));
+    }
+    return DoctorPublicProfile.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   static Future<void> register(Map<String, dynamic> patient) async {

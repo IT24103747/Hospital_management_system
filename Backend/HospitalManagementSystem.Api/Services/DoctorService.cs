@@ -113,6 +113,55 @@ public partial class DoctorService : IDoctorService
         return Map(doctor);
     }
 
+    public async Task<IReadOnlyList<DoctorSearchResultDto>> SearchApprovedDoctorsAsync(string? query, int limit = 20)
+    {
+        var term = query?.Trim() ?? string.Empty;
+        if (term.Length > 100)
+            throw new ArgumentException("Search text cannot exceed 100 characters.");
+
+        var take = Math.Clamp(limit, 1, 50);
+        var doctors = _db.Doctors
+            .AsNoTracking()
+            .Where(doctor => doctor.RegistrationStatus == DoctorRegistrationStatuses.Approved);
+
+        if (term.Length > 0)
+        {
+            var normalizedTerm = term.ToLower();
+            doctors = doctors.Where(doctor =>
+                doctor.FirstName.ToLower().Contains(normalizedTerm) ||
+                doctor.LastName.ToLower().Contains(normalizedTerm) ||
+                (doctor.FirstName + " " + doctor.LastName).ToLower().Contains(normalizedTerm) ||
+                doctor.Specialization.ToLower().Contains(normalizedTerm));
+        }
+
+        return await doctors
+            .OrderBy(doctor => doctor.FirstName)
+            .ThenBy(doctor => doctor.LastName)
+            .Take(take)
+            .Select(doctor => new DoctorSearchResultDto
+            {
+                DoctorId = doctor.DoctorId,
+                FullName = doctor.FirstName + " " + doctor.LastName,
+                Specialization = doctor.Specialization
+            })
+            .ToListAsync();
+    }
+
+    public Task<DoctorPublicProfileDto?> GetApprovedDoctorProfileAsync(int doctorId) =>
+        _db.Doctors
+            .AsNoTracking()
+            .Where(doctor => doctor.DoctorId == doctorId &&
+                             doctor.RegistrationStatus == DoctorRegistrationStatuses.Approved)
+            .Select(doctor => new DoctorPublicProfileDto
+            {
+                DoctorId = doctor.DoctorId,
+                FullName = doctor.FirstName + " " + doctor.LastName,
+                Email = doctor.User.Email,
+                SlmcLicenseNumber = doctor.SlmcLicenseNumber,
+                Specialization = doctor.Specialization
+            })
+            .SingleOrDefaultAsync();
+
     private static string NormalizeStatus(string status)
     {
         var value = status.Trim();

@@ -10,4 +10,6 @@ public interface IDoctorService
     Task<DoctorDto?> ReviewAsync(int doctorId, int adminUserId, bool approve, string? declineReason);
     Task<DoctorDto?> GetByUserIdAsync(int userId);
     Task<DoctorDto?> UpdateProfileAsync(int userId, UpdateDoctorProfileDto dto);
+    Task<IReadOnlyList<DoctorSearchResultDto>> SearchApprovedDoctorsAsync(string? query, int limit = 20);
+    Task<DoctorPublicProfileDto?> GetApprovedDoctorProfileAsync(int doctorId);
 }
