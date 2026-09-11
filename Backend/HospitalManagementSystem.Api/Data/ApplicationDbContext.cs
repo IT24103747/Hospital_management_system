@@ -13,6 +13,7 @@ namespace HospitalManagementSystem.Api.Data
         public DbSet<DoctorTimeSlot> DoctorTimeSlots => Set<DoctorTimeSlot>();
         public DbSet<Appointment> Appointments => Set<Appointment>();
         public DbSet<AppointmentProposal> AppointmentProposals => Set<AppointmentProposal>();
+        public DbSet<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.AssistantConversation> AssistantConversations => Set<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.AssistantConversation>();
         public DbSet<PatientCareAssessment> PatientCareAssessments => Set<PatientCareAssessment>();
         public DbSet<AppointmentNotification> AppointmentNotifications => Set<AppointmentNotification>();
         public DbSet<Doctor> Doctors => Set<Doctor>();
@@ -25,6 +26,13 @@ namespace HospitalManagementSystem.Api.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            modelBuilder.Entity<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.AssistantConversation>(entity =>
+            {
+                entity.HasKey(x => x.AssistantConversationId);
+                entity.Property(x => x.Title).HasMaxLength(120);
+                entity.HasIndex(x => new { x.PatientId, x.InitialRequestId }).IsUnique();
+                entity.HasOne<Patient>().WithMany().HasForeignKey(x => x.PatientId).OnDelete(DeleteBehavior.Restrict);
+            });
 
             modelBuilder.Entity<MedicalRecord>(entity =>
             {

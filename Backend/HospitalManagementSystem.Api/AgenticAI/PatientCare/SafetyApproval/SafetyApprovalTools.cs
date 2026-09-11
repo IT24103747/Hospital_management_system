@@ -26,7 +26,14 @@ public sealed class SafetyApprovalTools(ApplicationDbContext db, IAppointmentAge
         var selected = candidates.SingleOrDefault(s => s.DoctorTimeSlotId == slotId);
         if (selected is null) return null;
         var fresh = await appointmentTools.FindSlotsAsync(new AgentDoctor($"D{selected.DoctorId}", selected.DoctorId, selected.DoctorName, selected.Specialty), DateOnly.FromDateTime(selected.StartAt.DateTime));
-        return fresh.SingleOrDefault(s => s.DoctorTimeSlotId == slotId);
+        var current = fresh.SingleOrDefault(s => s.DoctorTimeSlotId == slotId);
+        // A patient approves these session details, not just an ID. The queue number
+        // and remaining capacity may change before booking; the session itself may not.
+        return current != null && current.DoctorId == selected.DoctorId &&
+            current.DoctorName == selected.DoctorName && current.Specialty == selected.Specialty &&
+            current.StartAt == selected.StartAt && current.EndAt == selected.EndAt &&
+            current.ConsultationFee == selected.ConsultationFee && current.Location == selected.Location
+                ? current : null;
     }
     public Task<AgentBooking> FinalizeBookingAsync(AgentSlot slot, PatientDto patient, CancellationToken token) => appointmentTools.BookAsync(slot, patient);
     public Task SaveAsync(CancellationToken token) => db.SaveChangesAsync(token);

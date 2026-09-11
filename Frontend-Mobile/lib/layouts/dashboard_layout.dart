@@ -9,7 +9,7 @@ import 'package:smartcare_mobile/core/widgets/medicore_logo.dart';
 import 'package:smartcare_mobile/features/auth/screens/login_screen.dart';
 import 'package:smartcare_mobile/features/doctors/screens/doctor_search_screen.dart';
 import 'package:smartcare_mobile/features/profile/screens/profile_screen.dart';
-import 'package:smartcare_mobile/features/triage/screens/ai_triage_screen.dart';
+import 'package:smartcare_mobile/features/assistant/screens/hospital_assistant_screen.dart';
 import 'package:smartcare_mobile/models/appointment.dart';
 import 'package:smartcare_mobile/models/doctor.dart';
 import 'package:smartcare_mobile/models/patient.dart';
@@ -91,6 +91,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         return _PatientSection.doctors;
       case 'Medical Records':
         return _PatientSection.records;
+      case 'Hospital AI Assistant':
       case 'AI Health Assistant':
       case 'AI Smart Triage':
         return _PatientSection.assistant;
@@ -111,7 +112,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _PatientSection.appointments => 'Appointments',
         _PatientSection.doctors => 'Doctors',
         _PatientSection.records => 'Medical Records',
-        _PatientSection.assistant => 'AI Health Assistant',
+        _PatientSection.assistant => 'Hospital AI Assistant',
         _PatientSection.notifications => 'Notifications',
         _PatientSection.settings => 'Settings',
         _PatientSection.support => 'Help & Support',
@@ -125,7 +126,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _PatientSection.doctors => 'Find specialists and available schedules',
         _PatientSection.records => 'History, reports, prescriptions, and notes',
         _PatientSection.assistant =>
-          'Simple explanations and guided health questions',
+          'Patient guidance and appointment assistance',
         _PatientSection.notifications =>
           'Hospital updates and appointment reminders',
         _PatientSection.settings => 'Account, privacy, language, and security',
@@ -138,6 +139,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
             nextAppointmentText: _nextAppointmentText,
             onBookAppointment: () => _openAppointments('book'),
             onViewAppointments: () => _openAppointments('upcoming'),
+            onOpenAssistant: () => _selectSection(_PatientSection.assistant),
           ),
         _PatientSection.profile => const ProfileScreen(),
         _PatientSection.appointments => _AppointmentsSection(
@@ -150,7 +152,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
             onBookAppointment: _openDoctorBooking,
           ),
         _PatientSection.records => const _MedicalRecordsSection(),
-        _PatientSection.assistant => const AiTriageScreen(embedded: true),
+        _PatientSection.assistant => const HospitalAssistantScreen(embedded: true),
         _PatientSection.notifications => const _NotificationsSection(),
         _PatientSection.settings => const _SettingsSection(),
         _PatientSection.support => const _SupportSection(),
@@ -404,7 +406,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
                       _PatientSection.doctors),
                   _navItem(Icons.folder_copy_outlined, 'Medical Records',
                       _PatientSection.records),
-                  _navItem(Icons.psychology_alt_outlined, 'AI Health Assistant',
+                  _navItem(Icons.psychology_alt_outlined, 'Hospital AI Assistant',
                       _PatientSection.assistant),
                   const SizedBox(height: 12),
                   _sectionLabel('Account'),
@@ -609,12 +611,14 @@ class _HomeSection extends StatelessWidget {
   final String nextAppointmentText;
   final VoidCallback onBookAppointment;
   final VoidCallback onViewAppointments;
+  final VoidCallback onOpenAssistant;
 
   const _HomeSection({
     required this.userName,
     required this.nextAppointmentText,
     required this.onBookAppointment,
     required this.onViewAppointments,
+    required this.onOpenAssistant,
   });
 
   @override
@@ -638,19 +642,19 @@ class _HomeSection extends StatelessWidget {
         const SizedBox(height: 16),
         const _SectionTitle('Today'),
         const SizedBox(height: 12),
-        const _FeatureGrid(
+        _FeatureGrid(
           tiles: [
-            _FeatureTileData(
+            const _FeatureTileData(
                 Icons.medical_information_outlined,
                 'Doctor information',
                 'Cardiology consultation',
                 AppColors.primary),
-            _FeatureTileData(Icons.description_outlined, 'Recent report',
+            const _FeatureTileData(Icons.description_outlined, 'Recent report',
                 'Blood test uploaded', AppColors.success),
-            _FeatureTileData(Icons.notifications_active_outlined,
+            const _FeatureTileData(Icons.notifications_active_outlined,
                 'Notifications', '3 new updates', AppColors.warning),
-            _FeatureTileData(Icons.psychology_alt_outlined, 'AI Assistant',
-                'Ask about reports', AppColors.accent),
+            _FeatureTileData(Icons.psychology_alt_outlined, 'Hospital AI Assistant',
+                'Care and appointments', AppColors.accent, onTap: onOpenAssistant),
           ],
         ),
         const SizedBox(height: 16),
@@ -2275,8 +2279,9 @@ class _FeatureTileData {
   final String title;
   final String subtitle;
   final Color color;
+  final VoidCallback? onTap;
 
-  const _FeatureTileData(this.icon, this.title, this.subtitle, this.color);
+  const _FeatureTileData(this.icon, this.title, this.subtitle, this.color, {this.onTap});
 }
 
 class _FeatureGrid extends StatelessWidget {
@@ -2293,7 +2298,11 @@ class _FeatureGrid extends StatelessWidget {
       crossAxisSpacing: 12,
       mainAxisSpacing: 12,
       childAspectRatio: 1.06,
-      children: tiles.map((tile) => _FeatureTile(tile: tile)).toList(),
+      children: tiles.map((tile) => InkWell(
+        onTap: tile.onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: _FeatureTile(tile: tile),
+      )).toList(),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartcare_mobile/core/constants/app_colors.dart';
 import 'package:smartcare_mobile/features/medical_records/screens/medical_records_screen.dart';
+import 'package:smartcare_mobile/features/assistant/screens/hospital_assistant_screen.dart';
 
 class PatientHomeScreen extends StatefulWidget {
   const PatientHomeScreen({super.key});
@@ -147,11 +148,13 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
                   value: '3 new updates',
                   tone: Color(0xFFD97706),
                 ),
-                const _QuickTile(
+                _QuickTile(
                   icon: Icons.psychology_alt_outlined,
-                  title: 'AI Assistant',
-                  value: 'Ask about reports',
-                  tone: Color(0xFF4F46E5),
+                  title: 'Hospital AI Assistant',
+                  value: 'Care and appointments',
+                  tone: const Color(0xFF4F46E5),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => const HospitalAssistantScreen())),
                 ),
                 const _QuickTile(
                   icon: Icons.health_and_safety_outlined,

@@ -7,6 +7,7 @@ import 'package:smartcare_mobile/models/doctor.dart';
 import 'package:smartcare_mobile/models/medical_record.dart';
 import 'package:smartcare_mobile/models/patient.dart';
 import 'package:smartcare_mobile/models/triage_workflow.dart';
+import 'package:smartcare_mobile/models/hospital_assistant.dart';
 
 class ApiService {
   // Android emulators use 10.0.2.2 to reach the development machine.
@@ -342,21 +343,6 @@ class ApiService {
     throw Exception(_errorMessage(response.body));
   }
 
-  static Future<Appointment> rescheduleAppointment({
-    required int appointmentId,
-    required int doctorTimeSlotId,
-  }) async {
-    final response = await _client.post(
-      Uri.parse('$baseUrl/appointment/$appointmentId/reschedule'),
-      headers: await _authHeaders(),
-      body: jsonEncode({'doctorTimeSlotId': doctorTimeSlotId}),
-    );
-    if (response.statusCode == 200) {
-      return Appointment.fromJson(jsonDecode(response.body));
-    }
-    throw Exception(_errorMessage(response.body));
-  }
-
   static Future<Appointment> cancelAppointment({
     required int appointmentId,
     required String reason,
@@ -433,7 +419,88 @@ class ApiService {
     throw Exception(_errorMessage(response.body));
   }
 
-  // ---------- Patient Care Agent Workflow ----------
+  // ---------- Shared Hospital AI Assistant ----------
+
+  static Future<List<AssistantCapability>> getAssistantCapabilities() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/hospital-assistant/capabilities'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessage(response.body));
+    }
+    return assistantObjects(jsonDecode(response.body))
+        .map(AssistantCapability.fromJson).toList();
+  }
+
+  static Future<List<AssistantJson>> getAssistantHistory() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/hospital-assistant/conversations'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessage(response.body));
+    }
+    return assistantObjects(jsonDecode(response.body));
+  }
+
+  static Future<AssistantConversation> getAssistantConversation(String id) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/hospital-assistant/conversations/${Uri.encodeComponent(id)}'),
+      headers: await _authHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessage(response.body));
+    }
+    return AssistantConversation.fromJson(jsonDecode(response.body));
+  }
+
+  static Future<AssistantConversation> sendAssistantMessage({
+    String? conversationId,
+    required String message,
+    required String requestId,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/hospital-assistant/messages'),
+      headers: await _authHeaders(),
+      body: jsonEncode({
+        if (conversationId != null) 'conversationId': conversationId,
+        'message': message,
+        'requestId': requestId,
+      }),
+    ).timeout(const Duration(seconds: 180));
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception(_errorMessage(response.body));
+    }
+    return AssistantConversation.fromJson(jsonDecode(response.body));
+  }
+
+  static Future<AssistantConversation> decideAssistantAction({
+    required String conversationId,
+    required String actionId,
+    required String decision,
+    required String requestId,
+    int? doctorTimeSlotId,
+    int? appointmentId,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/hospital-assistant/conversations/${Uri.encodeComponent(conversationId)}/actions'),
+      headers: await _authHeaders(),
+      body: jsonEncode({
+        'actionId': actionId,
+        'decision': decision,
+        'requestId': requestId,
+        if (doctorTimeSlotId != null) 'doctorTimeSlotId': doctorTimeSlotId,
+        if (appointmentId != null) 'appointmentId': appointmentId,
+      }),
+    ).timeout(const Duration(seconds: 90));
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessage(response.body));
+    }
+    return AssistantConversation.fromJson(jsonDecode(response.body));
+  }
+
+  // ---------- Legacy Patient Care APIs (retained for compatibility) ----------
 
   static Future<Map<String, dynamic>> createTriageAppointmentProposal({
     required String symptoms,
