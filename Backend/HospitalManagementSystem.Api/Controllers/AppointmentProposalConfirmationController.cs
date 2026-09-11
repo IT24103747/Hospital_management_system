@@ -25,9 +25,14 @@ public sealed class AppointmentProposalConfirmationController(ISafetyValidationA
         if (db.Database.IsNpgsql())
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(1396916552, {patient.PatientId})", cancellationToken);
         var history = await workflows.GetHistoryForPatientAsync(patient.PatientId);
-        if (history.Any(w => w.ApprovalStatus != TriageApprovalStatuses.Approved &&
-            (w.RequiresHumanReview || w.Status is TriageWorkflowStatuses.FailedSafely or TriageWorkflowStatuses.PendingPatientInput)))
-            return Ok(new SafetyApprovalResult("Rejected", true, "Complete the safety assessment or required clinical review before confirming an appointment."));
+        // ClinicalReview is deliberately allowed here: the proposal agent records it
+        // as PendingClinicalApproval after the patient explicitly selects a slot.
+        // Urgent/emergency and incomplete assessments still block normal booking.
+        if (history.Any(w =>
+            (w.TriageLevel is TriageLevels.Emergency or TriageLevels.Urgent &&
+             w.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested) ||
+            w.Status is TriageWorkflowStatuses.FailedSafely or TriageWorkflowStatuses.PendingPatientInput))
+            return Ok(new SafetyApprovalResult("Rejected", true, "Complete the urgent safety assessment before confirming an appointment."));
         var result = await agent.ConfirmAsync(new(proposalId, request.DoctorTimeSlotId), patient, cancellationToken);
         if (transaction != null) await transaction.CommitAsync(cancellationToken);
         return Ok(result);
