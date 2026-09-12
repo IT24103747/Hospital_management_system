@@ -15,6 +15,55 @@ void main() {
     SecureTokenStorage.resetTokenForTesting();
   });
 
+  testWidgets('patient sees saved schedule changes in notifications', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    SecureTokenStorage.setTokenForTesting('patient-token');
+    ApiService.setHttpClientForTesting(MockClient((request) async {
+      if (request.url.path == '/api/appointment/notifications') {
+        expect(request.headers['Authorization'], 'Bearer patient-token');
+        return jsonResponse([{
+          'message': 'Your appointment time has changed to 11:00 AM.',
+          'createdAt': '2026-09-07T08:00:00Z',
+        }]);
+      }
+      return jsonResponse({'data': []});
+    }));
+    await tester.pumpWidget(const MaterialApp(home: DashboardLayout(title: 'Notifications')));
+    await tester.pumpAndSettle();
+    expect(find.text('Appointment Updated'), findsOneWidget);
+    expect(find.text('Your appointment time has changed to 11:00 AM.'), findsOneWidget);
+    expect(find.text('Your cardiology visit has been confirmed.'), findsNothing);
+  });
+
+  testWidgets('doctor Book opens the form with that doctor preselected',
+      (tester) async {
+    final requests = <http.Request>[];
+    await pumpAppointmentsDashboard(tester, requests: requests, title: 'Doctors');
+    await tester.tap(find.text('Book').first);
+    await tester.pumpAndSettle();
+
+    final fields = tester.widgetList<DropdownButtonFormField<String>>(
+      find.byType(DropdownButtonFormField<String>)).toList();
+    expect(fields[0].initialValue, 'Cardiology');
+    expect(fields[1].initialValue, 'Dr. Ada Lovelace');
+    expect(find.text('Appointment date'), findsOneWidget);
+    expect(find.text('Select appointment no'), findsNothing);
+    expect(requests.any((request) => request.method == 'POST'), isFalse);
+
+    await selectBookingSession(tester);
+    expect(find.text('Next available appointment number'), findsOneWidget);
+    expect(find.text('This number may change if someone books before you confirm.'), findsOneWidget);
+    await tester.ensureVisible(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    final booking = requests.singleWhere((request) =>
+        request.method == 'POST' && request.url.path == '/api/appointment');
+    expect(jsonDecode(booking.body)['doctorTimeSlotId'], 11);
+    expect((jsonDecode(booking.body) as Map).containsKey('appointmentNumber'), isFalse);
+    expect(find.text('Appointment booked successfully.'), findsOneWidget);
+  });
+
   testWidgets('patient can complete the appointment booking form',
       (tester) async {
     final requests = <http.Request>[];
@@ -24,11 +73,9 @@ void main() {
     await tester.pumpAndSettle();
     await selectDropdownValue(tester, 0, 'Cardiology');
     await selectDropdownValue(tester, 1, 'Dr. Ada Lovelace');
-    await tester.tap(find.text('Select appointment no'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('#1').last);
-    await tester.pumpAndSettle();
+    await selectBookingSession(tester);
     await tester.ensureVisible(find.text('Confirm'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
 
@@ -59,10 +106,11 @@ void main() {
     await pumpAppointmentsDashboard(tester, requests: requests);
 
     await tester.ensureVisible(find.text('Cancel'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Cancel').first);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).last, 'Patient unavailable');
-    await tester.tap(find.text('Cancel appointment'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Cancel appointment'));
     await tester.pumpAndSettle();
 
     expect(
@@ -75,26 +123,13 @@ void main() {
     expect(find.text('Appointment cancelled.'), findsOneWidget);
   });
 
-  testWidgets('patient can reschedule by picking another slot', (tester) async {
-    final requests = <http.Request>[];
-    await pumpAppointmentsDashboard(tester, requests: requests);
-
-    await tester.ensureVisible(find.text('Reschedule'));
-    await tester.tap(find.text('Reschedule').first);
-    await tester.pumpAndSettle();
-    expect(find.text('Reschedule appointment'), findsOneWidget);
-
-    await tester.tap(find.text('Dr. Alan Turing').last);
-    await tester.pumpAndSettle();
-
-    expect(
-      requests.any((request) =>
-          request.method == 'POST' &&
-          request.url.path == '/api/appointment/10/reschedule' &&
-          request.body.contains('"doctorTimeSlotId":12')),
-      isTrue,
-    );
-    expect(find.text('Appointment rescheduled.'), findsOneWidget);
+  testWidgets('appointment card shows session time and cancellation only', (tester) async {
+    await pumpAppointmentsDashboard(tester);
+    expect(find.text('Appointment time'), findsWidgets);
+    expect(find.text('Estimated time'), findsNothing);
+    expect(find.text('Reschedule'), findsNothing);
+    expect(find.text('Upcoming'), findsNothing);
+    expect(find.text('Cancel'), findsWidgets);
   });
 
   testWidgets('appointment API failures show a retryable error state',
@@ -102,7 +137,7 @@ void main() {
     await pumpAppointmentsDashboard(tester, failAppointments: true);
 
     expect(find.text('Unable to load appointments.'), findsOneWidget);
-    expect(find.text('Try again'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
   });
 }
 
@@ -110,6 +145,7 @@ Future<void> pumpAppointmentsDashboard(
   WidgetTester tester, {
   List<http.Request>? requests,
   bool failAppointments = false,
+  String title = 'Appointments',
 }) async {
   SharedPreferences.setMockInitialValues({
     'patient_full_name': 'Amal Perera',
@@ -174,9 +210,27 @@ Future<void> pumpAppointmentsDashboard(
     return jsonResponse({'message': 'Not found'}, 404);
   }));
 
-  await tester.pumpWidget(const MaterialApp(
-    home: DashboardLayout(title: 'Appointments'),
+  await tester.pumpWidget(MaterialApp(
+    home: DashboardLayout(title: title),
   ));
+  await tester.pumpAndSettle();
+}
+
+Future<void> selectBookingSession(WidgetTester tester) async {
+  final dateField = find.byType(DropdownButtonFormField<String>).at(2);
+  await tester.ensureVisible(dateField);
+  await tester.tap(dateField);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Sep 10, 2026').last);
+  await tester.pumpAndSettle();
+  final sessionField = find.byType(DropdownButtonFormField<int>);
+  final field = tester.widget<DropdownButton<int>>(find.descendant(
+    of: sessionField, matching: find.byType(DropdownButton<int>)));
+  final label = (field.items!.first.child as Text).data!;
+  await tester.ensureVisible(sessionField);
+  await tester.tap(sessionField);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).last);
   await tester.pumpAndSettle();
 }
 
@@ -213,7 +267,6 @@ List<Map<String, dynamic>> appointmentJson() => [
         'doctorId': 1,
         'patientId': 1,
         'appointmentNumber': 1,
-        'estimatedStartAt': '2026-09-10T08:00:00Z',
         'patientName': 'Amal Perera',
         'patientPhone': '0771234567',
         'patientEmail': 'amal.perera@email.com',
@@ -240,7 +293,6 @@ List<Map<String, dynamic>> appointmentJson() => [
         'doctorId': 3,
         'patientId': 1,
         'appointmentNumber': 2,
-        'estimatedStartAt': '2026-08-01T08:30:00Z',
         'patientName': 'Amal Perera',
         'patientPhone': '0771234567',
         'patientEmail': 'amal.perera@email.com',
@@ -279,7 +331,6 @@ List<Map<String, dynamic>> slotJson() => [
         'bookedCount': 0,
         'bookedAppointmentNumbers': [],
         'nextAppointmentNumber': 1,
-        'nextEstimatedStartAt': '2026-09-10T08:00:00Z',
         'isActive': true,
         'consultationFee': 4500,
       },
@@ -298,7 +349,6 @@ List<Map<String, dynamic>> slotJson() => [
         'bookedCount': 0,
         'bookedAppointmentNumbers': [],
         'nextAppointmentNumber': 1,
-        'nextEstimatedStartAt': '2026-09-11T08:00:00Z',
         'isActive': true,
         'consultationFee': 4500,
       },

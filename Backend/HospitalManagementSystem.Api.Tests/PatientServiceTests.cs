@@ -78,7 +78,7 @@ public class PatientServiceTests
         [
             new Appointment
             {
-                AppointmentId = 9, PatientId = 1, EstimatedStartAt = new DateTime(2026, 8, 8, 9, 0, 0),
+                AppointmentId = 9, PatientId = 1,
                 AppointmentType = "Consultation", Reason = "Checkup", Status = "Confirmed",
                 DoctorTimeSlot = new DoctorTimeSlot { DoctorName = "Dr. Perera", Specialty = "Cardiology" }
             }

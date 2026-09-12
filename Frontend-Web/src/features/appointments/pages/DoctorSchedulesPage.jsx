@@ -76,9 +76,6 @@ export default function DoctorSchedulesPage() {
     const consultationFee = Number(form.consultationFee)
     if (!Number.isFinite(consultationFee) || consultationFee <= 0 || consultationFee > 1000000) return setError('Enter a valid consulting fee between LKR 0.01 and LKR 1,000,000.00.')
     if (!/^\d+(?:\.\d{1,2})?$/.test(String(form.consultationFee))) return setError('Consulting fee can contain a maximum of two decimal places.')
-    const selectedRoom = rooms.find(room => String(room.roomId) === String(form.roomId))
-    const action = editingId ? 'Update' : 'Create'
-    if (!window.confirm(`${action} appointment schedule?\n\nDate: ${form.appointmentDate}\nTime: ${form.startTime} - ${form.endTime}\nRoom: ${selectedRoom?.roomNumber || ''}\nCapacity: ${form.capacity} patients\nConsulting Fee: LKR ${consultationFee.toFixed(2)}`)) return
     const payload = { roomId: Number(form.roomId), startAt: combineDateAndTime(form.appointmentDate, form.startTime), endAt: combineDateAndTime(form.appointmentDate, form.endTime), capacity: Number(form.capacity), consultationFee }
     setSaving(true)
     try {
@@ -129,7 +126,11 @@ export default function DoctorSchedulesPage() {
     {loading ? <p>Loading schedules...</p> : schedules.length === 0 ? <div className="doctor-empty">You have no appointment schedules.</div> : <div className="room-grid">{schedules.map(schedule=><article className="room-card glass-card" key={schedule.doctorTimeSlotId}>
       <div className="room-card__heading"><DoorOpen/><div><h3>{schedule.roomNumber}</h3><p>{schedule.roomName} · {schedule.floor}</p></div><span className={`room-status room-status--${schedule.isActive?'available':'booked'}`}>{schedule.isActive?'Active':'Cancelled'}</span></div>
       <p><strong>Date:</strong> {new Date(schedule.startAt).toLocaleDateString()}</p><p><strong>Time:</strong> {new Date(schedule.startAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} – {new Date(schedule.endAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</p><p><strong>Appointments:</strong> {schedule.bookedCount}/{schedule.capacity}</p><p><strong>Consulting Fee:</strong> LKR {Number(schedule.consultationFee).toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2})}</p>
-      {schedule.hasPatientBookings ? <p className="schedule-locked">This schedule cannot be edited, cancelled, or deleted because patients have booked it.</p> : <div className="schedule-actions">{schedule.isActive && <><Button variant="outline" size="sm" icon={Edit3} onClick={()=>beginEdit(schedule)}>Edit</Button><Button variant="danger" size="sm" icon={XCircle} onClick={()=>cancel(schedule)}>Cancel</Button></>}<Button variant="danger" size="sm" icon={Trash2} onClick={()=>remove(schedule)}>Delete</Button></div>}
+      <div className="schedule-actions">
+        {schedule.isActive && new Date(schedule.endAt).getTime() > Date.now() && <Button variant="outline" size="sm" icon={Edit3} onClick={()=>beginEdit(schedule)}>Edit</Button>}
+        {!schedule.hasPatientBookings && <>{schedule.isActive && <Button variant="danger" size="sm" icon={XCircle} onClick={()=>cancel(schedule)}>Cancel</Button>}<Button variant="danger" size="sm" icon={Trash2} onClick={()=>remove(schedule)}>Delete</Button></>}
+      </div>
+      {schedule.hasPatientBookings && <p className="schedule-locked">Schedule changes notify booked patients. Booked schedules cannot be cancelled or deleted.</p>}
     </article>)}</div>}
   </div>
 }

@@ -11,6 +11,7 @@ import {
   ShieldAlert,
   Building2,
   CalendarPlus,
+  ClipboardList,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
@@ -18,10 +19,11 @@ import './Sidebar.css'
 import { useAuth } from '../features/auth/AuthContext'
 
 const NAV_ITEMS = [
-  { label: 'Dashboard',    icon: LayoutDashboard, to: '/dashboard' },
-  { label: 'Patients',     icon: Users,           to: '/patients' },
-  { label: 'Doctors',      icon: Stethoscope,     to: '/doctors' },
-  { label: 'Appointments', icon: Calendar,        to: '/appointments' },
+  { label: 'Dashboard',       icon: LayoutDashboard, to: '/dashboard' },
+  { label: 'Patients',        icon: Users,           to: '/patients' },
+  { label: 'Doctors',         icon: Stethoscope,     to: '/doctors' },
+  { label: 'Appointments',    icon: Calendar,        to: '/appointments' },
+  { label: 'Medical Records', icon: ClipboardList,   to: '/medical-records' },
 ]
 
 const BOTTOM_ITEMS = [
@@ -32,7 +34,13 @@ const BOTTOM_ITEMS = [
 export default function Sidebar({ collapsed, onToggle }) {
   const { user, signOut } = useAuth()
   const navItems = user?.role === 'Doctor'
-    ? [{ label: 'Dashboard', icon: LayoutDashboard, to: '/doctor/dashboard' }, { label: 'Appointment Schedules', icon: CalendarPlus, to: '/doctor/schedules' }, { label: 'Triage Review', icon: ShieldAlert, to: '/doctor/triage-review' }, { label: 'View Profile', icon: UserRound, to: '/doctor/profile' }]
+    ? [
+        { label: 'Dashboard',             icon: LayoutDashboard, to: '/doctor/dashboard' },
+        { label: 'Medical Records',       icon: ClipboardList,   to: '/doctor/medical-records' },
+        { label: 'Appointment Schedules', icon: CalendarPlus,    to: '/doctor/schedules' },
+        { label: 'Triage Review',         icon: ShieldAlert,     to: '/doctor/triage-review' },
+        { label: 'View Profile',          icon: UserRound,       to: '/doctor/profile' },
+      ]
     : [...NAV_ITEMS, { label: 'Available Rooms', icon: Building2, to: '/admin/rooms' }, { label: 'Triage Review', icon: ShieldAlert, to: '/triage/review' }]
   const bottomItems = user?.role === 'Doctor' ? [] : BOTTOM_ITEMS.filter(item => item.label !== 'Logout')
   return (

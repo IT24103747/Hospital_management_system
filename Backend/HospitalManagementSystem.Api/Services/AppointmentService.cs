@@ -41,22 +41,17 @@ namespace HospitalManagementSystem.Api.Services
 
         public async Task<AppointmentDto> CreateAppointmentAsync(CreateAppointmentDto dto)
         {
-            var slot = await GetActiveSlotAsync(dto.DoctorTimeSlotId);
-            var bookedNumbers = (await _repository.GetBookedAppointmentNumbersAsync(slot.DoctorTimeSlotId)).ToHashSet();
-            var appointmentNumber = ResolveAppointmentNumber(dto.AppointmentNumber, slot.Capacity, bookedNumbers);
+            await GetActiveSlotAsync(dto.DoctorTimeSlotId);
 
             var appointment = new Appointment
             {
                 DoctorTimeSlotId = dto.DoctorTimeSlotId,
                 PatientId = dto.PatientId,
-                AppointmentNumber = appointmentNumber,
-                EstimatedStartAt = GetEstimatedStartAt(slot, appointmentNumber),
                 PatientName = dto.PatientName.Trim(),
                 PatientPhone = dto.PatientPhone.Trim(),
                 PatientEmail = dto.PatientEmail?.Trim().ToLower(),
                 AppointmentType = dto.AppointmentType.Trim(),
-                Reason = NormalizeAppointmentReason(dto.Reason),
-                Notes = dto.Notes?.Trim(),
+                Reason = string.Empty,
                 Status = "Confirmed",
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -77,28 +72,6 @@ namespace HospitalManagementSystem.Api.Services
             return slot;
         }
 
-        private static int ResolveAppointmentNumber(int? requestedNumber, int capacity, HashSet<int> bookedNumbers)
-        {
-            if (requestedNumber.HasValue)
-            {
-                if (requestedNumber.Value < 1 || requestedNumber.Value > capacity)
-                    throw new InvalidOperationException("Appointment number is out of range for this slot.");
-
-                if (bookedNumbers.Contains(requestedNumber.Value))
-                    throw new InvalidOperationException("Selected appointment number is already booked.");
-
-                return requestedNumber.Value;
-            }
-
-            for (var number = 1; number <= capacity; number++)
-            {
-                if (!bookedNumbers.Contains(number))
-                    return number;
-            }
-
-            throw new InvalidOperationException("Selected doctor time slot is fully booked.");
-        }
-
         public async Task<AppointmentDto?> UpdateAppointmentAsync(int id, UpdateAppointmentDto dto)
         {
             if (!ValidStatuses.Contains(dto.Status))
@@ -112,7 +85,6 @@ namespace HospitalManagementSystem.Api.Services
                 var slot = await ValidateSlotCapacityAsync(dto.DoctorTimeSlotId, id);
                 var appointmentNumber = await GetNextAppointmentNumberAsync(slot, id);
                 appointment.AppointmentNumber = appointmentNumber;
-                appointment.EstimatedStartAt = GetEstimatedStartAt(slot, appointmentNumber);
             }
 
             appointment.DoctorTimeSlotId = dto.DoctorTimeSlotId;
@@ -121,34 +93,8 @@ namespace HospitalManagementSystem.Api.Services
             appointment.PatientPhone = dto.PatientPhone.Trim();
             appointment.PatientEmail = dto.PatientEmail?.Trim().ToLower();
             appointment.AppointmentType = dto.AppointmentType.Trim();
-            appointment.Reason = NormalizeAppointmentReason(dto.Reason);
-            appointment.Notes = dto.Notes?.Trim();
             appointment.Status = dto.Status;
 
-            return MapAppointment(await _repository.UpdateAsync(appointment));
-        }
-
-        public async Task<bool> DeleteAppointmentAsync(int id)
-        {
-            var appointment = await _repository.GetByIdAsync(id);
-            if (appointment is null) return false;
-
-            await _repository.DeleteAsync(appointment);
-            return true;
-        }
-
-        public async Task<AppointmentDto?> UpdateStatusAsync(int id, string status)
-        {
-            if (!ValidStatuses.Contains(status))
-                throw new InvalidOperationException("Invalid appointment status.");
-
-            var appointment = await _repository.GetByIdAsync(id);
-            if (appointment is null) return null;
-
-            if (TerminalStatuses.Contains(appointment.Status) && appointment.Status != status)
-                throw new InvalidOperationException("Terminal appointments cannot be moved to another status.");
-
-            appointment.Status = status;
             return MapAppointment(await _repository.UpdateAsync(appointment));
         }
 
@@ -176,7 +122,6 @@ namespace HospitalManagementSystem.Api.Services
             var appointmentNumber = await GetNextAppointmentNumberAsync(slot, id);
             appointment.DoctorTimeSlotId = doctorTimeSlotId;
             appointment.AppointmentNumber = appointmentNumber;
-            appointment.EstimatedStartAt = GetEstimatedStartAt(slot, appointmentNumber);
             appointment.Status = "Confirmed";
             return MapAppointment(await _repository.UpdateAsync(appointment));
         }
@@ -276,8 +221,14 @@ namespace HospitalManagementSystem.Api.Services
 
             ValidateConsultationFee(dto.ConsultationFee);
 
+            if (slot.EndAt <= DateTime.UtcNow || !slot.IsActive)
+                throw new InvalidOperationException("Completed or cancelled slots cannot be edited.");
+
             if (dto.Capacity < activeAppointments.Count)
                 throw new InvalidOperationException("Slot capacity cannot be less than the number of booked appointments.");
+
+            if (activeAppointments.Any(a => a.AppointmentNumber > dto.Capacity))
+                throw new InvalidOperationException("Capacity cannot exclude an existing appointment number.");
 
             if (await _repository.SlotOverlapsAsync(doctorName, startAt, endAt, id, dto.DoctorId))
                 throw new InvalidOperationException("This doctor already has an overlapping time slot.");
@@ -285,6 +236,8 @@ namespace HospitalManagementSystem.Api.Services
             if (dto.RoomId.HasValue)
                 await ValidateAvailableRoomAsync(dto.RoomId.Value, startAt, endAt, id);
 
+            var changed = slot.StartAt != startAt || slot.EndAt != endAt || slot.Capacity != dto.Capacity ||
+                slot.RoomId != dto.RoomId || slot.DoctorId != doctor.DoctorId || slot.ConsultationFee != dto.ConsultationFee;
             slot.DoctorId = doctor.DoctorId;
             slot.RoomId = dto.RoomId;
             slot.DoctorName = doctorName;
@@ -295,10 +248,7 @@ namespace HospitalManagementSystem.Api.Services
             slot.ConsultationFee = decimal.Round(dto.ConsultationFee, 2);
             slot.IsActive = dto.IsActive;
 
-            foreach (var appointment in activeAppointments)
-            {
-                appointment.EstimatedStartAt = GetEstimatedStartAt(slot, appointment.AppointmentNumber);
-            }
+            ScheduleAppointmentUpdates.Apply(slot, changed);
 
             var updated = await _repository.UpdateSlotAsync(slot);
             return MapSlot(updated);
@@ -372,11 +322,8 @@ namespace HospitalManagementSystem.Api.Services
         private async Task<int> GetNextAppointmentNumberAsync(DoctorTimeSlot slot, int? excludeAppointmentId = null)
         {
             var bookedNumbers = (await _repository.GetBookedAppointmentNumbersAsync(slot.DoctorTimeSlotId, excludeAppointmentId)).ToHashSet();
-            for (var number = 1; number <= slot.Capacity; number++)
-            {
-                if (!bookedNumbers.Contains(number))
-                    return number;
-            }
+            var number = AppointmentNumbering.NextAvailable(slot.Capacity, bookedNumbers);
+            if (number > 0) return number;
 
             throw new InvalidOperationException("Selected doctor time slot is fully booked.");
         }
@@ -393,7 +340,6 @@ namespace HospitalManagementSystem.Api.Services
                 DoctorId = slot?.DoctorId,
                 PatientId = a.PatientId,
                 AppointmentNumber = a.AppointmentNumber,
-                EstimatedStartAt = a.EstimatedStartAt,
                 PatientName = a.PatientName,
                 PatientPhone = a.PatientPhone,
                 PatientEmail = a.PatientEmail ?? string.Empty,
@@ -434,19 +380,12 @@ namespace HospitalManagementSystem.Api.Services
             BookedCount = s.Appointments.Count(a => a.Status is "Confirmed" or "Completed"),
             ConsultationFee = s.ConsultationFee,
             NextAppointmentNumber = GetNextAppointmentNumber(s),
-            NextEstimatedStartAt = GetNextEstimatedStartAt(s),
             IsActive = s.IsActive,
             RoomId = s.RoomId,
             RoomNumber = s.Room?.RoomNumber ?? string.Empty,
             RoomName = s.Room?.RoomName ?? string.Empty,
             Floor = s.Room?.Floor ?? string.Empty
         };
-
-        private static string NormalizeAppointmentReason(string? reason)
-        {
-            var value = reason?.Trim() ?? string.Empty;
-            return value == "Appointment" ? string.Empty : value;
-        }
 
         private static int GetNextAppointmentNumber(DoctorTimeSlot s)
         {
@@ -455,39 +394,8 @@ namespace HospitalManagementSystem.Api.Services
                 .Select(a => a.AppointmentNumber)
                 .ToHashSet();
 
-            for (var number = 1; number <= s.Capacity; number++)
-            {
-                if (!bookedNumbers.Contains(number))
-                    return number;
-            }
-
-            return 0;
+            return AppointmentNumbering.NextAvailable(s.Capacity, bookedNumbers);
         }
 
-        private static DateTime? GetNextEstimatedStartAt(DoctorTimeSlot s)
-        {
-            var nextNumber = GetNextAppointmentNumber(s);
-            return nextNumber == 0
-                ? null
-                : GetEstimatedStartAt(s, nextNumber);
-        }
-
-        private static DateTime GetEstimatedStartAt(DoctorTimeSlot slot, int appointmentNumber)
-        {
-            var interval = GetAppointmentInterval(slot);
-            return slot.StartAt.AddTicks(interval.Ticks * (appointmentNumber - 1));
-        }
-
-        private static TimeSpan GetAppointmentInterval(DoctorTimeSlot slot)
-        {
-            if (slot.Capacity <= 0)
-                return TimeSpan.Zero;
-
-            var duration = slot.EndAt - slot.StartAt;
-            if (duration <= TimeSpan.Zero)
-                return TimeSpan.Zero;
-
-            return TimeSpan.FromTicks(duration.Ticks / slot.Capacity);
-        }
     }
 }

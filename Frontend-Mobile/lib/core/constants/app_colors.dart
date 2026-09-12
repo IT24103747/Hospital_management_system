@@ -7,6 +7,7 @@ class AppColors {
 
   // ── Primary ─────────────────────────────────────────────────────────────────
   /// Web: --clr-primary (light)
+  static const Color primaryDarkTheme = Color(0xFF0EA5E9);
   static const Color primary = Color(0xFF0284C7);
   /// Web: --clr-primary-dark
   static const Color primaryDark = Color(0xFF0369A1);
@@ -58,24 +59,24 @@ class AppColors {
   static const Color borderFocusLight = Color(0xFF0284C7);
 
   // ── Dark Theme Backgrounds ───────────────────────────────────────────────────
-  /// Web: --bg-base (dark)  (#32404f)
-  static const Color bgDark = Color(0xFF32404F);
-  /// Web: --bg-dark  (#0f172a)
-  static const Color bgDarkDeep = Color(0xFF0F172A);
-  /// Web: --bg-surface (dark)  (#202d3e)
-  static const Color surfaceDark = Color(0xFF202D3E);
-  /// Web: --bg-surface-2 (dark)  (#1f2937)
-  static const Color surfaceDarkSecondary = Color(0xFF1F2937);
-  /// Web: --bg-card (dark)  (#3b4d63)
-  static const Color bgDarkCard = Color(0xFF3B4D63);
+  /// Web: --bg-base (dark)  (#242424)
+  static const Color bgDark = Color(0xFF242424);
+  /// Web: --bg-dark  (#161616)
+  static const Color bgDarkDeep = Color(0xFF161616);
+  /// Web: --bg-surface (dark)  (#2b2b2b)
+  static const Color surfaceDark = Color(0xFF2B2B2B);
+  /// Web: --bg-surface-2 (dark)  (#353535)
+  static const Color surfaceDarkSecondary = Color(0xFF353535);
+  /// Web: --bg-card (dark)  (#303030)
+  static const Color bgDarkCard = Color(0xFF303030);
 
   // ── Dark Theme Text ──────────────────────────────────────────────────────────
-  static const Color textPrimaryDark = Color(0xFFFFFFFF);
-  static const Color textSecondaryDark = Color(0xFFCBD5E1);
-  static const Color textMutedDark = Color(0xFF8FA0B5);
+  static const Color textPrimaryDark = Color(0xFFF5F5F5);
+  static const Color textSecondaryDark = Color(0xFFD4D4D4);
+  static const Color textMutedDark = Color(0xFFA3A3A3);
 
   // ── Dark Theme Borders ───────────────────────────────────────────────────────
-  static const Color borderDark = Color(0x1F94A3B8); // rgba(148,163,184,0.12)
+  static const Color borderDark = Color(0x1FD4D4D4); // rgba(212,212,212,0.12)
   static const Color borderFocusDark = Color(0x800EA5E9); // rgba(14,165,233,0.5)
 
   // ── Shadows (pre-computed for Flutter BoxShadow) ────────────────────────────

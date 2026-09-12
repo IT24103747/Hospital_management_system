@@ -4,7 +4,6 @@ class Appointment {
   final int? doctorId;
   final int? patientId;
   final int appointmentNumber;
-  final DateTime estimatedStartAt;
   final String patientName;
   final String patientPhone;
   final String patientEmail;
@@ -31,7 +30,6 @@ class Appointment {
     this.doctorId,
     this.patientId,
     required this.appointmentNumber,
-    required this.estimatedStartAt,
     required this.patientName,
     required this.patientPhone,
     required this.patientEmail,
@@ -60,8 +58,6 @@ class Appointment {
       doctorId: json['doctorId'],
       patientId: json['patientId'],
       appointmentNumber: json['appointmentNumber'] ?? 0,
-      estimatedStartAt:
-          DateTime.tryParse(json['estimatedStartAt'] ?? '') ?? DateTime.now(),
       patientName: json['patientName'] ?? '',
       patientPhone: json['patientPhone'] ?? '',
       patientEmail: json['patientEmail'] ?? '',
@@ -100,7 +96,6 @@ class DoctorTimeSlot {
   final int bookedCount;
   final List<int> bookedAppointmentNumbers;
   final int nextAppointmentNumber;
-  final DateTime? nextEstimatedStartAt;
   final bool isActive;
   final double consultationFee;
 
@@ -119,7 +114,6 @@ class DoctorTimeSlot {
     required this.bookedCount,
     required this.bookedAppointmentNumbers,
     required this.nextAppointmentNumber,
-    required this.nextEstimatedStartAt,
     required this.isActive,
     required this.consultationFee,
   });
@@ -146,9 +140,6 @@ class DoctorTimeSlot {
               .map((value) => (value as num).toInt())
               .toList(),
       nextAppointmentNumber: json['nextAppointmentNumber'] ?? 0,
-      nextEstimatedStartAt: json['nextEstimatedStartAt'] == null
-          ? null
-          : DateTime.tryParse(json['nextEstimatedStartAt']),
       isActive: json['isActive'] ?? false,
       consultationFee: (json['consultationFee'] as num?)?.toDouble() ?? 0,
     );

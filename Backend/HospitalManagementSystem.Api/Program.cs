@@ -9,22 +9,34 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
-using System.Security.Cryptography;
+using HospitalManagementSystem.Api.AgenticAI.PatientCare.ClinicalSafety;
+using HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
+using HospitalManagementSystem.Api.AgenticAI.PatientCare.SafetyApproval;
+using HospitalManagementSystem.Api.AgenticAI.PatientCare.Shared;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 var jwtSecret = builder.Configuration["Jwt:Secret"];
-if (string.IsNullOrWhiteSpace(jwtSecret))
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+var allowedOrigins = configuredOrigins
+    .Where(origin => Uri.TryCreate(origin, UriKind.Absolute, out _))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
+
+if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Length < 32)
+    throw new InvalidOperationException("Jwt:Secret must be configured through a local secret or environment variable and contain at least 32 characters.");
+
+if (!builder.Environment.IsEnvironment("Testing"))
 {
-    jwtSecret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
-    builder.Configuration["Jwt:Secret"] = jwtSecret;
+    if (string.IsNullOrWhiteSpace(connectionString))
+        throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured through a local secret or environment variable.");
+    if (!builder.Environment.IsDevelopment() && allowedOrigins.Length == 0)
+        throw new InvalidOperationException("Cors:AllowedOrigins must contain the permitted web application origin(s).");
 }
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
-
-// ---------- Database Connection Check ----------
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
 
 // ---------- Services ----------
@@ -71,22 +83,47 @@ builder.Services.AddScoped<IPatientRepository, PatientRepository>();
 builder.Services.AddScoped<IPatientService, PatientService>();
 builder.Services.AddScoped<IAppointmentRepository, AppointmentRepository>();
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
+builder.Services.AddHostedService<AppointmentCompletionService>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<IDoctorService, DoctorService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IDoctorScheduleService, DoctorScheduleService>();
 builder.Services.AddScoped<ITriageWorkflowService, TriageWorkflowService>();
-builder.Services.AddHttpClient<IClinicalInformationExtractionAgent, OllamaClinicalInformationExtractionAgent>(client =>
+builder.Services.AddScoped<IClinicalSafetyTriageAgent, ClinicalSafetyTriageAgent>();
+builder.Services.AddScoped<IPatientCareAssessmentStore, PatientCareAssessmentStore>();
+// Reusable controlled tools for the Member 3 proposal and Member 4 confirmation agents.
+builder.Services.AddScoped<IAppointmentAgentTools, AppointmentAgentTools>();
+builder.Services.AddScoped<IHospitalAppointmentProposalAgent, HospitalAppointmentProposalAgent>();
+builder.Services.AddScoped<IAppointmentProposalStore, AppointmentProposalStore>();
+builder.Services.AddScoped<ISafetyApprovalTools, SafetyApprovalTools>();
+builder.Services.AddScoped<ISafetyValidationApprovalAgent, SafetyValidationApprovalAgent>();
+builder.Services.AddScoped<IMedicalRecordRepository, MedicalRecordRepository>();
+builder.Services.AddScoped<IMedicalRecordService, MedicalRecordService>();
+builder.Services.AddHttpClient<IClinicalInformationExtractionAgent, GeminiClinicalInformationExtractionAgent>((provider, client) =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["SafeTriage:OllamaUrl"] ?? "http://127.0.0.1:11434/");
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
 });
 
-// CORS – allow React and Flutter (dev)
+// In Development mode, dynamically allow any localhost origin (supporting changing Flutter Web ports).
+// In Production mode, strictly enforce configured AllowedOrigins.
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("DevCors", policy =>
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+    options.AddPolicy("AppCors", policy =>
+    {
+        if (builder.Environment.IsDevelopment())
+        {
+            policy.SetIsOriginAllowed(origin => Uri.TryCreate(origin, UriKind.Absolute, out var uri) && (uri.Host == "localhost" || uri.Host == "127.0.0.1"))
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        }
+        else if (allowedOrigins.Length > 0)
+        {
+            policy.WithOrigins(allowedOrigins).AllowAnyMethod().AllowAnyHeader();
+        }
+    });
 });
 
 var app = builder.Build();
@@ -100,7 +137,9 @@ await using (var scope = app.Services.CreateAsyncScope())
     else
         await db.Database.MigrateAsync();
 
-    await SeedSampleDataAsync(db);
+    // Seed accounts use documented sample passwords and must never be created in a deployed environment.
+    if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
+        await SeedSampleDataAsync(db);
 }
 
 // ---------- Middleware ----------
@@ -112,7 +151,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
 app.UseHttpsRedirection();
-app.UseCors("DevCors");
+app.UseCors("AppCors");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
@@ -252,7 +291,6 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
                 DoctorTimeSlotId = generalMedicineSlot.DoctorTimeSlotId,
                 PatientId = amalPatient.PatientId,
                 AppointmentNumber = 1,
-                EstimatedStartAt = new DateTime(2026, 8, 8, 9, 0, 0, DateTimeKind.Utc),
                 PatientName = "Amal Perera",
                 PatientPhone = "+94 77 234 5678",
                 PatientEmail = "amal.perera@email.com",
@@ -267,7 +305,6 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
                 DoctorTimeSlotId = cardiologySlot.DoctorTimeSlotId,
                 PatientId = nimeshaPatient.PatientId,
                 AppointmentNumber = 1,
-                EstimatedStartAt = new DateTime(2026, 8, 8, 14, 0, 0, DateTimeKind.Utc),
                 PatientName = "Nimesha Silva",
                 PatientPhone = "+94 76 345 6789",
                 PatientEmail = "nimesha.silva@email.com",
@@ -278,9 +315,66 @@ static async Task SeedSampleDataAsync(ApplicationDbContext db)
                 UpdatedAt = new DateTime(2026, 8, 8, 5, 0, 0, DateTimeKind.Utc)
             }
         );
+        await db.SaveChangesAsync();
     }
 
-    await db.SaveChangesAsync();
+    if (!await db.MedicalRecords.AnyAsync())
+    {
+        var amal = await db.Patients.FirstOrDefaultAsync(p => p.Email == "amal.perera@email.com");
+        var nimesha = await db.Patients.FirstOrDefaultAsync(p => p.Email == "nimesha.silva@email.com");
+        var doctor = await db.Doctors.FirstOrDefaultAsync();
+
+        if (amal != null)
+        {
+            db.MedicalRecords.Add(new HospitalManagementSystem.Api.Models.MedicalRecord
+            {
+                PatientId = amal.PatientId,
+                DoctorId = doctor?.DoctorId,
+                RecordDate = DateTime.UtcNow.AddDays(-5),
+                RecordType = HospitalManagementSystem.Api.Models.MedicalRecordTypes.Consultation,
+                Diagnosis = "Acute Upper Respiratory Tract Infection",
+                Symptoms = "Low-grade fever, dry cough, mild sore throat for 3 days.",
+                TreatmentPlan = "Rest, adequate hydration, Paracetamol 500mg TDS for 3 days.",
+                PrescriptionNotes = "Paracetamol 500mg - 1 tab tid x 3 days\nCetirizine 10mg - 1 tab nocte x 5 days",
+                LabNotes = "Chest clear on auscultation. Normal SpO2 (98%).",
+                FollowUpDate = DateTime.UtcNow.AddDays(7),
+                Status = HospitalManagementSystem.Api.Models.MedicalRecordStatuses.Finalized,
+                CreatedAt = DateTime.UtcNow.AddDays(-5),
+                UpdatedAt = DateTime.UtcNow.AddDays(-5)
+            });
+        }
+
+        if (nimesha != null)
+        {
+            var rec = new HospitalManagementSystem.Api.Models.MedicalRecord
+            {
+                PatientId = nimesha.PatientId,
+                DoctorId = doctor?.DoctorId,
+                RecordDate = DateTime.UtcNow.AddDays(-2),
+                RecordType = HospitalManagementSystem.Api.Models.MedicalRecordTypes.LabReport,
+                Diagnosis = "Mild Sinus Tachycardia",
+                Symptoms = "Palpitations during moderate exercise, mild shortness of breath.",
+                TreatmentPlan = "Cardiology review, 12-lead ECG, lifestyle management.",
+                PrescriptionNotes = "Propranolol 10mg PRN",
+                LabNotes = "ECG reveals normal axis, sinus tachycardia (HR 102 bpm). Normal troponin I.",
+                FollowUpDate = DateTime.UtcNow.AddDays(14),
+                Status = HospitalManagementSystem.Api.Models.MedicalRecordStatuses.Finalized,
+                CreatedAt = DateTime.UtcNow.AddDays(-2),
+                UpdatedAt = DateTime.UtcNow.AddDays(-2)
+            };
+            rec.Attachments.Add(new HospitalManagementSystem.Api.Models.MedicalRecordAttachment
+            {
+                FileName = "ecg_report_20260818.pdf",
+                FileType = "application/pdf",
+                FileUrl = "/uploads/medical-records/ecg_report_20260818.pdf",
+                FileSize = 1048576,
+                UploadedAt = DateTime.UtcNow.AddDays(-2)
+            });
+            db.MedicalRecords.Add(rec);
+        }
+
+        await db.SaveChangesAsync();
+    }
 }
 
 public partial class Program { }

@@ -694,11 +694,11 @@ body.dark .appt-slot-empty {
 
 .appt-top-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-md);
 }
 
-.appt-estimate,
+.appt-details,
 .appt-form__hint {
   grid-column: 1 / -1;
   border-radius: var(--radius-sm);
@@ -706,7 +706,7 @@ body.dark .appt-slot-empty {
   color: var(--text-secondary);
 }
 
-.appt-estimate {
+.appt-details {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -714,7 +714,7 @@ body.dark .appt-slot-empty {
   padding: 12px;
 }
 
-.appt-estimate > div:first-child,
+.appt-details > div:first-child,
 .appt-fee {
   display: flex;
   flex-direction: column;
@@ -731,14 +731,14 @@ body.dark .appt-slot-empty {
   font-size: 1rem;
 }
 
-.appt-estimate__location,
+.appt-details__location,
 .appt-number-slot-location {
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
 
-.appt-estimate span,
+.appt-details span,
 .appt-form__hint {
   font-size: 0.82rem;
 }
@@ -896,7 +896,7 @@ body.dark .appt-slot-empty {
     grid-template-columns: 1fr;
   }
 
-  .appt-estimate {
+  .appt-details {
     align-items: flex-start;
     flex-direction: column;
   }

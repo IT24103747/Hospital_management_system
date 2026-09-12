@@ -14,10 +14,12 @@ export function useAppointments(filters) {
   const [error, setError] = useState(null)
   const [doctorError, setDoctorError] = useState(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    setDoctorError(null)
+  const load = useCallback(async ({ silent = false, background = false } = {}) => {
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+      setDoctorError(null)
+    }
     try {
       const [appointmentResult, slotResult] = await Promise.all([
         appointmentApi.getAll({ ...filters, pageSize: 50 }),
@@ -26,6 +28,10 @@ export function useAppointments(filters) {
       const normalizedSlots = Array.isArray(slotResult) ? slotResult : []
       setAppointments(appointmentResult.data || appointmentResult)
       setSlots(normalizedSlots)
+      if (silent) {
+        if (!background) setError(null)
+        return
+      }
 
       let loadedDoctors = []
       try {
@@ -60,6 +66,10 @@ export function useAppointments(filters) {
         setPatients(MOCK_PATIENTS)
       }
     } catch (err) {
+      if (silent) {
+        if (!background) setError(err.response?.data?.message || err.message || 'Failed to refresh appointments')
+        return
+      }
       setError(err.response?.data?.message || err.message || 'Failed to load appointments')
       setAppointments([])
       setSlots([])
@@ -67,18 +77,24 @@ export function useAppointments(filters) {
       setSpecializations([])
       setPatients(MOCK_PATIENTS)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [filters])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    const timer = setInterval(() => {
+      if (!document.hidden) load({ silent: true, background: true })
+    }, 30000)
+    return () => clearInterval(timer)
+  }, [load])
 
   const runMutation = async (action) => {
     setSaving(true)
     setError(null)
     try {
       const result = await action()
-      await load()
+      await load({ silent: true })
       return result
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Failed to save appointment changes')
@@ -98,13 +114,12 @@ export function useAppointments(filters) {
     saving,
     error,
     doctorError,
-    refetch: load,
+    refetch: () => load({ silent: true }),
     createAppointment: (data) => runMutation(() => appointmentApi.create(data)),
     updateAppointment: (id, data) => runMutation(() => appointmentApi.update(id, data)),
     createSlot: (data) => runMutation(() => appointmentApi.createSlot(data)),
     updateSlot: (id, data) => runMutation(() => appointmentApi.updateSlot(id, data)),
     cancelSlot: (id, reason) => runMutation(() => appointmentApi.cancelSlot(id, reason)),
-    updateStatus: (id, status) => runMutation(() => appointmentApi.updateStatus(id, status)),
     cancelAppointment: (id, reason) => runMutation(() => appointmentApi.cancel(id, reason)),
     rescheduleAppointment: (id, slotId) => runMutation(() => appointmentApi.reschedule(id, slotId)),
   }

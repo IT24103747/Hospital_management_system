@@ -41,14 +41,31 @@ public sealed class TriageWorkflowController : ControllerBase
         return workflow is null ? NotFound() : Ok(workflow);
     }
 
+    [HttpGet("history")]
+    [Authorize(Roles = "Patient")]
+    [ProducesResponseType(typeof(IReadOnlyList<TriageWorkflowDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetHistory()
+    {
+        var patient = await CurrentPatient();
+        if (patient is null) return NotFound(new { message = "No patient profile found for this account." });
+        return Ok(await _workflows.GetHistoryForPatientAsync(patient.PatientId));
+    }
+
     [HttpPost("{id:int}/continue")]
     [Authorize(Roles = "Patient")]
     public async Task<IActionResult> Continue(int id, [FromBody] ContinueTriageWorkflowDto request)
     {
         var patient = await CurrentPatient();
         if (patient is null) return NotFound(new { message = "No patient profile found for this account." });
-        var workflow = await _workflows.ContinueForPatientAsync(id, patient.PatientId, request);
-        return workflow is null ? NotFound(new { message = "A workflow waiting for your input was not found." }) : Ok(workflow);
+        try
+        {
+            var workflow = await _workflows.ContinueForPatientAsync(id, patient.PatientId, request);
+            return workflow is null ? NotFound(new { message = "A workflow waiting for your input was not found." }) : Ok(workflow);
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
     }
 
     [HttpGet("{id:int}/clinical-review")]
@@ -74,7 +91,7 @@ public sealed class TriageWorkflowController : ControllerBase
     }
 
     [HttpPost("{id:int}/review")]
-    [Authorize(Roles = "Admin,Doctor")]
+    [Authorize(Roles = "Doctor")]
     public async Task<IActionResult> Review(int id, [FromBody] ReviewTriageWorkflowDto request)
     {
         try

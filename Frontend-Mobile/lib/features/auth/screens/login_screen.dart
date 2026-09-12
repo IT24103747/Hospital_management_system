@@ -433,20 +433,25 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            const Text(
-                              'Remember me',
-                              style: TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.w500),
-                            ),
-                            const Spacer(),
-                            GestureDetector(
-                              onTap: _showForgotPasswordModal,
-                              child: const Text(
-                                'Forgot Password?',
+                            const Expanded(
+                              child: Text(
+                                'Remember me',
                                 style: TextStyle(
-                                  color: AppColors.primary,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
+                                    fontSize: 12, fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: GestureDetector(
+                                onTap: _showForgotPasswordModal,
+                                child: const Text(
+                                  'Forgot Password?',
+                                  textAlign: TextAlign.end,
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                             ),
@@ -521,8 +526,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 18),
 
                 // Register Footer Link
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 4,
+                  runSpacing: 4,
                   children: [
                     Text(
                       "Don't have a patient account? ",

@@ -85,7 +85,7 @@ public sealed class GlobalExceptionHandlingMiddleware
             Status = statusCode,
             Title = title,
             Detail = _environment.IsDevelopment()
-                ? exception.Message
+                ? GetDevelopmentErrorDetail(exception)
                 : "The request could not be processed.",
             Instance = context.Request.Path
         };
@@ -97,5 +97,16 @@ public sealed class GlobalExceptionHandlingMiddleware
             problemDetails,
             new JsonSerializerOptions(JsonSerializerDefaults.Web),
             context.RequestAborted);
+    }
+
+    private static string GetDevelopmentErrorDetail(Exception exception)
+    {
+        var innermost = exception;
+        while (innermost.InnerException is not null)
+            innermost = innermost.InnerException;
+
+        return innermost == exception
+            ? exception.Message
+            : $"{exception.Message} Inner database error: {innermost.Message}";
     }
 }

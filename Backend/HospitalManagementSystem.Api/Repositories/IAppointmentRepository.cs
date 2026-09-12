@@ -9,7 +9,6 @@ namespace HospitalManagementSystem.Api.Repositories
         Task<Appointment?> GetByIdAsync(int id);
         Task<Appointment> CreateAsync(Appointment appointment);
         Task<Appointment> UpdateAsync(Appointment appointment);
-        Task DeleteAsync(Appointment appointment);
         Task<int> GetActiveBookingCountAsync(int doctorTimeSlotId, int? excludeAppointmentId = null);
         Task<IEnumerable<int>> GetBookedAppointmentNumbersAsync(int doctorTimeSlotId, int? excludeAppointmentId = null);
         Task<DoctorTimeSlot?> GetSlotByIdAsync(int id);

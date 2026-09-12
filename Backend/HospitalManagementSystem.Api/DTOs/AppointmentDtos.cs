@@ -9,7 +9,6 @@ namespace HospitalManagementSystem.Api.DTOs
         public int? DoctorId { get; set; }
         public int? PatientId { get; set; }
         public int AppointmentNumber { get; set; }
-        public DateTime EstimatedStartAt { get; set; }
         public string PatientName { get; set; } = string.Empty;
         public string PatientPhone { get; set; } = string.Empty;
         public string PatientEmail { get; set; } = string.Empty;
@@ -36,8 +35,8 @@ namespace HospitalManagementSystem.Api.DTOs
     public class CreateAppointmentDto
     {
         [Required]
+        [Range(1, int.MaxValue)]
         public int DoctorTimeSlotId { get; set; }
-        public int? AppointmentNumber { get; set; }
         public int? PatientId { get; set; }
         [Required, MaxLength(150)]
         public string PatientName { get; set; } = string.Empty;
@@ -47,22 +46,12 @@ namespace HospitalManagementSystem.Api.DTOs
         public string? PatientEmail { get; set; }
         [Required, MaxLength(80)]
         public string AppointmentType { get; set; } = "Consultation";
-        [MaxLength(500)]
-        public string Reason { get; set; } = string.Empty;
-        [MaxLength(500)]
-        public string? Notes { get; set; }
     }
 
     public class UpdateAppointmentDto : CreateAppointmentDto
     {
         [Required, MaxLength(30)]
         public string Status { get; set; } = "Confirmed";
-    }
-
-    public class UpdateAppointmentStatusDto
-    {
-        [Required, MaxLength(30)]
-        public string Status { get; set; } = string.Empty;
     }
 
     public class CancelAppointmentDto
@@ -91,7 +80,6 @@ namespace HospitalManagementSystem.Api.DTOs
         public IEnumerable<int> BookedAppointmentNumbers { get; set; } = [];
         public int AvailableCount => Math.Max(0, Capacity - BookedCount);
         public int NextAppointmentNumber { get; set; }
-        public DateTime? NextEstimatedStartAt { get; set; }
         public bool IsActive { get; set; }
         public int? RoomId { get; set; }
         public string RoomNumber { get; set; } = string.Empty;
