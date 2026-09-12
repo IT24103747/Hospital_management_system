@@ -124,7 +124,7 @@ void main() {
   }
 
   testWidgets(
-      'read-only messages and selection do not mutate; explicit confirmation displays final number',
+      'single option is selected automatically; explicit confirmation displays final number',
       (tester) async {
     final posts = <http.Request>[];
     await pump(tester, (request) async {
@@ -140,10 +140,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(posts.length, 1);
     expect(posts.single.url.path, '/api/hospital-assistant/messages');
-    await tester
-        .ensureVisible(find.byKey(const ValueKey('assistant-option-11')));
-    await tester.tap(find.byKey(const ValueKey('assistant-option-11')));
-    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Confirm appointment')).onPressed,
+        isNotNull);
     expect(posts.length, 1);
     await tester.ensureVisible(find.text('Confirm appointment'));
     await tester.tap(find.text('Confirm appointment'));
@@ -157,6 +156,30 @@ void main() {
     expect(find.text('Appointment No: 9'), findsOneWidget);
     expect(find.text('Confirm appointment'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'multiple options require a selection before confirmation',
+      (tester) async {
+    final posts = <http.Request>[];
+    await pump(tester, (request) async {
+      posts.add(request);
+      final response = conversation(pending: true);
+      (response['pendingAction'] as Map)['slots'] = [
+        slot(), {...slot(), 'doctorTimeSlotId': 12}
+      ];
+      return jsonResponse(response);
+    });
+    await tester.enterText(find.byType(TextField), 'Find a cardiologist');
+    await tester.tap(find.byTooltip('Send message'));
+    await tester.pumpAndSettle();
+    final confirm = find.widgetWithText(FilledButton, 'Confirm appointment');
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
+    await tester.ensureVisible(find.byKey(const ValueKey('assistant-option-12')));
+    await tester.tap(find.byKey(const ValueKey('assistant-option-12')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
+    expect(posts.length, 1);
   });
 
   testWidgets(
@@ -174,6 +197,10 @@ void main() {
             ]
           : conversation(pending: true));
     });
+    await tester.tap(find.byTooltip('Conversation history'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Find a cardiologist'));
+    await tester.pumpAndSettle();
     expect(find.text('Confirm appointment'), findsOneWidget);
     final chip = tester.widget<ActionChip>(
         find.widgetWithText(ActionChip, 'Medical Reports · Coming soon'));
@@ -202,6 +229,10 @@ void main() {
       return jsonResponse(
           conversation(pending: actionWrites == 0, booked: actionWrites > 0));
     });
+    await tester.tap(find.byTooltip('Conversation history'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Find a cardiologist'));
+    await tester.pumpAndSettle();
     await tester
         .ensureVisible(find.byKey(const ValueKey('assistant-option-11')));
     await tester.tap(find.byKey(const ValueKey('assistant-option-11')));
