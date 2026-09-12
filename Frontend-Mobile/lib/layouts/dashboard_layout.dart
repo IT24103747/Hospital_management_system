@@ -883,9 +883,9 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   }
 
   Future<String?> _cancelReason() async {
-    final controller = TextEditingController();
+    var reason = '';
     final formKey = GlobalKey<FormState>();
-    final result = await showDialog<String>(
+    return showDialog<String>(
       context: context,
       builder: (context) {
         return AlertDialog(
@@ -893,7 +893,9 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
           content: Form(
             key: formKey,
             child: TextFormField(
-              controller: controller,
+              // Let the field own its controller for the entire route lifetime,
+              // including the dialog's closing animation.
+              onChanged: (value) => reason = value,
               minLines: 2,
               maxLines: 4,
               decoration: const InputDecoration(
@@ -913,7 +915,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
             FilledButton(
               onPressed: () {
                 if (formKey.currentState!.validate()) {
-                  Navigator.pop(context, controller.text.trim());
+                  Navigator.pop(context, reason.trim());
                 }
               },
               child: const Text('Cancel appointment'),
@@ -922,8 +924,6 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
         );
       },
     );
-    controller.dispose();
-    return result;
   }
 
   @override

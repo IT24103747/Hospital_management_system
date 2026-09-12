@@ -17,6 +17,106 @@ namespace HospitalManagementSystem.Api.Tests.AgenticAI;
 
 public sealed class HospitalAssistantTests
 {
+    [Theory]
+    [InlineData(false, TriageApprovalStatuses.Approved)]
+    [InlineData(false, TriageApprovalStatuses.Rejected)]
+    [InlineData(true, TriageApprovalStatuses.Approved)]
+    [InlineData(true, TriageApprovalStatuses.Rejected)]
+    public async Task FailedInputCanBeReviewedAndResumeBookingWithoutAutomaticMutation(bool legacy, string decision)
+    {
+        await using var h = await Harness.Create();
+        var failed = await h.Workflows.StartForPatientAsync(1, new() {
+            Symptoms = "I feel dizzy", Vitals = new TriageVitalsDto { TemperatureCelsius = 98 }
+        });
+        Assert.Equal(TriageWorkflowStatuses.FailedSafely, failed.Status);
+        Assert.Equal(TriageApprovalStatuses.Pending, failed.ApprovalStatus);
+        var record = await h.Db.TriageWorkflows.SingleAsync();
+        if (legacy) { record.ApprovalStatus = TriageApprovalStatuses.NotRequired; await h.Db.SaveChangesAsync(); }
+        Assert.Contains(await h.Workflows.GetPendingClinicalReviewsAsync(), w => w.WorkflowId == failed.WorkflowId);
+        Assert.Equal(legacy ? TriageApprovalStatuses.NotRequired : TriageApprovalStatuses.Pending, record.ApprovalStatus);
+        var blocked = await h.Send("Book a cardiologist tomorrow");
+        Assert.Null(blocked.PendingAction);
+        var revised = await h.Workflows.ReviewAsync(failed.WorkflowId, 42, new() { Decision = TriageApprovalStatuses.RevisionRequested });
+        Assert.NotNull(revised);
+        var stillBlocked = await h.Send("Book a cardiologist tomorrow", blocked.ConversationId);
+        Assert.Null(stillBlocked.PendingAction);
+        var reviewed = await h.Workflows.ReviewAsync(failed.WorkflowId, 42, new() { Decision = decision, Note = "Reviewed test assessment" });
+        Assert.Equal(TriageWorkflowStatuses.Completed, reviewed!.Status);
+        Assert.Equal(42, record.ReviewedByUserId);
+        Assert.Equal("InvalidOrSuspiciousInput", record.ErrorCode);
+        Assert.Equal(legacy ? 1 : 0, await h.Db.TriageWorkflowEvents.CountAsync(e => e.EventType == "LegacyFailedAssessmentRecovered"));
+        var resumed = await h.Send("Book a cardiologist tomorrow", blocked.ConversationId);
+        Assert.NotNull(resumed.PendingAction);
+        Assert.Empty(await h.Db.Appointments.ToListAsync());
+    }
+
+    [Fact]
+    public async Task FinalizedEmergencyReviewDoesNotClearUrgentConversationSafety()
+    {
+        await using var h = await Harness.Create();
+        var blocked = await h.Send("I have severe chest pain and difficulty breathing. Book a cardiologist tomorrow.");
+        var record = await h.Db.TriageWorkflows.SingleAsync();
+        await h.Workflows.ReviewAsync(record.TriageWorkflowId, 42, new() { Decision = TriageApprovalStatuses.Approved });
+        var later = await h.Send("Book a cardiologist tomorrow", blocked.ConversationId);
+        Assert.Null(later.PendingAction);
+        Assert.Empty(await h.Db.Appointments.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(TriageWorkflowStatuses.PendingPatientInput, "needs more information")]
+    [InlineData(TriageWorkflowStatuses.FailedSafely, "could not be completed safely")]
+    public async Task BookingBlockExplainsActualAssessmentAndIncludesSavedGuidance(string status, string expected)
+    {
+        await using var h = await Harness.Create();
+        h.Db.TriageWorkflows.Add(new TriageWorkflow {
+            PatientId = 1, Status = status, FinalOutcome = "Saved assessment instructions."
+        });
+        await h.Db.SaveChangesAsync();
+        var response = await h.Send("Book a cardiologist tomorrow");
+        Assert.Null(response.PendingAction);
+        var reply = response.Messages.Last().Text;
+        Assert.Contains(expected, reply);
+        Assert.Contains("Saved assessment instructions.", reply);
+        Assert.DoesNotContain("urgent safety", reply);
+        Assert.DoesNotContain("shown above", reply);
+    }
+
+    [Fact]
+    public async Task ResolvedNonUrgentAssessmentClearsCachedBlockInExistingConversation()
+    {
+        await using var h = await Harness.Create();
+        var workflow = new TriageWorkflow {
+            PatientId = 1, Status = TriageWorkflowStatuses.PendingPatientInput
+        };
+        h.Db.TriageWorkflows.Add(workflow);
+        await h.Db.SaveChangesAsync();
+        var blocked = await h.Send("Book a cardiologist tomorrow");
+        Assert.Null(blocked.PendingAction);
+        workflow.Status = TriageWorkflowStatuses.Completed;
+        workflow.TriageLevel = TriageLevels.NonUrgent;
+        workflow.ApprovalStatus = TriageApprovalStatuses.Approved;
+        await h.Db.SaveChangesAsync();
+        var resumed = await h.Send("Book a cardiologist tomorrow", blocked.ConversationId);
+        Assert.NotNull(resumed.PendingAction);
+        Assert.Empty(await h.Db.Appointments.ToListAsync());
+    }
+
+    [Fact]
+    public async Task NewConversationShowsExistingUrgentGuidanceWithBookingBlock()
+    {
+        await using var h = await Harness.Create();
+        h.Db.TriageWorkflows.Add(new TriageWorkflow {
+            PatientId = 1, Status = TriageWorkflowStatuses.PendingClinicalReview,
+            ApprovalStatus = TriageApprovalStatuses.Pending, TriageLevel = TriageLevels.Urgent,
+            RequiresHumanReview = true, FinalOutcome = "Contact the care team for your saved urgent assessment."
+        });
+        await h.Db.SaveChangesAsync();
+        var response = await h.Send("Book a cardiologist tomorrow");
+        Assert.Null(response.PendingAction);
+        Assert.Contains("Contact the care team for your saved urgent assessment.", response.Messages.Last().Text);
+        Assert.Contains("urgent safety concerns", response.Messages.Last().Text);
+    }
+
     [Fact]
     public async Task SearchAndConversationalAssentNeverBook_ExplicitConfirmationUsesBackendNumber_AndIsIdempotent()
     {

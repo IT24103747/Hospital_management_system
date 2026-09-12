@@ -51,6 +51,7 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         if (validationProblems.Count > 0)
         {
             workflow.Status = TriageWorkflowStatuses.FailedSafely;
+            workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
             workflow.TriageLevel = TriageLevels.InsufficientInformation;
             workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
             workflow.RequiresHumanReview = true;
@@ -178,6 +179,7 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         if (run.Context.FailedSafely)
         {
             workflow.Status = TriageWorkflowStatuses.FailedSafely;
+            workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
             workflow.TriageLevel = TriageLevels.InsufficientInformation;
             workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
             workflow.RequiresHumanReview = true;
@@ -265,7 +267,8 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
     public async Task<IReadOnlyList<TriageWorkflowDto>> GetPendingClinicalReviewsAsync()
     {
         var workflows = await _db.TriageWorkflows.AsNoTracking()
-            .Where(x => x.ApprovalStatus == TriageApprovalStatuses.Pending || x.ApprovalStatus == TriageApprovalStatuses.RevisionRequested)
+            .Where(x => x.ApprovalStatus == TriageApprovalStatuses.Pending || x.ApprovalStatus == TriageApprovalStatuses.RevisionRequested ||
+                (x.Status == TriageWorkflowStatuses.FailedSafely && x.RequiresHumanReview && x.ApprovalStatus == TriageApprovalStatuses.NotRequired))
             .OrderBy(x => x.CreatedAt)
             .ToListAsync();
         return workflows.Select(workflow => Map(workflow, redactPatientText: true)).ToList();
@@ -287,11 +290,20 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         var workflow = await _db.TriageWorkflows.SingleOrDefaultAsync(x => x.TriageWorkflowId == workflowId);
         // RevisionRequested workflows remain in the clinical-review queue and
         // must be reviewable again after the requested information is provided.
-        if (workflow is null || workflow.ApprovalStatus is not (TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested)) return null;
+        if (workflow is null) return null;
+        var legacyFailure = workflow.Status == TriageWorkflowStatuses.FailedSafely &&
+            workflow.RequiresHumanReview && workflow.ApprovalStatus == TriageApprovalStatuses.NotRequired;
+        if (!legacyFailure && workflow.ApprovalStatus is not (TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested)) return null;
 
         var decision = request.Decision.Trim();
         if (decision is not (TriageApprovalStatuses.Approved or TriageApprovalStatuses.Rejected or TriageApprovalStatuses.RevisionRequested))
             throw new ArgumentException("Decision must be Approved, Rejected, or RevisionRequested.");
+
+        // Repair legacy queue eligibility only as part of an authorized, audited
+        // review. Reading the queue never mutates patient records.
+        if (legacyFailure)
+            await AddEvent(workflow, "HumanClinicalReview", "LegacyFailedAssessmentRecovered",
+                new { previousApprovalStatus = workflow.ApprovalStatus, reviewerUserId });
 
         workflow.ApprovalStatus = decision;
         workflow.ReviewedByUserId = reviewerUserId;

@@ -124,7 +124,7 @@ public sealed class HospitalAssistantService(
                 if (state.SafetyBlocked)
                 {
                     await InvalidateAsync(state, "BlockedByClinicalSafety", token);
-                    Reply(state, "This action cannot proceed while the safety assessment requires attention. Follow the clinical guidance above.", "WAITING_FOR_HUMAN_APPROVAL");
+                    await ReplySafetyBlockedAsync(patient.PatientId, state);
                 }
                 else if (action.Type == "book")
                 {
@@ -247,7 +247,7 @@ public sealed class HospitalAssistantService(
             if (state.SafetyBlocked)
             {
                 await InvalidateAsync(state, "BlockedByClinicalSafety", token);
-                Reply(state, "Appointment booking is paused because urgent safety guidance needs attention. Follow the guidance shown above and do not delay urgent care.", "WAITING_FOR_HUMAN_APPROVAL");
+                await ReplySafetyBlockedAsync(patient.PatientId, state);
                 return;
             }
         }
@@ -354,7 +354,11 @@ public sealed class HospitalAssistantService(
         var needsReview = workflow.RequiresHumanReview &&
             workflow.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested;
         // Emergency/urgent outcomes are never downgraded by a later conversational message.
-        var alreadyUrgent = state.Clinical?.TriageLevel is "Emergency" or "Urgent" || state.Clinical?.FailedSafely == true;
+        var finalizedCurrentReview = state.WorkflowId == workflow.WorkflowId &&
+            workflow.Status == TriageWorkflowStatuses.Completed &&
+            workflow.ApprovalStatus is TriageApprovalStatuses.Approved or TriageApprovalStatuses.Rejected;
+        var alreadyUrgent = state.Clinical?.TriageLevel is "Emergency" or "Urgent" ||
+            (state.Clinical?.FailedSafely == true && !finalizedCurrentReview);
         // A clinical review requires staff approval after the patient's explicit slot
         // selection; it must not prevent the patient from receiving a safe proposal.
         // Only urgent/emergency, failed-safe, and missing-required-information states
@@ -387,7 +391,7 @@ public sealed class HospitalAssistantService(
         await CheckPatientSafetyAsync(patient.PatientId, state);
         if (state.SafetyBlocked)
         {
-            Reply(state, "Appointment booking is paused because urgent safety guidance needs attention. Follow the guidance shown above and do not delay urgent care.", "WAITING_FOR_HUMAN_APPROVAL");
+            await ReplySafetyBlockedAsync(patient.PatientId, state);
             return;
         }
         if (string.IsNullOrWhiteSpace(state.SearchQuery))
@@ -439,10 +443,45 @@ public sealed class HospitalAssistantService(
         var unresolved = history.FirstOrDefault(w =>
             w.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested ||
             w.Status is TriageWorkflowStatuses.FailedSafely or TriageWorkflowStatuses.PendingPatientInput);
-        if (unresolved == null) return;
+        if (unresolved == null)
+        {
+            // Refresh the actual assessment before trusting a cached block. Do
+            // not clear urgent/failed-safe context merely because history is empty.
+            if (state.WorkflowId.HasValue)
+            {
+                var current = await workflows.GetForPatientAsync(state.WorkflowId.Value, patientId);
+                if (current != null) ApplyWorkflow(state, current);
+            }
+            return;
+        }
         if (state.WorkflowId != unresolved.WorkflowId) state.Answers = [];
         state.WorkflowId = unresolved.WorkflowId;
         ApplyWorkflow(state, unresolved);
+    }
+
+    private async Task ReplySafetyBlockedAsync(int patientId, AssistantState state)
+    {
+        var workflow = state.WorkflowId.HasValue
+            ? await workflows.GetForPatientAsync(state.WorkflowId.Value, patientId) : null;
+        var urgent = state.Clinical?.TriageLevel is "Emergency" or "Urgent";
+        var missingAnswers = !urgent && workflow?.Status == TriageWorkflowStatuses.PendingPatientInput;
+        var message = urgent
+            ? "Appointment booking is paused because your assessment identified urgent safety concerns. Follow the assessment guidance and do not delay urgent care."
+            : missingAnswers
+                ? "Appointment booking is paused because your assessment needs more information. Please answer the assessment questions to continue."
+                : "Appointment booking is paused because your safety assessment could not be completed safely. Contact the care team to review the assessment.";
+        if (workflow != null)
+        {
+            var guidance = workflow.Guidance;
+            var parts = new List<string> { message, workflow.PatientMessage, guidance?.Summary ?? "" };
+            parts.AddRange(guidance?.Actions ?? []);
+            parts.AddRange(guidance?.SeekHelpIf ?? []);
+            message = string.Join("\n\n", parts.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct());
+        }
+        if (missingAnswers && state.Questions.Count == 0)
+            message += "\n\nNo follow-up questions are available. Contact the care team to review this incomplete assessment.";
+        Reply(state, message, missingAnswers && state.Questions.Count > 0
+            ? "GATHERING_INFORMATION" : "WAITING_FOR_HUMAN_APPROVAL");
     }
 
     private async Task<IReadOnlyList<AppointmentDto>> MyAppointmentsAsync(PatientDto patient)

@@ -130,7 +130,16 @@ class _VitalsLoggerScreenState extends State<VitalsLoggerScreen> {
                         labelText: 'Temp (°C)',
                         prefixIcon: Icon(Icons.thermostat),
                       ),
-                      validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+                      validator: (value) {
+                        final temperature = double.tryParse(value?.trim() ?? '');
+                        if (temperature == null || !temperature.isFinite) {
+                          return 'Enter a temperature in Celsius';
+                        }
+                        if (temperature < 25 || temperature > 45) {
+                          return 'Enter 25–45°C; check the units';
+                        }
+                        return null;
+                      },
                     ),
                   ),
                   const SizedBox(width: 12),

@@ -91,6 +91,16 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
         _selectedSlotId = null;
         _selectedAppointmentId = null;
       }
+      final action = conversation.pendingAction;
+      if (action?.type == 'book') {
+        if (action!.slots.length == 1) {
+          _selectedSlotId =
+              (action.slots.single['doctorTimeSlotId'] as num).toInt();
+        } else if (!action.slots.any(
+            (slot) => slot['doctorTimeSlotId'] == _selectedSlotId)) {
+          _selectedSlotId = null;
+        }
+      }
     });
     _scrollToLatest();
   }
