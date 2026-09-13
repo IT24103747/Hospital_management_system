@@ -711,7 +711,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   @override
   void initState() {
     super.initState();
-    _loadAppointments();
+    _loadAppointments(preselectDoctor: true);
   }
 
   @override
@@ -752,7 +752,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
     }
   }
 
-  Future<void> _loadAppointments() async {
+  Future<void> _loadAppointments({bool preselectDoctor = false}) async {
     setState(() {
       _loading = true;
       _error = null;
@@ -796,6 +796,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
       });
       widget.onAppointmentsLoaded?.call(appointments);
       _prefillProfile(profile);
+      if (preselectDoctor) _applyPreferredDoctor(widget.preferredDoctorId);
       if (widget.action != null) _applyAction(widget.action);
     } catch (e) {
       if (!mounted) return;
@@ -1185,6 +1186,13 @@ class _BookingFormCard extends StatelessWidget {
                 slot.availableCount > 0 &&
                 slot.startAt.isAfter(DateTime.now()))
             .toList();
+    DoctorTimeSlot? selectedSlot;
+    for (final slot in doctorSlots) {
+      if (slot.doctorTimeSlotId == selectedSlotId) {
+        selectedSlot = slot;
+        break;
+      }
+    }
     return _SurfaceCard(
       child: Form(
         key: formKey,
@@ -1304,9 +1312,13 @@ class _BookingFormCard extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 10),
-            const _InlineNotice(
+            _InlineNotice(
               icon: Icons.info_outline,
-              message: 'Your appointment number will be assigned automatically when you confirm your booking.',
+              message: selectedSlot == null
+                  ? 'Select an appointment date and time to see the next available appointment number.'
+                  : selectedSlot.nextAppointmentNumber > 0
+                      ? 'Next available appointment number: #${selectedSlot.nextAppointmentNumber}\nThis number may change if someone books before you confirm.'
+                      : 'No appointment numbers are available for this session.',
             ),
             const SizedBox(height: 12),
             TextFormField(
