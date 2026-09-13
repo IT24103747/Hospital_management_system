@@ -243,7 +243,7 @@ public class AppointmentSchedulingAgentTests
             await db.SaveChangesAsync();
             var patientService = new PatientService(new PatientRepository(db));
             return new Scenario { Db = db, Patient = (await patientService.GetPatientByIdAsync(patient.PatientId))!, Slot = slot,
-                Tools = new AppointmentAgentTools(new DoctorService(db, new PasswordHasher<User>()), new AppointmentService(new AppointmentRepository(db))) };
+                Tools = new AppointmentAgentTools(new DoctorService(db, new PasswordHasher<User>()), new AppointmentService(new AppointmentRepository(db), SmsTestSupport.Create(db))) };
         }
     }
 }

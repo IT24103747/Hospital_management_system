@@ -11,7 +11,7 @@ namespace HospitalManagementSystem.Api.Controllers;
 
 [ApiController, Route("api/appointment-proposals"), Authorize(Roles = "Patient")]
 public sealed class AppointmentProposalConfirmationController(ISafetyValidationApprovalAgent agent, IPatientService patients,
-    ApplicationDbContext db, ITriageWorkflowService workflows) : ControllerBase
+    ApplicationDbContext db, ITriageWorkflowService workflows, AppointmentSmsNotifier sms) : ControllerBase
 {
     [HttpPost("{proposalId:int}/confirm")]
     public async Task<IActionResult> Confirm(int proposalId, [FromBody] ConfirmProposalDto request, CancellationToken cancellationToken)
@@ -34,7 +34,11 @@ public sealed class AppointmentProposalConfirmationController(ISafetyValidationA
             w.Status is TriageWorkflowStatuses.FailedSafely or TriageWorkflowStatuses.PendingPatientInput))
             return Ok(new SafetyApprovalResult("Rejected", true, "Complete the urgent safety assessment before confirming an appointment."));
         var result = await agent.ConfirmAsync(new(proposalId, request.DoctorTimeSlotId), patient, cancellationToken);
-        if (transaction != null) await transaction.CommitAsync(cancellationToken);
+        if (transaction != null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            await sms.FlushCommittedAsync(transaction.TransactionId);
+        }
         return Ok(result);
     }
 }

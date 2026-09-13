@@ -75,7 +75,7 @@ public class AppointmentServiceTests
         var expired = await AddAppointmentAsync(db, past);
         var cancelled = await AddAppointmentAsync(db, past, appointmentNumber: 2, status: "Cancelled");
         var upcoming = await AddAppointmentAsync(db, future);
-        var service = new AppointmentService(new AppointmentRepository(db));
+        var service = new AppointmentService(new AppointmentRepository(db), SmsTestSupport.Create(db));
         var result = await service.GetAllAppointmentsAsync(null, "Completed", null, null, null, null, 1, 50);
         Assert.Equal(expired.AppointmentId, Assert.Single(result.Data).AppointmentId);
         Assert.Equal(1, result.TotalCount);
@@ -344,7 +344,7 @@ public class AppointmentServiceTests
         Assert.Equal(expectedRoles, authorize!.Roles);
     }
 
-    private static AppointmentService CreateService(ApplicationDbContext db) => new(new AppointmentRepository(db));
+    private static AppointmentService CreateService(ApplicationDbContext db) => new(new AppointmentRepository(db), SmsTestSupport.Create(db));
 
     private static AppointmentController CreateController(ApplicationDbContext db, string role, int userId, string email)
     {

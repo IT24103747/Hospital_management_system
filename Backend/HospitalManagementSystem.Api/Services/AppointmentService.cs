@@ -7,13 +7,15 @@ namespace HospitalManagementSystem.Api.Services
     public class AppointmentService : IAppointmentService
     {
         private readonly IAppointmentRepository _repository;
+        private readonly AppointmentSmsNotifier _sms;
         private static readonly HashSet<string> ValidStatuses = ["Confirmed", "Completed", "Cancelled"];
         private static readonly HashSet<string> TerminalStatuses = ["Completed", "Cancelled"];
         private static readonly HashSet<string> OccupyingStatuses = ["Confirmed", "Completed"];
 
-        public AppointmentService(IAppointmentRepository repository)
+        public AppointmentService(IAppointmentRepository repository, AppointmentSmsNotifier sms)
         {
             _repository = repository;
+            _sms = sms;
         }
 
         public async Task<PagedResult<AppointmentDto>> GetAllAppointmentsAsync(string? search, string? status, string? doctorName, DateTime? date, string? sortBy, string? sortDirection, int page, int pageSize, int? patientId = null, string? patientEmail = null, int? doctorId = null)
@@ -57,7 +59,9 @@ namespace HospitalManagementSystem.Api.Services
                 UpdatedAt = DateTime.UtcNow
             };
 
-            return MapAppointment(await _repository.CreateAsync(appointment));
+            var saved = await _repository.CreateAsync(appointment);
+            await _sms.NotifyAsync(saved.AppointmentId, "confirmed");
+            return MapAppointment(saved);
         }
 
         private async Task<DoctorTimeSlot> GetActiveSlotAsync(int slotId)
@@ -80,6 +84,9 @@ namespace HospitalManagementSystem.Api.Services
             var appointment = await _repository.GetByIdAsync(id);
             if (appointment is null) return null;
 
+            var previousStatus = appointment.Status;
+            var previousSlotId = appointment.DoctorTimeSlotId;
+
             if (appointment.DoctorTimeSlotId != dto.DoctorTimeSlotId)
             {
                 var slot = await ValidateSlotCapacityAsync(dto.DoctorTimeSlotId, id);
@@ -95,7 +102,12 @@ namespace HospitalManagementSystem.Api.Services
             appointment.AppointmentType = dto.AppointmentType.Trim();
             appointment.Status = dto.Status;
 
-            return MapAppointment(await _repository.UpdateAsync(appointment));
+            var saved = await _repository.UpdateAsync(appointment);
+            if (saved.Status == "Cancelled" && previousStatus != "Cancelled")
+                await _sms.NotifyAsync(id, "cancelled");
+            else if (saved.Status == "Confirmed" && (previousSlotId != saved.DoctorTimeSlotId || previousStatus != "Confirmed"))
+                await _sms.NotifyAsync(id, previousSlotId != saved.DoctorTimeSlotId ? "rescheduled" : "confirmed");
+            return MapAppointment(saved);
         }
 
         public async Task<AppointmentDto?> CancelAppointmentAsync(int id, string reason)
@@ -106,9 +118,12 @@ namespace HospitalManagementSystem.Api.Services
             if (appointment.Status == "Completed")
                 throw new InvalidOperationException("Completed appointments cannot be cancelled.");
 
+            var notify = appointment.Status != "Cancelled";
             appointment.Status = "Cancelled";
             appointment.CancellationReason = reason.Trim();
-            return MapAppointment(await _repository.UpdateAsync(appointment));
+            var saved = await _repository.UpdateAsync(appointment);
+            if (notify) await _sms.NotifyAsync(id, "cancelled");
+            return MapAppointment(saved);
         }
 
         public async Task<AppointmentDto?> RescheduleAppointmentAsync(int id, int doctorTimeSlotId)
@@ -119,11 +134,14 @@ namespace HospitalManagementSystem.Api.Services
                 throw new InvalidOperationException("Terminal appointments cannot be rescheduled.");
 
             var slot = await ValidateSlotCapacityAsync(doctorTimeSlotId, id);
+            var notify = appointment.DoctorTimeSlotId != doctorTimeSlotId;
             var appointmentNumber = await GetNextAppointmentNumberAsync(slot, id);
             appointment.DoctorTimeSlotId = doctorTimeSlotId;
             appointment.AppointmentNumber = appointmentNumber;
             appointment.Status = "Confirmed";
-            return MapAppointment(await _repository.UpdateAsync(appointment));
+            var saved = await _repository.UpdateAsync(appointment);
+            if (notify) await _sms.NotifyAsync(id, "rescheduled");
+            return MapAppointment(saved);
         }
 
         public async Task<IEnumerable<DoctorLookupDto>> GetDoctorsAsync(string? specialty = null)
@@ -237,7 +255,7 @@ namespace HospitalManagementSystem.Api.Services
                 await ValidateAvailableRoomAsync(dto.RoomId.Value, startAt, endAt, id);
 
             var changed = slot.StartAt != startAt || slot.EndAt != endAt || slot.Capacity != dto.Capacity ||
-                slot.RoomId != dto.RoomId || slot.DoctorId != doctor.DoctorId || slot.ConsultationFee != dto.ConsultationFee;
+                slot.RoomId != dto.RoomId || slot.DoctorId != doctor.DoctorId || slot.ConsultationFee != dto.ConsultationFee || slot.IsActive != dto.IsActive;
             slot.DoctorId = doctor.DoctorId;
             slot.RoomId = dto.RoomId;
             slot.DoctorName = doctorName;
@@ -251,6 +269,9 @@ namespace HospitalManagementSystem.Api.Services
             ScheduleAppointmentUpdates.Apply(slot, changed);
 
             var updated = await _repository.UpdateSlotAsync(slot);
+            if (changed)
+                foreach (var appointment in activeAppointments.Where(a => a.Status == "Confirmed"))
+                    await _sms.NotifyAsync(appointment.AppointmentId, slot.IsActive ? "schedule updated" : "session unavailable");
             return MapSlot(updated);
         }
 
@@ -274,6 +295,8 @@ namespace HospitalManagementSystem.Api.Services
             }
 
             var updated = await _repository.UpdateSlotAsync(slot);
+            foreach (var appointment in affectedAppointments)
+                await _sms.NotifyAsync(appointment.AppointmentId, "cancelled");
             return MapSlot(updated);
         }
 

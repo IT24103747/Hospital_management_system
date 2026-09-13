@@ -349,12 +349,12 @@ public sealed class HospitalAssistantTests
                 StartAt = start, EndAt = start.AddHours(2), Capacity = 5, IsActive = true };
             db.DoctorTimeSlots.Add(slot);
             await db.SaveChangesAsync();
-            var appointments = new AppointmentService(new AppointmentRepository(db));
+            var appointments = new AppointmentService(new AppointmentRepository(db), SmsTestSupport.Create(db));
             var tools = new FakeTools(appointments, slot);
             var workflows = new TriageWorkflowService(db, NullLogger<TriageWorkflowService>.Instance);
             return new() { Db = db, Workflows = workflows, Service = new(db, new AssistantAgentRegistry([]), workflows,
                 new HospitalAppointmentProposalAgent(tools, new AppointmentProposalStore(db)),
-                new SafetyValidationApprovalAgent(new SafetyApprovalTools(db, tools)), tools, appointments) };
+                new SafetyValidationApprovalAgent(new SafetyApprovalTools(db, tools)), tools, appointments, SmsTestSupport.Create(db)) };
         }
         public ValueTask DisposeAsync() => Db.DisposeAsync();
     }

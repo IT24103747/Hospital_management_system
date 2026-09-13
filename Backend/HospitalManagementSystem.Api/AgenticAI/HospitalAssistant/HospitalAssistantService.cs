@@ -21,7 +21,8 @@ public sealed class HospitalAssistantService(
     IHospitalAppointmentProposalAgent proposals,
     ISafetyValidationApprovalAgent approval,
     IAppointmentAgentTools tools,
-    IAppointmentService appointments)
+    IAppointmentService appointments,
+    AppointmentSmsNotifier sms)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     // Fixed stripes avoid a lock dictionary growing with patient data. PostgreSQL locks also
@@ -541,7 +542,11 @@ public sealed class HospitalAssistantService(
             if (db.Database.IsNpgsql())
                 await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(1396916552, {patientId})", token);
             var result = await action();
-            if (transaction != null) await transaction.CommitAsync(token);
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(token);
+                await sms.FlushCommittedAsync(transaction.TransactionId);
+            }
             return result;
         }
         finally { gate.Release(); }
