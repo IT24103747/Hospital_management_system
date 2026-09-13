@@ -51,8 +51,8 @@ class _DashboardLayoutState extends State<DashboardLayout> {
   String _userEmail = 'patient@medicore.lk';
   String _userInitials = 'PU';
   String? _appointmentAction;
-  int _appointmentActionVersion = 0;
   int? _appointmentDoctorId;
+  int _appointmentActionVersion = 0;
   Appointment? _nextAppointment;
   bool _loadingNextAppointment = true;
   String? _nextAppointmentError;
@@ -765,8 +765,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
       final doctors = results[3] as List<DoctorLookup>;
       final specializations = _specialties(results[4] as List<String>, doctors);
       final futureSlots = slots
-          .where((slot) =>
-              _isFutureSlot(slot) && slot.isActive && slot.availableCount > 0)
+          .where((slot) => _isFutureSlot(slot) && slot.isActive && slot.availableCount > 0)
           .toList();
       if (!mounted) return;
       setState(() {
@@ -796,7 +795,6 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
       });
       widget.onAppointmentsLoaded?.call(appointments);
       _prefillProfile(profile);
-      _applyPreferredDoctor(widget.preferredDoctorId);
       if (widget.action != null) _applyAction(widget.action);
     } catch (e) {
       if (!mounted) return;
@@ -1374,7 +1372,7 @@ class _BookingFormCard extends StatelessWidget {
               const _InlineNotice(
                 icon: Icons.event_busy_outlined,
                 message:
-                    'No upcoming appointment numbers are available for this doctor.',
+                    'No upcoming appointment slots are available for this doctor.',
               ),
             ],
             if (selectedSlot != null && selectedAppointmentNumber != null) ...[

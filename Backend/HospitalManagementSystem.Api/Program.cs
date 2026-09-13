@@ -13,6 +13,7 @@ using HospitalManagementSystem.Api.AgenticAI.PatientCare.ClinicalSafety;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.SafetyApproval;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.Shared;
+using HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
@@ -100,6 +101,14 @@ builder.Services.AddScoped<ISafetyApprovalTools, SafetyApprovalTools>();
 builder.Services.AddScoped<ISafetyValidationApprovalAgent, SafetyValidationApprovalAgent>();
 builder.Services.AddScoped<IMedicalRecordRepository, MedicalRecordRepository>();
 builder.Services.AddScoped<IMedicalRecordService, MedicalRecordService>();
+builder.Services.AddSingleton<IPlanningCoordinatorStore, PlanningCoordinatorStore>();
+builder.Services.AddScoped<IPlanningCoordinatorAgent, PlanningCoordinatorAgent>();
+builder.Services.AddHttpClient<IPlanningModelClient, GeminiPlanningModelClient>((provider, client) =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
+});
 builder.Services.AddHttpClient<IClinicalInformationExtractionAgent, GeminiClinicalInformationExtractionAgent>((provider, client) =>
 {
     client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
