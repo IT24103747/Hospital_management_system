@@ -8,6 +8,7 @@ import 'package:smartcare_mobile/core/theme/theme_controller.dart';
 import 'package:smartcare_mobile/core/widgets/medicore_logo.dart';
 import 'package:smartcare_mobile/features/auth/screens/login_screen.dart';
 import 'package:smartcare_mobile/features/doctors/screens/doctor_search_screen.dart';
+import 'package:smartcare_mobile/features/medical_records/screens/medical_records_screen.dart';
 import 'package:smartcare_mobile/features/profile/screens/profile_screen.dart';
 import 'package:smartcare_mobile/features/assistant/screens/hospital_assistant_screen.dart';
 import 'package:smartcare_mobile/models/appointment.dart';
@@ -50,8 +51,8 @@ class _DashboardLayoutState extends State<DashboardLayout> {
   String _userEmail = 'patient@medicore.lk';
   String _userInitials = 'PU';
   String? _appointmentAction;
-  int _appointmentActionVersion = 0;
   int? _appointmentDoctorId;
+  int _appointmentActionVersion = 0;
   Appointment? _nextAppointment;
   bool _loadingNextAppointment = true;
   String? _nextAppointmentError;
@@ -151,7 +152,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _PatientSection.doctors => DoctorSearchScreen(
             onBookAppointment: _openDoctorBooking,
           ),
-        _PatientSection.records => const _MedicalRecordsSection(),
+        _PatientSection.records => const MedicalRecordsScreen(embedded: true),
         _PatientSection.assistant => const HospitalAssistantScreen(embedded: true),
         _PatientSection.notifications => const _NotificationsSection(),
         _PatientSection.settings => const _SettingsSection(),
@@ -769,7 +770,9 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
       final slots = results[2] as List<DoctorTimeSlot>;
       final doctors = results[3] as List<DoctorLookup>;
       final specializations = _specialties(results[4] as List<String>, doctors);
-      final futureSlots = slots.where(_isFutureSlot).toList();
+      final futureSlots = slots
+          .where((slot) => _isFutureSlot(slot) && slot.isActive && slot.availableCount > 0)
+          .toList();
       if (!mounted) return;
       setState(() {
         _appointments = appointments;
@@ -793,7 +796,6 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
       });
       widget.onAppointmentsLoaded?.call(appointments);
       _prefillProfile(profile);
-      _applyPreferredDoctor(widget.preferredDoctorId);
       if (widget.action != null) _applyAction(widget.action);
     } catch (e) {
       if (!mounted) return;
@@ -1297,7 +1299,8 @@ class _BookingFormCard extends StatelessWidget {
               const SizedBox(height: 10),
               const _InlineNotice(
                 icon: Icons.event_busy_outlined,
-                message: 'No available upcoming slots for this doctor.',
+                message:
+                    'No upcoming appointment slots are available for this doctor.',
               ),
             ],
             const SizedBox(height: 10),
@@ -1581,55 +1584,6 @@ String _formatFee(double value) {
 
 bool _sameText(String? a, String? b) =>
     (a ?? '').trim().toLowerCase() == (b ?? '').trim().toLowerCase();
-
-class _MedicalRecordsSection extends StatelessWidget {
-  const _MedicalRecordsSection();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _PageScaffold(
-      children: [
-        _HeroCard(
-          title: 'Your health record hub',
-          subtitle:
-              'Medical history, reports, prescriptions, doctor notes, and uploaded documents stay together.',
-          icon: Icons.folder_copy_outlined,
-          actions: ['Upload Document', 'Share Summary'],
-        ),
-        SizedBox(height: 16),
-        _RecordCategory(
-            icon: Icons.history_edu_outlined,
-            title: 'Medical History',
-            items: [
-              'Previous diagnoses',
-              'Previous treatments',
-              'Past visits'
-            ]),
-        _RecordCategory(
-            icon: Icons.science_outlined,
-            title: 'Lab Reports',
-            items: ['Blood tests', 'X-rays', 'Scan reports', 'Results']),
-        _RecordCategory(
-            icon: Icons.medication_outlined,
-            title: 'Prescriptions',
-            items: [
-              'Current medicines',
-              'Dosage',
-              'Instructions',
-              'Previous prescriptions'
-            ]),
-        _RecordCategory(
-            icon: Icons.note_alt_outlined,
-            title: 'Doctor Notes',
-            items: ['Consultation notes', 'Treatment recommendations']),
-        _RecordCategory(
-            icon: Icons.file_copy_outlined,
-            title: 'Documents',
-            items: ['Uploaded documents', 'Medical certificates']),
-      ],
-    );
-  }
-}
 
 class _NotificationsSection extends StatelessWidget {
   const _NotificationsSection();
@@ -2646,49 +2600,6 @@ class _OutlineAction extends StatelessWidget {
           child: Text(label,
               style: TextStyle(
                   color: color, fontSize: 12, fontWeight: FontWeight.w900)),
-        ),
-      ),
-    );
-  }
-}
-
-class _RecordCategory extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final List<String> items;
-
-  const _RecordCategory({
-    required this.icon,
-    required this.title,
-    required this.items,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: _SurfaceCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                    backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-                    child: Icon(icon, color: AppColors.primary)),
-                const SizedBox(width: 12),
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w900)),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: items.map((item) => Chip(label: Text(item))).toList(),
-            ),
-          ],
         ),
       ),
     );

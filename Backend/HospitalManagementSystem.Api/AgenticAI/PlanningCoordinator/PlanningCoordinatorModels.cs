@@ -1,0 +1,203 @@
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
+
+namespace HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator;
+
+/// <summary>
+/// Predefined, allow-listed workflow types.
+/// </summary>
+public enum PlanningWorkflowType
+{
+    TriageThenAppointmentProposal,
+    AppointmentProposal,
+    AppointmentStatus,
+    Unsupported
+}
+
+/// <summary>
+/// Predefined, allow-listed workflow step names.
+/// </summary>
+public static class PlanningWorkflowSteps
+{
+    public const string SafetyCheck = "SafetyCheck";
+    public const string SymptomExtraction = "SymptomExtraction";
+    public const string TriageAssessment = "TriageAssessment";
+    public const string DoctorLookup = "DoctorLookup";
+    public const string SlotSearch = "SlotSearch";
+    public const string AppointmentProposal = "AppointmentProposal";
+    public const string PatientConfirmation = "PatientConfirmation";
+    public const string AppointmentLookup = "AppointmentLookup";
+    public const string StatusNotification = "StatusNotification";
+    public const string SafeControlledResponse = "SafeControlledResponse";
+
+    public static readonly IReadOnlyDictionary<PlanningWorkflowType, IReadOnlyList<string>> DefaultStepsByWorkflow =
+        new Dictionary<PlanningWorkflowType, IReadOnlyList<string>>
+        {
+            [PlanningWorkflowType.TriageThenAppointmentProposal] =
+            [
+                SafetyCheck,
+                SymptomExtraction,
+                TriageAssessment,
+                AppointmentProposal,
+                PatientConfirmation
+            ],
+            [PlanningWorkflowType.AppointmentProposal] =
+            [
+                DoctorLookup,
+                SlotSearch,
+                AppointmentProposal,
+                PatientConfirmation
+            ],
+            [PlanningWorkflowType.AppointmentStatus] =
+            [
+                AppointmentLookup,
+                StatusNotification
+            ],
+            [PlanningWorkflowType.Unsupported] =
+            [
+                SafeControlledResponse
+            ]
+        };
+
+    public static readonly HashSet<string> AllAllowedSteps =
+    [
+        SafetyCheck,
+        SymptomExtraction,
+        TriageAssessment,
+        DoctorLookup,
+        SlotSearch,
+        AppointmentProposal,
+        PatientConfirmation,
+        AppointmentLookup,
+        StatusNotification,
+        SafeControlledResponse
+    ];
+}
+
+/// <summary>
+/// Request DTO representing a patient's objective.
+/// </summary>
+public sealed class PlanningRequestDto
+{
+    [Required, StringLength(4000, MinimumLength = 2)]
+    public string Objective { get; set; } = string.Empty;
+
+    [Range(1, int.MaxValue)]
+    public int? PatientId { get; set; }
+
+    [StringLength(100)]
+    public string? PreferredSpecialty { get; set; }
+
+    [StringLength(50)]
+    public string? PreferredDate { get; set; }
+
+    [StringLength(50)]
+    public string? PreferredTime { get; set; }
+}
+
+/// <summary>
+/// Plan output produced by the Coordinator.
+/// </summary>
+public sealed class PlanningPlanDto
+{
+    public string WorkflowType { get; set; } = PlanningWorkflowType.Unsupported.ToString();
+    public bool AppointmentRequested { get; set; }
+    public bool PatientConfirmationRequired { get; set; }
+    public IReadOnlyList<string> RequiredSteps { get; set; } = [];
+    public string? PreferredDate { get; set; }
+    public string? PreferredTime { get; set; }
+    public IReadOnlyList<string> FollowUpQuestions { get; set; } = [];
+    public string Rationale { get; set; } = string.Empty;
+    public string SafeResponse { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Response returned to the client.
+/// </summary>
+public sealed record PlanningResponseDto(
+    string WorkflowId,
+    string Status,
+    string Objective,
+    PlanningPlanDto Plan,
+    IReadOnlyList<string> CompletedStages,
+    IReadOnlyList<string> Errors,
+    IReadOnlyList<PlanningAuditEventDto> AuditEvents,
+    DateTimeOffset CreatedAt);
+
+/// <summary>
+/// Audit event for coordinator actions and state transitions.
+/// </summary>
+public sealed class PlanningAuditEvent
+{
+    public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
+    public string EventType { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string? Metadata { get; set; }
+}
+
+public sealed record PlanningAuditEventDto(
+    DateTimeOffset Timestamp,
+    string EventType,
+    string Description,
+    string? Metadata);
+
+/// <summary>
+/// Durable / persisted record of a planning workflow.
+/// </summary>
+public sealed class PlanningWorkflowRecord
+{
+    public string WorkflowId { get; set; } = Guid.NewGuid().ToString("N");
+    public int? PatientId { get; set; }
+    public string Objective { get; set; } = string.Empty;
+    public PlanningPlanDto Plan { get; set; } = new();
+    public string Status { get; set; } = "Created"; // Created, Planned, InProgress, Completed, Failed, Unsupported
+    public List<string> CompletedStages { get; set; } = [];
+    public List<string> Errors { get; set; } = [];
+    public List<PlanningAuditEvent> AuditEvents { get; set; } = [];
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+/// <summary>
+/// Configuration options for the Planning Agent.
+/// </summary>
+public sealed class PlanningAgentOptions
+{
+    public const string SectionName = "PlanningAgent";
+    public string GeminiApiKey { get; set; } = string.Empty;
+    public string Model { get; set; } = "gemini-1.5-flash";
+    public int TimeoutSeconds { get; set; } = 45;
+}
+
+/// <summary>
+/// Raw structured JSON decision payload returned by Gemini.
+/// </summary>
+public sealed class GeminiPlanningDecision
+{
+    [JsonPropertyName("workflowType")]
+    public string WorkflowType { get; set; } = string.Empty;
+
+    [JsonPropertyName("appointmentRequested")]
+    public bool AppointmentRequested { get; set; }
+
+    [JsonPropertyName("patientConfirmationRequired")]
+    public bool PatientConfirmationRequired { get; set; }
+
+    [JsonPropertyName("requiredSteps")]
+    public string[] RequiredSteps { get; set; } = [];
+
+    [JsonPropertyName("preferredDate")]
+    public string? PreferredDate { get; set; }
+
+    [JsonPropertyName("preferredTime")]
+    public string? PreferredTime { get; set; }
+
+    [JsonPropertyName("followUpQuestions")]
+    public string[] FollowUpQuestions { get; set; } = [];
+
+    [JsonPropertyName("rationale")]
+    public string Rationale { get; set; } = string.Empty;
+
+    [JsonPropertyName("safeResponse")]
+    public string SafeResponse { get; set; } = string.Empty;
+}
