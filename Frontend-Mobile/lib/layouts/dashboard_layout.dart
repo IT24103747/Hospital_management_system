@@ -10,7 +10,7 @@ import 'package:smartcare_mobile/features/auth/screens/login_screen.dart';
 import 'package:smartcare_mobile/features/doctors/screens/doctor_search_screen.dart';
 import 'package:smartcare_mobile/features/medical_records/screens/medical_records_screen.dart';
 import 'package:smartcare_mobile/features/profile/screens/profile_screen.dart';
-import 'package:smartcare_mobile/features/triage/screens/ai_triage_screen.dart';
+import 'package:smartcare_mobile/features/assistant/screens/hospital_assistant_screen.dart';
 import 'package:smartcare_mobile/models/appointment.dart';
 import 'package:smartcare_mobile/models/doctor.dart';
 import 'package:smartcare_mobile/models/patient.dart';
@@ -92,6 +92,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         return _PatientSection.doctors;
       case 'Medical Records':
         return _PatientSection.records;
+      case 'Hospital AI Assistant':
       case 'AI Health Assistant':
       case 'AI Smart Triage':
         return _PatientSection.assistant;
@@ -112,7 +113,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _PatientSection.appointments => 'Appointments',
         _PatientSection.doctors => 'Doctors',
         _PatientSection.records => 'Medical Records',
-        _PatientSection.assistant => 'AI Health Assistant',
+        _PatientSection.assistant => 'Hospital AI Assistant',
         _PatientSection.notifications => 'Notifications',
         _PatientSection.settings => 'Settings',
         _PatientSection.support => 'Help & Support',
@@ -122,11 +123,11 @@ class _DashboardLayoutState extends State<DashboardLayout> {
         _PatientSection.home => 'Your patient dashboard',
         _PatientSection.profile => 'Personal and emergency information',
         _PatientSection.appointments =>
-          'Book, reschedule, cancel, and view visits',
+          'Book, cancel, and view visits',
         _PatientSection.doctors => 'Find specialists and available schedules',
         _PatientSection.records => 'History, reports, prescriptions, and notes',
         _PatientSection.assistant =>
-          'Simple explanations and guided health questions',
+          'Patient guidance and appointment assistance',
         _PatientSection.notifications =>
           'Hospital updates and appointment reminders',
         _PatientSection.settings => 'Account, privacy, language, and security',
@@ -139,6 +140,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
             nextAppointmentText: _nextAppointmentText,
             onBookAppointment: () => _openAppointments('book'),
             onViewAppointments: () => _openAppointments('upcoming'),
+            onOpenAssistant: () => _selectSection(_PatientSection.assistant),
           ),
         _PatientSection.profile => const ProfileScreen(),
         _PatientSection.appointments => _AppointmentsSection(
@@ -151,7 +153,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
             onBookAppointment: _openDoctorBooking,
           ),
         _PatientSection.records => const MedicalRecordsScreen(embedded: true),
-        _PatientSection.assistant => const AiTriageScreen(embedded: true),
+        _PatientSection.assistant => const HospitalAssistantScreen(embedded: true),
         _PatientSection.notifications => const _NotificationsSection(),
         _PatientSection.settings => const _SettingsSection(),
         _PatientSection.support => const _SupportSection(),
@@ -256,18 +258,20 @@ class _DashboardLayoutState extends State<DashboardLayout> {
       drawer: isDesktop
           ? null
           : Drawer(width: 286, child: _sidebar(isDesktop: false)),
-      body: Row(
-        children: [
-          if (isDesktop) _sidebar(isDesktop: true),
-          Expanded(
-            child: Column(
-              children: [
-                _topBar(isDesktop: isDesktop),
-                Expanded(child: _content),
-              ],
+      body: SafeArea(
+        child: Row(
+          children: [
+            if (isDesktop) _sidebar(isDesktop: true),
+            Expanded(
+              child: Column(
+                children: [
+                  _topBar(isDesktop: isDesktop),
+                  Expanded(child: _content),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -289,6 +293,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
           if (!isDesktop)
             Builder(
               builder: (context) => IconButton.filledTonal(
+                tooltip: 'Open menu',
                 onPressed: () => Scaffold.of(context).openDrawer(),
                 icon: const Icon(Icons.menu_rounded),
               ),
@@ -402,7 +407,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
                       _PatientSection.doctors),
                   _navItem(Icons.folder_copy_outlined, 'Medical Records',
                       _PatientSection.records),
-                  _navItem(Icons.psychology_alt_outlined, 'AI Health Assistant',
+                  _navItem(Icons.psychology_alt_outlined, 'Hospital AI Assistant',
                       _PatientSection.assistant),
                   const SizedBox(height: 12),
                   _sectionLabel('Account'),
@@ -607,12 +612,14 @@ class _HomeSection extends StatelessWidget {
   final String nextAppointmentText;
   final VoidCallback onBookAppointment;
   final VoidCallback onViewAppointments;
+  final VoidCallback onOpenAssistant;
 
   const _HomeSection({
     required this.userName,
     required this.nextAppointmentText,
     required this.onBookAppointment,
     required this.onViewAppointments,
+    required this.onOpenAssistant,
   });
 
   @override
@@ -636,19 +643,19 @@ class _HomeSection extends StatelessWidget {
         const SizedBox(height: 16),
         const _SectionTitle('Today'),
         const SizedBox(height: 12),
-        const _FeatureGrid(
+        _FeatureGrid(
           tiles: [
-            _FeatureTileData(
+            const _FeatureTileData(
                 Icons.medical_information_outlined,
                 'Doctor information',
                 'Cardiology consultation',
                 AppColors.primary),
-            _FeatureTileData(Icons.description_outlined, 'Recent report',
+            const _FeatureTileData(Icons.description_outlined, 'Recent report',
                 'Blood test uploaded', AppColors.success),
-            _FeatureTileData(Icons.notifications_active_outlined,
+            const _FeatureTileData(Icons.notifications_active_outlined,
                 'Notifications', '3 new updates', AppColors.warning),
-            _FeatureTileData(Icons.psychology_alt_outlined, 'AI Assistant',
-                'Ask about reports', AppColors.accent),
+            _FeatureTileData(Icons.psychology_alt_outlined, 'Hospital AI Assistant',
+                'Care and appointments', AppColors.accent, onTap: onOpenAssistant),
           ],
         ),
         const SizedBox(height: 16),
@@ -691,7 +698,6 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   String? _selectedSpecialty;
   String? _selectedDoctorName;
   int? _selectedSlotId;
-  int? _selectedAppointmentNumber;
   bool _showBookingForm = false;
   _AppointmentListMode _listMode = _AppointmentListMode.upcoming;
   bool _loading = true;
@@ -787,11 +793,6 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
                 _sameText(slot.specialty, _selectedSpecialty))
             ? _selectedSlotId
             : null;
-        if (_selectedSlot == null ||
-            !_availableNumbers(_selectedSlot!)
-                .contains(_selectedAppointmentNumber)) {
-          _selectedAppointmentNumber = null;
-        }
       });
       widget.onAppointmentsLoaded?.call(appointments);
       _prefillProfile(profile);
@@ -823,7 +824,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   Future<void> _bookAppointment() async {
     if (!_formKey.currentState!.validate()) return;
     final slot = _selectedSlot;
-    if (slot == null || !_isFutureSlot(slot)) {
+    if (slot == null || !slot.isActive || slot.availableCount <= 0 || !_isFutureSlot(slot)) {
       setState(() => _error = 'Select an upcoming appointment slot.');
       return;
     }
@@ -844,39 +845,10 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
       _selectedSpecialty = null;
       _selectedSlotId = null;
       _selectedDoctorName = null;
-      _selectedAppointmentNumber = null;
       _showBookingForm = false;
       _listMode = _AppointmentListMode.upcoming;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Appointment booked successfully.')),
-      );
-      await _loadAppointments();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = _friendlyError(e));
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  Future<void> _reschedule(Appointment appointment) async {
-    final slotId = await _pickSlot(
-      title: 'Reschedule appointment',
-      excludedSlotId: appointment.doctorTimeSlotId,
-    );
-    if (slotId == null) return;
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      await ApiService.rescheduleAppointment(
-        appointmentId: appointment.appointmentId,
-        doctorTimeSlotId: slotId,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Appointment rescheduled.')),
       );
       await _loadAppointments();
     } catch (e) {
@@ -912,57 +884,10 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
     }
   }
 
-  Future<int?> _pickSlot({required String title, int? excludedSlotId}) async {
-    final choices = _slots
-        .where((slot) =>
-            slot.doctorTimeSlotId != excludedSlotId && _isFutureSlot(slot))
-        .toList();
-    if (choices.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No alternate time slots are available.')),
-      );
-      return null;
-    }
-
-    return showModalBottomSheet<int>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            children: [
-              Text(title,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w900)),
-              const SizedBox(height: 12),
-              ...choices.map(
-                (slot) => ListTile(
-                  leading: const CircleAvatar(
-                    backgroundColor: Color(0xFFE0F2FE),
-                    child:
-                        Icon(Icons.schedule_rounded, color: AppColors.primary),
-                  ),
-                  title: Text(slot.doctorName,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                  subtitle: Text('${slot.specialty} - ${_formatSlot(slot)}'),
-                  trailing: Text('${slot.availableCount} left'),
-                  onTap: () => Navigator.pop(context, slot.doctorTimeSlotId),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   Future<String?> _cancelReason() async {
-    final controller = TextEditingController();
+    var reason = '';
     final formKey = GlobalKey<FormState>();
-    final result = await showDialog<String>(
+    return showDialog<String>(
       context: context,
       builder: (context) {
         return AlertDialog(
@@ -970,7 +895,9 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
           content: Form(
             key: formKey,
             child: TextFormField(
-              controller: controller,
+              // Let the field own its controller for the entire route lifetime,
+              // including the dialog's closing animation.
+              onChanged: (value) => reason = value,
               minLines: 2,
               maxLines: 4,
               decoration: const InputDecoration(
@@ -990,7 +917,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
             FilledButton(
               onPressed: () {
                 if (formKey.currentState!.validate()) {
-                  Navigator.pop(context, controller.text.trim());
+                  Navigator.pop(context, reason.trim());
                 }
               },
               child: const Text('Cancel appointment'),
@@ -999,8 +926,6 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
         );
       },
     );
-    controller.dispose();
-    return result;
   }
 
   @override
@@ -1051,7 +976,6 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
               selectedSpecialty: _selectedSpecialty,
               selectedDoctorName: _selectedDoctorName,
               selectedSlotId: _selectedSlotId,
-              selectedAppointmentNumber: _selectedAppointmentNumber,
               appointmentType: _appointmentType,
               nameController: _nameController,
               phoneController: _phoneController,
@@ -1060,7 +984,8 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
               saving: _saving,
               onSpecialtyChanged: _selectSpecialty,
               onDoctorChanged: _selectDoctor,
-              onAppointmentNumberChanged: _selectAppointmentNumber,
+              onSlotChanged: (value) =>
+                  setState(() => _selectedSlotId = value),
               onTypeChanged: (value) =>
                   setState(() => _appointmentType = value ?? 'Consultation'),
               onClose: () => setState(() => _showBookingForm = false),
@@ -1084,17 +1009,15 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
                   : 'Booked upcoming appointments will appear here.',
             )
           else ...[
-            _SectionLabel(
-                showingHistory ? 'Completed and cancelled' : 'Upcoming'),
-            const SizedBox(height: 8),
+            if (showingHistory) ...[
+              const _SectionLabel('Completed and cancelled'),
+              const SizedBox(height: 8),
+            ],
             ...visibleAppointments.map((appointment) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: _AppointmentCard(
                     appointment: appointment,
                     compact: showingHistory,
-                    onReschedule: showingHistory || _saving
-                        ? null
-                        : () => _reschedule(appointment),
                     onCancel: showingHistory || _saving
                         ? null
                         : () => _cancel(appointment),
@@ -1136,7 +1059,6 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
       _selectedSpecialty = specialty;
       _selectedDoctorName = null;
       _selectedSlotId = null;
-      _selectedAppointmentNumber = null;
     });
   }
 
@@ -1144,7 +1066,6 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
     setState(() {
       _selectedDoctorName = doctorName;
       _selectedSlotId = null;
-      _selectedAppointmentNumber = null;
     });
   }
 
@@ -1164,28 +1085,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
       _selectedSpecialty = preferredDoctor!.specialty;
       _selectedDoctorName = preferredDoctor.doctorName;
       _selectedSlotId = null;
-      _selectedAppointmentNumber = null;
     });
-  }
-
-  void _selectAppointmentNumber(DoctorTimeSlot slot, int number) {
-    if (!_isFutureSlot(slot)) return;
-
-    setState(() {
-      _selectedSpecialty = slot.specialty;
-      _selectedDoctorName = slot.doctorName;
-      _selectedSlotId = slot.doctorTimeSlotId;
-      _selectedAppointmentNumber = number;
-    });
-  }
-
-  List<int> _availableNumbers(DoctorTimeSlot slot) {
-    if (!_isFutureSlot(slot)) return [];
-
-    final booked = slot.bookedAppointmentNumbers.toSet();
-    return List.generate(slot.capacity, (index) => index + 1)
-        .where((number) => !booked.contains(number))
-        .toList();
   }
 
   List<String> _doctorNamesForSpecialty(
@@ -1233,7 +1133,6 @@ class _BookingFormCard extends StatelessWidget {
   final String? selectedSpecialty;
   final String? selectedDoctorName;
   final int? selectedSlotId;
-  final int? selectedAppointmentNumber;
   final String appointmentType;
   final TextEditingController nameController;
   final TextEditingController phoneController;
@@ -1242,8 +1141,7 @@ class _BookingFormCard extends StatelessWidget {
   final bool saving;
   final ValueChanged<String?> onSpecialtyChanged;
   final ValueChanged<String?> onDoctorChanged;
-  final void Function(DoctorTimeSlot slot, int number)
-      onAppointmentNumberChanged;
+  final ValueChanged<int?> onSlotChanged;
   final ValueChanged<String?> onTypeChanged;
   final VoidCallback onClose;
   final VoidCallback onSubmit;
@@ -1256,7 +1154,6 @@ class _BookingFormCard extends StatelessWidget {
     required this.selectedSpecialty,
     required this.selectedDoctorName,
     required this.selectedSlotId,
-    required this.selectedAppointmentNumber,
     required this.appointmentType,
     required this.nameController,
     required this.phoneController,
@@ -1265,7 +1162,7 @@ class _BookingFormCard extends StatelessWidget {
     required this.saving,
     required this.onSpecialtyChanged,
     required this.onDoctorChanged,
-    required this.onAppointmentNumberChanged,
+    required this.onSlotChanged,
     required this.onTypeChanged,
     required this.onClose,
     required this.onSubmit,
@@ -1273,7 +1170,6 @@ class _BookingFormCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedSlot = _slotById(selectedSlotId);
     final filteredDoctors = selectedSpecialty == null
         ? <DoctorLookup>[]
         : doctors
@@ -1284,7 +1180,10 @@ class _BookingFormCard extends StatelessWidget {
         : slots
             .where((slot) =>
                 slot.doctorName == selectedDoctorName &&
-                _sameText(slot.specialty, selectedSpecialty))
+                _sameText(slot.specialty, selectedSpecialty) &&
+                slot.isActive &&
+                slot.availableCount > 0 &&
+                slot.startAt.isAfter(DateTime.now()))
             .toList();
     return _SurfaceCard(
       child: Form(
@@ -1358,14 +1257,43 @@ class _BookingFormCard extends StatelessWidget {
                     : onDoctorChanged,
               ),
             const SizedBox(height: 12),
-            _AppointmentNumberSelector(
-              slots: doctorSlots,
-              enabled: !saving &&
-                  selectedSpecialty != null &&
-                  selectedDoctorName != null,
-              selectedSlotId: selectedSlotId,
-              selectedAppointmentNumber: selectedAppointmentNumber,
-              onSelected: onAppointmentNumberChanged,
+            DropdownButtonFormField<int>(
+              key: ValueKey('$selectedSpecialty-$selectedDoctorName-$selectedSlotId'),
+              initialValue: doctorSlots.any((slot) =>
+                      slot.doctorTimeSlotId == selectedSlotId)
+                  ? selectedSlotId
+                  : null,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Appointment date and time'),
+              itemHeight: 64,
+              isDense: false,
+              items: doctorSlots.map((slot) => DropdownMenuItem(
+                value: slot.doctorTimeSlotId,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      DateFormat('EEE, d MMM yyyy').format(slot.startAt.toLocal()),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${DateFormat('h:mm a').format(slot.startAt.toLocal())} – ${DateFormat('h:mm a').format(slot.endAt.toLocal())}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              )).toList(),
+              validator: (value) => value == null ? 'Choose an appointment slot.' : null,
+              onChanged: saving || doctorSlots.isEmpty ? null : onSlotChanged,
             ),
             if (selectedDoctorName != null && doctorSlots.isEmpty) ...[
               const SizedBox(height: 10),
@@ -1375,13 +1303,11 @@ class _BookingFormCard extends StatelessWidget {
                     'No upcoming appointment slots are available for this doctor.',
               ),
             ],
-            if (selectedSlot != null && selectedAppointmentNumber != null) ...[
-              const SizedBox(height: 12),
-              _AppointmentEstimatePanel(
-                slot: selectedSlot,
-                appointmentNumber: selectedAppointmentNumber,
-              ),
-            ],
+            const SizedBox(height: 10),
+            const _InlineNotice(
+              icon: Icons.info_outline,
+              message: 'Your appointment number will be assigned automatically when you confirm your booking.',
+            ),
             const SizedBox(height: 12),
             TextFormField(
               controller: nameController,
@@ -1471,439 +1397,6 @@ class _BookingFormCard extends StatelessWidget {
     );
   }
 
-  DoctorTimeSlot? _slotById(int? slotId) {
-    for (final slot in slots) {
-      if (slot.doctorTimeSlotId == slotId) return slot;
-    }
-    return null;
-  }
-}
-
-class _AppointmentNumberSelector extends StatefulWidget {
-  final List<DoctorTimeSlot> slots;
-  final bool enabled;
-  final int? selectedSlotId;
-  final int? selectedAppointmentNumber;
-  final void Function(DoctorTimeSlot slot, int number) onSelected;
-
-  const _AppointmentNumberSelector({
-    required this.slots,
-    required this.enabled,
-    required this.selectedSlotId,
-    required this.selectedAppointmentNumber,
-    required this.onSelected,
-  });
-
-  @override
-  State<_AppointmentNumberSelector> createState() =>
-      _AppointmentNumberSelectorState();
-}
-
-class _AppointmentNumberSelectorState
-    extends State<_AppointmentNumberSelector> {
-  bool _open = false;
-
-  @override
-  void didUpdateWidget(covariant _AppointmentNumberSelector oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!widget.enabled && _open) {
-      _open = false;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final selectedSlot = _selectedSlot();
-    final selectedNumber = widget.selectedAppointmentNumber;
-    final selectedLabel = selectedSlot != null && selectedNumber != null
-        ? '#$selectedNumber - ${_formatEstimatedTime(selectedSlot, selectedNumber)}'
-        : 'Select appointment no';
-
-    return FormField<int>(
-      key: ValueKey(
-          '${widget.selectedSlotId}-${widget.selectedAppointmentNumber}-${widget.slots.length}'),
-      initialValue: widget.selectedAppointmentNumber,
-      validator: (_) => widget.selectedAppointmentNumber == null
-          ? 'Choose an appointment number.'
-          : null,
-      builder: (field) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Select Appointment No',
-              style: TextStyle(
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? AppColors.textSecondaryDark
-                    : AppColors.textSecondaryLight,
-                fontSize: 14,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: widget.enabled
-                    ? () => setState(() => _open = !_open)
-                    : null,
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  width: double.infinity,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? AppColors.surfaceDarkSecondary
-                        : AppColors.bgLightCard,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: field.hasError
-                          ? AppColors.danger
-                          : AppColors.borderLight,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          widget.enabled
-                              ? selectedLabel
-                              : 'Select doctor first',
-                          style: TextStyle(
-                            color: widget.enabled
-                                ? AppColors.textPrimaryLight
-                                : AppColors.textMutedLight,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        _open
-                            ? Icons.keyboard_arrow_up_rounded
-                            : Icons.keyboard_arrow_down_rounded,
-                        color: AppColors.textMutedLight,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            if (field.hasError) ...[
-              const SizedBox(height: 6),
-              Text(
-                field.errorText!,
-                style: const TextStyle(color: AppColors.danger, fontSize: 12),
-              ),
-            ],
-            if (_open) ...[
-              const SizedBox(height: 8),
-              _AppointmentNumberPanel(
-                slots: widget.slots,
-                selectedSlotId: widget.selectedSlotId,
-                selectedAppointmentNumber: widget.selectedAppointmentNumber,
-                onSelected: (slot, number) {
-                  field.didChange(number);
-                  widget.onSelected(slot, number);
-                  setState(() => _open = false);
-                },
-              ),
-            ],
-          ],
-        );
-      },
-    );
-  }
-
-  DoctorTimeSlot? _selectedSlot() {
-    for (final slot in widget.slots) {
-      if (slot.doctorTimeSlotId == widget.selectedSlotId) return slot;
-    }
-    return null;
-  }
-}
-
-class _AppointmentNumberPanel extends StatelessWidget {
-  final List<DoctorTimeSlot> slots;
-  final int? selectedSlotId;
-  final int? selectedAppointmentNumber;
-  final void Function(DoctorTimeSlot slot, int number) onSelected;
-
-  const _AppointmentNumberPanel({
-    required this.slots,
-    required this.selectedSlotId,
-    required this.selectedAppointmentNumber,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).brightness == Brightness.dark
-            ? AppColors.surfaceDark
-            : AppColors.bgLightCard,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.borderLight),
-      ),
-      child: slots.isEmpty
-          ? const _InlineNotice(
-              icon: Icons.event_busy_outlined,
-              message: 'No appointment numbers are available for this doctor.',
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var index = 0; index < slots.length; index++) ...[
-                  _AppointmentNumberSlotGroup(
-                    slot: slots[index],
-                    selectedSlotId: selectedSlotId,
-                    selectedAppointmentNumber: selectedAppointmentNumber,
-                    onSelected: onSelected,
-                  ),
-                  if (index != slots.length - 1)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Divider(height: 1, color: AppColors.borderLight),
-                    ),
-                ],
-              ],
-            ),
-    );
-  }
-}
-
-class _AppointmentNumberSlotGroup extends StatelessWidget {
-  final DoctorTimeSlot slot;
-  final int? selectedSlotId;
-  final int? selectedAppointmentNumber;
-  final void Function(DoctorTimeSlot slot, int number) onSelected;
-
-  const _AppointmentNumberSlotGroup({
-    required this.slot,
-    required this.selectedSlotId,
-    required this.selectedAppointmentNumber,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final booked = slot.bookedAppointmentNumbers.toSet();
-    final numbers = List.generate(slot.capacity, (index) => index + 1);
-    final location = _formatSlotLocation(slot);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          _formatSlotHeading(slot),
-          style: const TextStyle(
-            color: AppColors.textSecondaryLight,
-            fontSize: 13,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        if (location.isNotEmpty) ...[
-          const SizedBox(height: 3),
-          Text(
-            location,
-            style: const TextStyle(
-              color: AppColors.textMutedLight,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: numbers.map((number) {
-            final isBooked = booked.contains(number);
-            final isSelected = selectedSlotId == slot.doctorTimeSlotId &&
-                selectedAppointmentNumber == number;
-            return _AppointmentNumberButton(
-              number: number,
-              selected: isSelected,
-              disabled: isBooked,
-              onTap: isBooked ? null : () => onSelected(slot, number),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-}
-
-class _AppointmentNumberButton extends StatelessWidget {
-  final int number;
-  final bool selected;
-  final bool disabled;
-  final VoidCallback? onTap;
-
-  const _AppointmentNumberButton({
-    required this.number,
-    required this.selected,
-    required this.disabled,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final borderColor = selected ? AppColors.primary : Colors.transparent;
-    final backgroundColor =
-        disabled ? AppColors.surfaceLight : const Color(0xFFD7E2EF);
-    return Material(
-      color: backgroundColor,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          width: 42,
-          height: 42,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: borderColor, width: selected ? 1.5 : 1),
-          ),
-          child: Text(
-            '#$number',
-            style: TextStyle(
-              color: disabled
-                  ? AppColors.textMutedLight
-                  : AppColors.textPrimaryLight,
-              fontSize: 13,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AppointmentEstimatePanel extends StatelessWidget {
-  final DoctorTimeSlot slot;
-  final int? appointmentNumber;
-
-  const _AppointmentEstimatePanel({
-    required this.slot,
-    required this.appointmentNumber,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final location = _formatSlotLocation(slot);
-    final estimatedTime = appointmentNumber == null
-        ? 'Select a number to see estimated patient time.'
-        : _formatEstimatedDateTime(slot, appointmentNumber!);
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.event_available_outlined,
-                  color: AppColors.primary),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Appointment #${appointmentNumber ?? '-'}',
-                  style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w900),
-                ),
-              ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  _formatFee(slot.consultationFee),
-                  style: const TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _AppointmentDetailRow(
-            icon: Icons.schedule_rounded,
-            label: 'Estimated time',
-            value: estimatedTime,
-          ),
-          if (location.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _AppointmentDetailRow(
-              icon: Icons.meeting_room_outlined,
-              label: 'Location',
-              value: location,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _AppointmentDetailRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _AppointmentDetailRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 16, color: AppColors.textMutedLight),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  color: AppColors.textMutedLight,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                value,
-                style: const TextStyle(
-                  color: AppColors.textSecondaryLight,
-                  fontSize: 13,
-                  height: 1.35,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 class _AppointmentLoadingState extends StatelessWidget {
@@ -2051,27 +1544,6 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-String _formatSlot(DoctorTimeSlot slot) {
-  final date = DateFormat('MMM d, yyyy').format(slot.startAt.toLocal());
-  final start = DateFormat('h:mm a').format(slot.startAt.toLocal());
-  final end = DateFormat('h:mm a').format(slot.endAt.toLocal());
-  return '$date, $start - $end';
-}
-
-String _formatSlotHeading(DoctorTimeSlot slot) {
-  final date = DateFormat('MMM d').format(slot.startAt.toLocal());
-  final start = DateFormat('hh:mm a').format(slot.startAt.toLocal());
-  final end = DateFormat('hh:mm a').format(slot.endAt.toLocal());
-  return '$date, $start-$end';
-}
-
-String _formatSlotLocation(DoctorTimeSlot slot) {
-  return [slot.roomNumber, slot.roomName, slot.floor]
-      .map((value) => value.trim())
-      .where((value) => value.isNotEmpty)
-      .join(', ');
-}
-
 String _formatAppointmentLocation(Appointment appointment) {
   return [appointment.roomNumber, appointment.roomName, appointment.floor]
       .map((value) => value.trim())
@@ -2103,23 +1575,6 @@ String _formatAppointmentTime(Appointment appointment) {
       DateFormat('h:mm a').format(appointment.startAt.toLocal());
   final end = DateFormat('h:mm a').format(appointment.endAt.toLocal());
   return '$start - $end';
-}
-
-String _formatEstimatedTime(DoctorTimeSlot slot, int appointmentNumber) =>
-    DateFormat('h:mm a')
-        .format(_estimatedStartAt(slot, appointmentNumber).toLocal());
-
-String _formatEstimatedDateTime(DoctorTimeSlot slot, int appointmentNumber) {
-  return DateFormat('MMM d, yyyy, h:mm a')
-      .format(_estimatedStartAt(slot, appointmentNumber).toLocal());
-}
-
-DateTime _estimatedStartAt(DoctorTimeSlot slot, int appointmentNumber) {
-  if (slot.capacity <= 0) return slot.startAt;
-  final duration = slot.endAt.difference(slot.startAt);
-  final intervalMs = duration.inMilliseconds ~/ slot.capacity;
-  return slot.startAt
-      .add(Duration(milliseconds: intervalMs * (appointmentNumber - 1)));
 }
 
 String _formatFee(double value) {
@@ -2778,8 +2233,9 @@ class _FeatureTileData {
   final String title;
   final String subtitle;
   final Color color;
+  final VoidCallback? onTap;
 
-  const _FeatureTileData(this.icon, this.title, this.subtitle, this.color);
+  const _FeatureTileData(this.icon, this.title, this.subtitle, this.color, {this.onTap});
 }
 
 class _FeatureGrid extends StatelessWidget {
@@ -2796,7 +2252,11 @@ class _FeatureGrid extends StatelessWidget {
       crossAxisSpacing: 12,
       mainAxisSpacing: 12,
       childAspectRatio: 1.06,
-      children: tiles.map((tile) => _FeatureTile(tile: tile)).toList(),
+      children: tiles.map((tile) => InkWell(
+        onTap: tile.onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: _FeatureTile(tile: tile),
+      )).toList(),
     );
   }
 }
@@ -2908,13 +2368,11 @@ class _InfoPanel extends StatelessWidget {
 class _AppointmentCard extends StatelessWidget {
   final Appointment appointment;
   final bool compact;
-  final VoidCallback? onReschedule;
   final VoidCallback? onCancel;
 
   const _AppointmentCard({
     required this.appointment,
     this.compact = false,
-    this.onReschedule,
     this.onCancel,
   });
 
@@ -2963,6 +2421,15 @@ class _AppointmentCard extends StatelessWidget {
               ),
               _StatusBadge(label: appointment.status),
             ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Appointment No: ${appointment.appointmentNumber}',
+            style: const TextStyle(
+              color: AppColors.primary,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           if (location.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -3017,18 +2484,12 @@ class _AppointmentCard extends StatelessWidget {
                       value: _formatFee(appointment.consultationFee))),
             ],
           ),
-          if (onReschedule != null || onCancel != null) ...[
+          if (onCancel != null) ...[
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                    child: _OutlineAction(
-                        label: 'Reschedule', onTap: onReschedule)),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: _OutlineAction(
-                        label: 'Cancel', danger: true, onTap: onCancel)),
-              ],
+            _OutlineAction(
+              label: 'Cancel',
+              danger: true,
+              onTap: onCancel,
             ),
           ],
         ],

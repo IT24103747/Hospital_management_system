@@ -51,6 +51,7 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         if (validationProblems.Count > 0)
         {
             workflow.Status = TriageWorkflowStatuses.FailedSafely;
+            workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
             workflow.TriageLevel = TriageLevels.InsufficientInformation;
             workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
             workflow.RequiresHumanReview = true;
@@ -178,6 +179,7 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         if (run.Context.FailedSafely)
         {
             workflow.Status = TriageWorkflowStatuses.FailedSafely;
+            workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
             workflow.TriageLevel = TriageLevels.InsufficientInformation;
             workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
             workflow.RequiresHumanReview = true;
@@ -265,7 +267,8 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
     public async Task<IReadOnlyList<TriageWorkflowDto>> GetPendingClinicalReviewsAsync()
     {
         var workflows = await _db.TriageWorkflows.AsNoTracking()
-            .Where(x => x.ApprovalStatus == TriageApprovalStatuses.Pending || x.ApprovalStatus == TriageApprovalStatuses.RevisionRequested)
+            .Where(x => x.ApprovalStatus == TriageApprovalStatuses.Pending || x.ApprovalStatus == TriageApprovalStatuses.RevisionRequested ||
+                (x.Status == TriageWorkflowStatuses.FailedSafely && x.RequiresHumanReview && x.ApprovalStatus == TriageApprovalStatuses.NotRequired))
             .OrderBy(x => x.CreatedAt)
             .ToListAsync();
         return workflows.Select(workflow => Map(workflow, redactPatientText: true)).ToList();
@@ -285,11 +288,22 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
     public async Task<TriageWorkflowDto?> ReviewAsync(int workflowId, int reviewerUserId, ReviewTriageWorkflowDto request)
     {
         var workflow = await _db.TriageWorkflows.SingleOrDefaultAsync(x => x.TriageWorkflowId == workflowId);
-        if (workflow is null || workflow.ApprovalStatus != TriageApprovalStatuses.Pending) return null;
+        // RevisionRequested workflows remain in the clinical-review queue and
+        // must be reviewable again after the requested information is provided.
+        if (workflow is null) return null;
+        var legacyFailure = workflow.Status == TriageWorkflowStatuses.FailedSafely &&
+            workflow.RequiresHumanReview && workflow.ApprovalStatus == TriageApprovalStatuses.NotRequired;
+        if (!legacyFailure && workflow.ApprovalStatus is not (TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested)) return null;
 
         var decision = request.Decision.Trim();
         if (decision is not (TriageApprovalStatuses.Approved or TriageApprovalStatuses.Rejected or TriageApprovalStatuses.RevisionRequested))
             throw new ArgumentException("Decision must be Approved, Rejected, or RevisionRequested.");
+
+        // Repair legacy queue eligibility only as part of an authorized, audited
+        // review. Reading the queue never mutates patient records.
+        if (legacyFailure)
+            await AddEvent(workflow, "HumanClinicalReview", "LegacyFailedAssessmentRecovered",
+                new { previousApprovalStatus = workflow.ApprovalStatus, reviewerUserId });
 
         workflow.ApprovalStatus = decision;
         workflow.ReviewedByUserId = reviewerUserId;
@@ -709,11 +723,11 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
     private static TriageGuidanceDto GetClinicalReviewGuidance() => new()
     {
         Heading = "Professional clinical review is required",
-        Summary = "A serious condition, treatment, or high-risk health context was reported. The available text is not enough to determine urgency safely.",
-        Actions = ["Contact the relevant care team or a qualified healthcare professional for assessment.", "Have current symptoms, treatment details, medicines, allergies, and measured vital signs available."],
-        SeekHelpIf = ["Seek emergency care immediately for severe breathing difficulty, severe chest pain, loss of consciousness, stroke signs, seizure, heavy bleeding, or another life-threatening emergency.", "During or soon after cancer treatment, promptly contact the treating team for fever, shivering, infection symptoms, unusual bleeding, or feeling very unwell."],
+        Summary = "A higher-risk health context was reported. A clinician should review the symptoms before this is treated as routine self-care.",
+        Actions = ["Contact the relevant care team or a qualified healthcare professional for assessment.", "Have your current symptoms, medicines, allergies, and any measured vital signs available."],
+        SeekHelpIf = ["Seek emergency care immediately for severe breathing difficulty, severe chest pain, loss of consciousness, stroke signs, seizure, heavy bleeding, or another life-threatening emergency."],
         FollowUpQuestions = GetHighRiskContextQuestions(),
-        EvidenceSource = "Safety-netting based on NHS chemotherapy and acute oncology guidance; this is not a diagnosis or personalized treatment plan."
+        EvidenceSource = "Controlled higher-risk-context safety template; this is not a diagnosis or personalized treatment plan."
     };
 
     private static TriageGuidanceDto GetClarificationGuidance() => new()

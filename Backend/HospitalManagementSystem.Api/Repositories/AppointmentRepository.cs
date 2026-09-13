@@ -51,7 +51,7 @@ namespace HospitalManagementSystem.Api.Repositories
         {
             // Serialize bookings for the same session across API instances.
             // The existing unique index remains the final duplicate-number guard.
-            await using var transaction = _context.Database.IsRelational()
+            await using var transaction = _context.Database.IsRelational() && _context.Database.CurrentTransaction is null
                 ? await _context.Database.BeginTransactionAsync()
                 : null;
             if (_context.Database.IsNpgsql())

@@ -11,9 +11,11 @@ public interface IHospitalAppointmentProposalAgent
 
 public sealed record AppointmentProposalRequest(
     int PatientId,
-    ClinicalSafetyAssessment ClinicalAssessment,
+    ClinicalSafetyAssessment? ClinicalAssessment,
     string Specialty,
-    DateOnly? PreferredDate = null);
+    DateOnly? PreferredDate = null,
+    string? Period = null,
+    DateOnly? ThroughDate = null);
 
 public sealed record HospitalAppointmentProposal(
     string Status,
@@ -33,9 +35,12 @@ public sealed class HospitalAppointmentProposalAgent(IAppointmentAgentTools tool
         if (request.PatientId <= 0) throw new ArgumentException("A valid patient is required.");
         if (string.IsNullOrWhiteSpace(request.Specialty) || request.Specialty.Length > 100)
             throw new ArgumentException("Provide a valid specialty.");
+        if (request.ThroughDate.HasValue && (!request.PreferredDate.HasValue ||
+            request.ThroughDate.Value.DayNumber - request.PreferredDate.Value.DayNumber is < 0 or > 6))
+            throw new ArgumentException("Search a valid date range of at most seven days.");
 
         // Urgent and emergency routes must never be converted to routine appointment proposals.
-        if (request.ClinicalAssessment.TriageLevel is "Emergency" or "Urgent")
+        if (request.ClinicalAssessment is { FailedSafely: true } || request.ClinicalAssessment?.TriageLevel is "Emergency" or "Urgent")
             return new("BlockedByClinicalSafety", request.PatientId, [], [],
                 [new("ValidateTriageRouteTool", "Blocked", false, "Urgent and emergency routes cannot create a normal appointment proposal.")],
                 "The clinical safety result requires urgent care guidance instead of a normal appointment proposal.",
@@ -52,11 +57,27 @@ public sealed class HospitalAppointmentProposalAgent(IAppointmentAgentTools tool
         foreach (var doctor in doctors.Take(5))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            slots.AddRange(await tools.FindSlotsAsync(doctor, request.PreferredDate));
+            if (request.ThroughDate.HasValue)
+            {
+                for (var date = request.PreferredDate!.Value; date <= request.ThroughDate.Value; date = date.AddDays(1))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    slots.AddRange(await tools.FindSlotsAsync(doctor, date));
+                }
+            }
+            else slots.AddRange(await tools.FindSlotsAsync(doctor, request.PreferredDate));
         }
-        var verified = slots.DistinctBy(slot => slot.DoctorTimeSlotId).OrderBy(slot => slot.StartAt).Take(5).ToArray();
+        var verified = slots.Where(slot =>
+                (!request.ThroughDate.HasValue || (DateOnly.FromDateTime(slot.StartAt.DateTime) >= request.PreferredDate && DateOnly.FromDateTime(slot.StartAt.DateTime) <= request.ThroughDate)) &&
+                (request.Period == null || request.Period switch {
+                    "morning" => slot.StartAt.Hour < 12,
+                    "afternoon" => slot.StartAt.Hour >= 12 && slot.StartAt.Hour < 17,
+                    "evening" => slot.StartAt.Hour >= 17,
+                    _ => false
+                }))
+            .DistinctBy(slot => slot.DoctorTimeSlotId).OrderBy(slot => slot.StartAt).Take(5).ToArray();
         trace.Add(new("FindAvailableSlotsTool", verified.Length == 0 ? "NoMatches" : "Completed", verified.Length > 0, "Only current, available hospital slots were returned."));
-        var proposalId = verified.Length == 0 ? (int?)null : await store.CreateAsync(request.PatientId, request.ClinicalAssessment.TriageLevel, request.ClinicalAssessment.RequiresClinicalReview, verified, cancellationToken);
+        var proposalId = verified.Length == 0 ? (int?)null : await store.CreateAsync(request.PatientId, request.ClinicalAssessment?.TriageLevel ?? "NotAssessed", request.ClinicalAssessment?.RequiresClinicalReview ?? false, verified, cancellationToken);
         return new(verified.Length == 0 ? "NoOptions" : "PendingPatientConfirmation", request.PatientId, doctors.Take(5).ToArray(), verified,
             trace, verified.Length == 0 ? "No available future appointments matched your preferences." : "Select one verified option and explicitly confirm it before any booking is created.",
             verified.Length == 0

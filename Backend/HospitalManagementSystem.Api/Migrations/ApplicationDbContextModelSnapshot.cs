@@ -22,6 +22,21 @@ namespace HospitalManagementSystem.Api.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.AssistantConversation", b =>
+                {
+                    b.Property<Guid>("AssistantConversationId").ValueGeneratedOnAdd().HasColumnType("uuid");
+                    b.Property<Guid>("InitialRequestId").HasColumnType("uuid");
+                    b.Property<int>("PatientId").HasColumnType("integer");
+                    b.Property<string>("StateJson").IsRequired().HasColumnType("text");
+                    b.Property<string>("Title").IsRequired().HasMaxLength(120).HasColumnType("character varying(120)");
+                    b.Property<DateTime>("UpdatedAt").HasColumnType("timestamp without time zone");
+                    b.HasKey("AssistantConversationId");
+                    b.HasIndex("PatientId", "InitialRequestId").IsUnique();
+                    b.ToTable("AssistantConversations");
+                    b.HasOne("HospitalManagementSystem.Api.Models.Patient", null)
+                        .WithMany().HasForeignKey("PatientId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+                });
+
             modelBuilder.Entity("HospitalManagementSystem.Api.Models.Appointment", b =>
                 {
                     b.Property<int>("AppointmentId")
