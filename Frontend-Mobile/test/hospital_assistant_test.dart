@@ -123,6 +123,33 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('persisted result cards remain visible across replies and reviews are separate', (tester) async {
+    await pump(tester, (request) async {
+      final response = conversation();
+      response['messages'] = [
+        {'id': '1', 'role': 'user', 'text': 'Earlier doctor question', 'progress': []},
+        {'id': '2', 'role': 'assistant', 'text': 'Earlier doctor answer', 'progress': ['Doctor directory checked'],
+          'doctors': [{'name': 'Dr. History', 'specialty': 'General Medicine'}]},
+        {'id': '3', 'role': 'user', 'text': 'Latest question', 'progress': []},
+        {'id': '4', 'role': 'assistant', 'text': 'Latest answer', 'progress': []},
+      ];
+      response['clinicalReviews'] = [{'workflowId': 3, 'status': 'FailedSafely',
+        'approvalStatus': 'Pending', 'message': 'Assessment requires review'}];
+      return jsonResponse(response);
+    });
+    await tester.enterText(find.byType(TextField), 'Show my appointments');
+    await tester.tap(find.byTooltip('Send message'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Earlier doctor question'), -300,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('Earlier doctor answer'), findsOneWidget);
+    expect(find.text('Dr. History'), findsOneWidget);
+    expect(find.text('Latest answer'), findsOneWidget);
+    expect(find.text('Pending clinical reviews / assessment input'), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).enabled, isTrue);
+    expect(find.text('Doctor directory checked'), findsNothing);
+  });
+
   testWidgets(
       'single option is selected automatically; explicit confirmation displays final number',
       (tester) async {

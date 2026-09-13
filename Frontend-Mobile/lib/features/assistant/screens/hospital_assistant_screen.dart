@@ -376,11 +376,13 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 0,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
                     children: _capabilities
-                        .map((capability) => ActionChip(
+                        .map((capability) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ActionChip(
                               label: Text(capability.enabled
                                   ? capability.label
                                   : '${capability.label} · Coming soon'),
@@ -392,8 +394,9 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                                       _input.text = capability.prompt;
                                       _focus.requestFocus();
                                     },
-                            ))
+                            )))
                         .toList(),
+                    ),
                   )),
             ),
           if (_error != null)
@@ -450,10 +453,19 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                             ]),
                           ),
                         if (_conversation != null && !_busy) ...[
+                          if (_conversation!.clinicalReviews.isNotEmpty)
+                            ExpansionTile(
+                              title: const Text('Pending clinical reviews / assessment input'),
+                              subtitle: const Text('You can still check appointments and doctor availability.'),
+                              children: _conversation!.clinicalReviews.map((review) => ListTile(
+                                title: Text('Assessment #${review['workflowId']}'),
+                                subtitle: Text('${review['status'] == 'PendingPatientInput' ? 'Waiting for your assessment answers' : 'Waiting for clinical review'}\n${review['message'] ?? ''}'),
+                              )).toList(),
+                            ),
                           ..._conversation!.questions.map((question) => _bubble(
                               _naturalQuestion(question['prompt']?.toString() ?? ''),
                               user: false)),
-                          ..._conversation!.doctors.map((doctor) => ListTile(
+                          if (!_hasResultHistory) ..._conversation!.doctors.map((doctor) => ListTile(
                                 contentPadding: EdgeInsets.zero,
                                 leading:
                                     const Icon(Icons.medical_services_outlined),
@@ -461,12 +473,14 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                                 subtitle:
                                     Text(doctor['specialty']?.toString() ?? ''),
                               )),
-                          if (_conversation!.pendingAction == null)
+                          if (!_hasResultHistory && _conversation!.pendingAction == null)
                             ..._conversation!.slots.map(
                                 (slot) => _detailsCard(slot, isSlot: true)),
-                          if (_conversation!.pendingAction == null)
+                          if (!_hasResultHistory && _conversation!.pendingAction == null)
                             ..._conversation!.appointments.map(
                                 _confirmedAppointmentCard),
+                          if (_conversation!.pendingAction != null)
+                            const Text('Pending patient approval — waiting for your confirmation'),
                           if (_conversation!.pendingAction != null)
                             _approval(_conversation!.pendingAction!),
                         ],
@@ -530,10 +544,30 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
         ]),
       );
 
+  bool get _hasResultHistory => _conversation?.messages.any((message) =>
+      message.doctors.isNotEmpty || message.slots.isNotEmpty ||
+      message.appointments.isNotEmpty || message.proposedAction != null) ?? false;
+
   Widget _message(AssistantMessage message) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _bubble(message.text, user: message.role == 'user'),
+          ...message.doctors.map((doctor) => ListTile(
+            title: Text(doctor['name']?.toString() ?? ''),
+            subtitle: Text(doctor['specialty']?.toString() ?? ''),
+          )),
+          if (message.proposedAction == null)
+            ...message.slots.map((slot) => _detailsCard(slot, isSlot: true)),
+          ...message.appointments.map(_confirmedAppointmentCard),
+          if (message.proposedAction != null)
+            ExpansionTile(
+              title: Text(message.proposedAction!.title),
+              subtitle: const Text('Proposal history — details as originally shown'),
+              children: [
+                ...message.proposedAction!.slots.map((slot) => _detailsCard(slot, isSlot: true)),
+                ...message.proposedAction!.appointments.map(_confirmedAppointmentCard),
+              ],
+            ),
           if (message.progress.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),

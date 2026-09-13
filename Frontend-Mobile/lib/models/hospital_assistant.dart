@@ -23,12 +23,21 @@ class AssistantMessage {
   final String role;
   final String text;
   final List<String> progress;
+  final List<AssistantJson> appointments;
+  final List<AssistantJson> slots;
+  final List<AssistantJson> doctors;
+  final AssistantAction? proposedAction;
 
   AssistantMessage.fromJson(AssistantJson json)
       : id = json['id'].toString(),
         role = json['role'] as String,
         text = json['text'] as String? ?? '',
-        progress = List<String>.from(json['progress'] ?? []);
+        progress = List<String>.from(json['progress'] ?? []),
+        appointments = assistantObjects(json['appointments']),
+        slots = assistantObjects(json['slots']),
+        doctors = assistantObjects(json['doctors']),
+        proposedAction = json['proposedAction'] is Map
+            ? AssistantAction.fromJson(Map<String, dynamic>.from(json['proposedAction'])) : null;
 }
 
 class AssistantAction {
@@ -61,6 +70,7 @@ class AssistantConversation {
   final List<AssistantJson> slots;
   final List<AssistantJson> doctors;
   final List<AssistantCapability> capabilities;
+  final List<AssistantJson> clinicalReviews;
 
   AssistantConversation.fromJson(AssistantJson json)
       : id = json['conversationId'] as String,
@@ -77,6 +87,7 @@ class AssistantConversation {
         appointments = assistantObjects(json['appointments']),
         slots = assistantObjects(json['slots']),
         doctors = assistantObjects(json['doctors']),
+        clinicalReviews = assistantObjects(json['clinicalReviews']),
         capabilities = assistantObjects(json['capabilities'])
             .map(AssistantCapability.fromJson)
             .toList();

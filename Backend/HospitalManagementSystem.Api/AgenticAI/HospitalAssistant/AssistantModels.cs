@@ -29,7 +29,14 @@ public sealed class AssistantActionRequest
     public int? AppointmentId { get; set; }
 }
 public sealed record AssistantCapability(string Id, string Label, bool Enabled, string Prompt);
-public sealed record AssistantMessage(string Id, string Role, string Text, DateTime CreatedAt, IReadOnlyList<string> Progress);
+public sealed record AssistantMessage(string Id, string Role, string Text, DateTime CreatedAt, IReadOnlyList<string> Progress)
+{
+    public IReadOnlyList<AppointmentDto> Appointments { get; init; } = [];
+    public IReadOnlyList<AgentSlot> Slots { get; init; } = [];
+    public IReadOnlyList<AgentDoctor> Doctors { get; init; } = [];
+    public AssistantPendingAction? ProposedAction { get; init; }
+}
+public sealed record AssistantClinicalReview(int WorkflowId, string Status, string ApprovalStatus, string Message);
 public sealed record AssistantQuestion(string Id, string Prompt, bool Required);
 public sealed class AssistantPendingAction
 {
@@ -63,11 +70,16 @@ public sealed class AssistantState
     public bool WantsAppointment { get; set; }
     public string? Awaiting { get; set; }
     public string? CancellationReason { get; set; }
+    public IReadOnlyList<AssistantClinicalReview> ClinicalReviews { get; set; } = [];
+    public string? ReadSearchMode { get; set; }
 }
 public sealed record AssistantConversationResponse(Guid ConversationId, string Title, string State,
     DateTime UpdatedAt, IReadOnlyList<AssistantMessage> Messages, AssistantPendingAction? PendingAction,
     IReadOnlyList<AssistantQuestion> Questions, IReadOnlyList<AppointmentDto> Appointments,
-    IReadOnlyList<AgentSlot> Slots, IReadOnlyList<AgentDoctor> Doctors, IReadOnlyList<AssistantCapability> Capabilities);
+    IReadOnlyList<AgentSlot> Slots, IReadOnlyList<AgentDoctor> Doctors, IReadOnlyList<AssistantCapability> Capabilities)
+{
+    public IReadOnlyList<AssistantClinicalReview> ClinicalReviews { get; init; } = [];
+}
 
 // Register future capability handlers here and in the coordinator; clients consume this list.
 public interface IHospitalAssistantReadAgent

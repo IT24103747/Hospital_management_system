@@ -17,6 +17,121 @@ namespace HospitalManagementSystem.Api.Tests.AgenticAI;
 
 public sealed class HospitalAssistantTests
 {
+    [Fact]
+    public async Task DoctorInformationAndFollowupAvailabilityRetainHistoryWithoutProposals()
+    {
+        await using var h = await Harness.Create();
+        var first = await h.Send("What doctors work in cardiology?");
+        Assert.Single(first.Doctors);
+        Assert.Empty(first.Slots);
+        Assert.Null(first.PendingAction);
+        var second = await h.Send("Which one is available tomorrow?", first.ConversationId);
+        Assert.Single(second.Slots);
+        Assert.Null(second.PendingAction);
+        Assert.Empty(await h.Db.AppointmentProposals.ToListAsync());
+        Assert.Empty(await h.Db.Appointments.ToListAsync());
+        var restored = await h.Service.GetAsync(1, first.ConversationId, default);
+        Assert.Equal(4, restored.Messages.Count);
+        Assert.Single(restored.Messages[1].Doctors);
+        Assert.Single(restored.Messages[3].Slots);
+        var booking = await h.Send("Book that doctor tomorrow", first.ConversationId);
+        Assert.NotNull(booking.PendingAction);
+        Assert.Empty(await h.Db.Appointments.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData("What doctors work in General Medicine?")]
+    [InlineData("Which cardiologists are available tomorrow?")]
+    [InlineData("Find me a cardiologist Friday afternoon")]
+    public async Task InformationalSearchNeverCreatesProposal(string text)
+    {
+        await using var h = await Harness.Create();
+        var result = await h.Send(text);
+        Assert.Null(result.PendingAction);
+        Assert.Empty(await h.Db.AppointmentProposals.ToListAsync());
+        Assert.Empty(await h.Db.Appointments.ToListAsync());
+    }
+
+    [Fact]
+    public async Task AppointmentReadsFilterStatusAndFindNearestFutureRecord()
+    {
+        await using var h = await Harness.Create();
+        var slot = await h.Db.DoctorTimeSlots.SingleAsync();
+        h.Db.Appointments.AddRange(
+            new Appointment { DoctorTimeSlotId = slot.DoctorTimeSlotId, PatientId = 1, AppointmentNumber = 1, Status = "Confirmed" },
+            new Appointment { DoctorTimeSlotId = slot.DoctorTimeSlotId, PatientId = 1, AppointmentNumber = 2, Status = "Cancelled" },
+            new Appointment { DoctorTimeSlotId = slot.DoctorTimeSlotId, PatientId = 999, AppointmentNumber = 3, Status = "Confirmed" });
+        var later = new DoctorTimeSlot { DoctorId = 1, DoctorName = "Later doctor", StartAt = slot.StartAt.AddDays(1), EndAt = slot.EndAt.AddDays(1), Capacity = 5, IsActive = true };
+        h.Db.DoctorTimeSlots.Add(later);
+        h.Db.Appointments.Add(new Appointment { DoctorTimeSlot = later, PatientId = 1, AppointmentNumber = 1, Status = "Confirmed" });
+        await h.Db.SaveChangesAsync();
+        var next = await h.Send("What time is my next appointment?");
+        Assert.Equal(slot.DoctorTimeSlotId, Assert.Single(next.Appointments).DoctorTimeSlotId);
+        Assert.Contains("Your next appointment is with", next.Messages.Last().Text);
+        var active = await h.Send("Show my existing appointments", next.ConversationId);
+        Assert.Equal(2, active.Appointments.Count);
+        Assert.All(active.Appointments, a => Assert.Equal("Confirmed", a.Status));
+        var cancelled = await h.Send("Show my cancelled appointments", next.ConversationId);
+        Assert.Equal("Cancelled", Assert.Single(cancelled.Appointments).Status);
+        var all = await h.Send("Show all my appointments", next.ConversationId);
+        Assert.Equal(3, all.Appointments.Count);
+        var history = await h.Send("Show my appointment history", next.ConversationId);
+        Assert.Equal("Cancelled", Assert.Single(history.Appointments).Status);
+    }
+
+    [Theory]
+    [InlineData(TriageWorkflowStatuses.FailedSafely, TriageLevels.InsufficientInformation)]
+    [InlineData(TriageWorkflowStatuses.PendingPatientInput, TriageLevels.InsufficientInformation)]
+    [InlineData(TriageWorkflowStatuses.PendingClinicalReview, TriageLevels.Urgent)]
+    public async Task UnresolvedSafetyAllowsIndependentReadsButStillBlocksBooking(string status, string level)
+    {
+        await using var h = await Harness.Create();
+        h.Db.TriageWorkflows.Add(new TriageWorkflow { PatientId = 1, Status = status,
+            TriageLevel = level, ApprovalStatus = TriageApprovalStatuses.Pending, RequiresHumanReview = true });
+        await h.Db.SaveChangesAsync();
+        var first = await h.Send("Book a cardiologist tomorrow");
+        Assert.Null(first.PendingAction);
+        var read = await h.Send("Which cardiologists are available tomorrow?", first.ConversationId);
+        Assert.NotEmpty(read.Slots);
+        Assert.Single(read.ClinicalReviews);
+        Assert.Null(read.PendingAction);
+        var list = await h.Send("Show my appointments", first.ConversationId);
+        Assert.Contains("No appointments", list.Messages.Last().Text);
+        Assert.Null((await h.Send("Book a cardiologist tomorrow", first.ConversationId)).PendingAction);
+        Assert.Empty(await h.Db.Appointments.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ReadDuringPatientApprovalPreservesActionAndProposalHistory()
+    {
+        await using var h = await Harness.Create();
+        var first = await h.Send("Book a cardiologist tomorrow");
+        var action = first.PendingAction!;
+        var read = await h.Send("Show my appointments", first.ConversationId);
+        Assert.Equal(action.ActionId, read.PendingAction!.ActionId);
+        Assert.Contains(read.Messages, m => m.ProposedAction?.ActionId == action.ActionId);
+        var confirmed = await h.Service.DecideAsync(h.Patient, first.ConversationId, h.Confirm(action), default);
+        Assert.Single(confirmed.Appointments);
+        Assert.Contains(confirmed.Messages, m => m.ProposedAction?.ActionId == action.ActionId);
+    }
+
+    [Fact]
+    public async Task ReadDuringMissingAnswersDoesNotConsumeClinicalInput()
+    {
+        await using var h = await Harness.Create();
+        var clinical = await h.Send("I have a mild headache");
+        Assert.NotEmpty(clinical.Questions);
+        var read = await h.Send("What doctors work in cardiology?", clinical.ConversationId);
+        Assert.NotEmpty(read.Doctors);
+        Assert.Equal(clinical.Questions[0].Id, read.Questions[0].Id);
+        Assert.DoesNotContain("urgent safety", read.Messages.Last().Text);
+        var booking = await h.Send("Book a cardiologist tomorrow", clinical.ConversationId);
+        Assert.Equal(clinical.Questions[0].Id, booking.Questions[0].Id);
+        Assert.Null(booking.PendingAction);
+        Assert.Contains("needs more information", booking.Messages.Last().Text);
+        Assert.DoesNotContain("urgent safety", booking.Messages.Last().Text);
+    }
+
     [Theory]
     [InlineData(false, TriageApprovalStatuses.Approved)]
     [InlineData(false, TriageApprovalStatuses.Rejected)]
@@ -121,7 +236,7 @@ public sealed class HospitalAssistantTests
     public async Task SearchAndConversationalAssentNeverBook_ExplicitConfirmationUsesBackendNumber_AndIsIdempotent()
     {
         await using var h = await Harness.Create();
-        var result = await h.Send("Find a cardiologist tomorrow afternoon");
+        var result = await h.Send("Book a cardiologist tomorrow afternoon");
         Assert.NotNull(result.PendingAction);
         Assert.Empty(await h.Db.Appointments.ToListAsync());
         var assent = await h.Send("that looks good", result.ConversationId);
@@ -159,7 +274,7 @@ public sealed class HospitalAssistantTests
     public async Task RoutineSymptomsCanRunSafetyThenAppointmentProposal_WithoutBooking()
     {
         await using var h = await Harness.Create();
-        var result = await h.Send("I have a mild headache. Find a cardiologist tomorrow afternoon.");
+        var result = await h.Send("I have a mild headache. Book a cardiologist tomorrow afternoon.");
         Assert.NotEmpty(await h.Db.TriageWorkflows.ToListAsync());
         Assert.Null(result.PendingAction);
         for (var round = 0; result.Questions.Count > 0 && round < 12; round++)
@@ -174,7 +289,7 @@ public sealed class HospitalAssistantTests
     public async Task NewPreferencesInvalidateOldApproval_UnknownSlotCannotBeConfirmed()
     {
         await using var h = await Harness.Create();
-        var first = await h.Send("Find a cardiologist tomorrow afternoon");
+        var first = await h.Send("Book a cardiologist tomorrow afternoon");
         var oldAction = first.PendingAction!;
         var second = await h.Send("Try tomorrow morning", first.ConversationId);
         Assert.Null(second.PendingAction);
@@ -285,7 +400,7 @@ public sealed class HospitalAssistantTests
         await using var h = await Harness.Create();
         var search = await h.Send("Book a cardiologist tomorrow");
         await h.Service.DecideAsync(h.Patient, search.ConversationId, h.Confirm(search.PendingAction!), default);
-        var alternative = await h.Send("I cannot attend my current appointment. Find another one tomorrow.", search.ConversationId);
+        var alternative = await h.Send("I cannot attend my current appointment. Book another one tomorrow.", search.ConversationId);
         Assert.NotNull(alternative.PendingAction);
         Assert.Equal("book", alternative.PendingAction.Type);
         Assert.Equal("Confirmed", (await h.Db.Appointments.SingleAsync()).Status);
