@@ -10,7 +10,12 @@ public class DoctorScheduleService : IDoctorScheduleService
 {
     private static readonly HashSet<string> OccupyingStatuses = ["Confirmed", "Completed"];
     private readonly ApplicationDbContext _db;
-    public DoctorScheduleService(ApplicationDbContext db) => _db = db;
+    private readonly AppointmentSmsNotifier _sms;
+    public DoctorScheduleService(ApplicationDbContext db, AppointmentSmsNotifier sms)
+    {
+        _db = db;
+        _sms = sms;
+    }
 
     public async Task<IEnumerable<DoctorScheduleDto>> GetMineAsync(int userId)
     {
@@ -68,6 +73,9 @@ public class DoctorScheduleService : IDoctorScheduleService
         slot.Capacity = dto.Capacity; slot.ConsultationFee = decimal.Round(dto.ConsultationFee, 2); slot.UpdatedAt = DateTime.UtcNow;
         ScheduleAppointmentUpdates.Apply(slot, changed);
         await SaveWithConflictTranslationAsync();
+        if (changed)
+            foreach (var appointment in slot.Appointments.Where(a => a.Status == "Confirmed"))
+                await _sms.NotifyAsync(appointment.AppointmentId, "schedule updated");
         return Map(slot);
     }
 

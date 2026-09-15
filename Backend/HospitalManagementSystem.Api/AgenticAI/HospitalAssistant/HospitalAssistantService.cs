@@ -14,14 +14,15 @@ using static HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.AssistantP
 namespace HospitalManagementSystem.Api.AgenticAI.HospitalAssistant;
 
 /// Coordinates existing agents and services. Only DecideAsync can execute an approved hospital mutation.
-public sealed class HospitalAssistantService(
+public sealed partial class HospitalAssistantService(
     ApplicationDbContext db,
     AssistantAgentRegistry registry,
     ITriageWorkflowService workflows,
     IHospitalAppointmentProposalAgent proposals,
     ISafetyValidationApprovalAgent approval,
     IAppointmentAgentTools tools,
-    IAppointmentService appointments)
+    IAppointmentService appointments,
+    AppointmentSmsNotifier sms)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     // Fixed stripes avoid a lock dictionary growing with patient data. PostgreSQL locks also
@@ -178,17 +179,24 @@ public sealed class HospitalAssistantService(
         var rawSafety = ClinicalSafetyTools.EvaluateRedFlags(text);
         var symptoms = rawSafety.HasEscalation || ClinicalSafetyTools.IsRoutine(text, null) ||
             Has(text, @"\b(symptom|symptoms|pain|bleeding|fever|cough|sick|unwell|dizzy|headache|nausea|vomiting|breathing|rash|swollen|feel ill|hurt|suffering|nosebleed|shortness|feeling)\b");
-        var appointmentIntent = Has(text, @"\b(appointment|appointments|book|booking|doctor|specialist|cardiologist|ophthalmologist|dermatologist|neurologist|consultation|cardiology|ophthalmology)\b");
+        var appointmentIntent = Has(text, @"\b(appointment|appointments|book|booking|doctor|specialist|cardiologist|ophthalmologist|dermatologist|neurologist|consultation|cardiology|ophthalmology)\b") ||
+            (state.SearchQuery != null && Has(text, @"\bproceed\b"));
         var askingCancel = Has(text, @"\b(cancel|cancellation)\b") && appointmentIntent;
         var lookingForAlternative = appointmentIntent && Has(text, @"\b(another|alternative|cannot attend|can't attend)\b");
-        var askingList = Has(text, @"\b(my|do i have|show|list|check|view)\b") && Has(text, @"\b(appointment|appointments)\b") && !askingCancel &&
-            !lookingForAlternative && !Has(text, @"\b(book|find|earliest|need|want)\b");
 
         // A raw safety flag always takes priority, including during a clarification or approval.
         if (rawSafety.HasEscalation)
         {
             await InvalidateAsync(state, "Superseded", token);
             await StartClinicalAsync(patient, state, text, token);
+            return;
+        }
+        // Independent reads must not be consumed as clinical answers or dismiss
+        // an existing confirmation. Emergency input above still takes priority.
+        if (!symptoms && await TryReadAsync(patient, state, text, token)) return;
+        if (state.Awaiting == "clinical-answer" && state.WorkflowId.HasValue && appointmentIntent)
+        {
+            await ReplySafetyBlockedAsync(patient.PatientId, state);
             return;
         }
         if (state.Awaiting == "clinical-answer" && state.WorkflowId.HasValue)
@@ -227,7 +235,7 @@ public sealed class HospitalAssistantService(
             await InvalidateAsync(state, "Superseded", token);
             if (Has(text, @"^(i need help with my symptoms|patient help|help with symptoms)[.! ]*$"))
             { state.Awaiting = "symptoms"; Reply(state, "Please describe how you feel, when it started, and any current symptoms.", "GATHERING_INFORMATION"); return; }
-            if (appointmentIntent)
+            if (Has(text, @"\b(book|booking|schedule|create|reserve)\b"))
             {
                 state.WantsAppointment = true;
                 var doctors = await tools.FindDoctorsAsync("");
@@ -280,19 +288,6 @@ public sealed class HospitalAssistantService(
             Reply(state, "What is your reason for cancelling? I will then show your appointments for explicit confirmation.", "GATHERING_INFORMATION");
             return;
         }
-        if (askingList)
-        {
-            await InvalidateAsync(state, "Superseded", token);
-            state.WantsAppointment = false; state.Awaiting = null;
-            var filters = new AssistantState();
-            var error = ApplyDates(text, filters, Today());
-            if (error != null) { Reply(state, error, "GATHERING_INFORMATION"); return; }
-            var all = await MyAppointmentsAsync(patient);
-            state.Appointments = FilterAppointments(all, filters).Take(30).ToArray();
-            Reply(state, state.Appointments.Count == 0 ? "No appointments matched that request."
-                : $"Here are {state.Appointments.Count} of your appointments.", "COMPLETED", ["Your appointment records were retrieved from the hospital."]);
-            return;
-        }
         // A patient declining a further search must never be interpreted as a
         // doctor/specialty name (for example, "no need" used to become a search).
         if (state.Awaiting == "preferences" && Has(text, @"^(no need|not needed|nothing else|no thanks|that's all|that is all)[.! ]*$"))
@@ -318,6 +313,7 @@ public sealed class HospitalAssistantService(
             // existing valid preference until the patient supplies a recognised
             // doctor/specialty or an explicit date/time preference.
             state.WantsAppointment = true;
+            state.ReadSearchMode = null;
             var error = ApplyDates(text, state, Today());
             if (error != null) { state.Awaiting = "preferences"; Reply(state, error, "GATHERING_INFORMATION"); return; }
             await SearchAsync(patient, state, token);
@@ -474,6 +470,7 @@ public sealed class HospitalAssistantService(
         {
             var guidance = workflow.Guidance;
             var parts = new List<string> { message, workflow.PatientMessage, guidance?.Summary ?? "" };
+            parts.AddRange(workflow.MissingInformation);
             parts.AddRange(guidance?.Actions ?? []);
             parts.AddRange(guidance?.SeekHelpIf ?? []);
             message = string.Join("\n\n", parts.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct());
@@ -486,8 +483,14 @@ public sealed class HospitalAssistantService(
 
     private async Task<IReadOnlyList<AppointmentDto>> MyAppointmentsAsync(PatientDto patient)
     {
-        var result = await appointments.GetAllAppointmentsAsync(null, null, null, null, "date", "desc", 1, 100, patient.PatientId);
-        return result.Data.Where(a => a.PatientId == patient.PatientId).ToArray();
+        var all = new List<AppointmentDto>();
+        for (var page = 1; ; page++)
+        {
+            var result = await appointments.GetAllAppointmentsAsync(null, null, null, null, "date", "asc", page, 100, patient.PatientId);
+            all.AddRange(result.Data.Where(a => a.PatientId == patient.PatientId));
+            if (result.Data.Count() < 100) break;
+        }
+        return all;
     }
 
     private static IEnumerable<AppointmentDto> FilterAppointments(IEnumerable<AppointmentDto> all, AssistantState state) => all.Where(a =>
@@ -519,17 +522,27 @@ public sealed class HospitalAssistantService(
     private static void Reply(AssistantState state, string text, string status, IReadOnlyList<string>? progress = null)
     {
         state.State = status;
-        state.Messages.Add(new(Guid.NewGuid().ToString(), "assistant", text, DateTime.UtcNow, progress ?? []));
+        state.Messages.Add(new(Guid.NewGuid().ToString(), "assistant", text, DateTime.UtcNow, progress ?? []) {
+            Appointments = state.Appointments.ToArray(), Slots = state.Slots.ToArray(), Doctors = state.Doctors.ToArray(),
+            ProposedAction = state.PendingAction != null && !state.Messages.Any(m => m.ProposedAction?.ActionId == state.PendingAction.ActionId)
+                ? state.PendingAction : null
+        });
     }
     private async Task<AssistantConversation> OwnedAsync(int patientId, Guid id, CancellationToken token) =>
         await db.AssistantConversations.SingleOrDefaultAsync(c => c.PatientId == patientId && c.AssistantConversationId == id, token)
             ?? throw new KeyNotFoundException("Conversation not found.");
     private async Task SaveAsync(AssistantConversation entity, AssistantState state, CancellationToken token)
-    { entity.StateJson = JsonSerializer.Serialize(state, Json); entity.UpdatedAt = DateTime.UtcNow; await db.SaveChangesAsync(token); }
+    {
+        state.ClinicalReviews = (await workflows.GetHistoryForPatientAsync(entity.PatientId))
+            .Where(w => w.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested ||
+                w.Status is TriageWorkflowStatuses.PendingPatientInput or TriageWorkflowStatuses.FailedSafely)
+            .Select(w => new AssistantClinicalReview(w.WorkflowId, w.Status, w.ApprovalStatus, w.PatientMessage)).ToArray();
+        entity.StateJson = JsonSerializer.Serialize(state, Json); entity.UpdatedAt = DateTime.UtcNow; await db.SaveChangesAsync(token);
+    }
     private AssistantConversationResponse Response(AssistantConversation entity, AssistantState state) => new(
         entity.AssistantConversationId, entity.Title, state.State, entity.UpdatedAt, state.Messages, state.PendingAction,
         state.Questions.Where(q => state.Answers.All(a => a.QuestionId != q.Id)).Take(1).ToArray(),
-        state.Appointments, state.Slots, state.Doctors, Capabilities);
+        state.Appointments, state.Slots, state.Doctors, Capabilities) { ClinicalReviews = state.ClinicalReviews };
 
     private async Task<T> LockedAsync<T>(int patientId, Func<Task<T>> action, CancellationToken token)
     {
@@ -541,7 +554,11 @@ public sealed class HospitalAssistantService(
             if (db.Database.IsNpgsql())
                 await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(1396916552, {patientId})", token);
             var result = await action();
-            if (transaction != null) await transaction.CommitAsync(token);
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(token);
+                await sms.FlushCommittedAsync(transaction.TransactionId);
+            }
             return result;
         }
         finally { gate.Release(); }

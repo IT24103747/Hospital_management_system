@@ -34,7 +34,7 @@ public class RoomSchedulingServiceTests
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
-        var service = new DoctorScheduleService(db);
+        var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
         var start = DateTime.UtcNow.AddDays(2);
         var end = start.AddHours(2);
         await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, end));
@@ -50,7 +50,7 @@ public class RoomSchedulingServiceTests
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
-        var service = new DoctorScheduleService(db);
+        var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
         var start = DateTime.UtcNow.AddDays(3);
         await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
 
@@ -65,7 +65,7 @@ public class RoomSchedulingServiceTests
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
-        var service = new DoctorScheduleService(db);
+        var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
         var start = DateTime.UtcNow.AddDays(3);
         var first = await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
         var second = await service.CreateAsync(setup.SecondUserId, Schedule(setup.RoomId, start.AddHours(1).AddMinutes(30), start.AddHours(2)));
@@ -79,7 +79,7 @@ public class RoomSchedulingServiceTests
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
-        var scheduleService = new DoctorScheduleService(db);
+        var scheduleService = new DoctorScheduleService(db, SmsTestSupport.Create(db));
         var roomService = new RoomService(db);
         var start = DateTime.UtcNow.AddDays(4).Date.AddHours(8);
         var end = start.AddHours(2);
@@ -97,7 +97,7 @@ public class RoomSchedulingServiceTests
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
-        var scheduleService = new DoctorScheduleService(db);
+        var scheduleService = new DoctorScheduleService(db, SmsTestSupport.Create(db));
         var roomService = new RoomService(db);
         var start = DateTime.UtcNow.AddDays(4);
         var end = start.AddHours(1);
@@ -114,7 +114,7 @@ public class RoomSchedulingServiceTests
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
-        var service = new DoctorScheduleService(db);
+        var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
         var start = DateTime.UtcNow.AddDays(5);
         await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
 
@@ -128,7 +128,7 @@ public class RoomSchedulingServiceTests
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
-        var service = new DoctorScheduleService(db);
+        var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
         var start = DateTime.UtcNow.AddHours(-2);
 
         var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
@@ -142,7 +142,7 @@ public class RoomSchedulingServiceTests
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
-        var service = new DoctorScheduleService(db);
+        var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
         var start = DateTime.UtcNow.AddDays(6);
         var dto = Schedule(setup.RoomId, start, start.AddHours(1));
         dto.ConsultationFee = 0;
@@ -157,7 +157,7 @@ public class RoomSchedulingServiceTests
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
-        var service = new DoctorScheduleService(db);
+        var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
         var start = DateTime.UtcNow.AddDays(7);
         var dto = Schedule(setup.RoomId, start, start.AddHours(1));
         var schedule = await service.CreateAsync(setup.FirstUserId, dto);
@@ -189,7 +189,7 @@ public class RoomSchedulingServiceTests
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
-        var service = new DoctorScheduleService(db);
+        var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
         var start = DateTime.UtcNow.AddDays(7);
         var schedule = await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
         db.Appointments.Add(new Appointment { DoctorTimeSlotId = schedule.DoctorTimeSlotId,
@@ -214,7 +214,7 @@ public class RoomSchedulingServiceTests
     {
         await using var db = CreateContext();
         var setup = await SeedSchedulingDataAsync(db);
-        var service = new DoctorScheduleService(db);
+        var service = new DoctorScheduleService(db, SmsTestSupport.Create(db));
         var start = DateTime.UtcNow.AddDays(8);
         var schedule = await service.CreateAsync(setup.FirstUserId, Schedule(setup.RoomId, start, start.AddHours(1)));
 
