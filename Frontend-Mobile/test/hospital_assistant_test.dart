@@ -293,4 +293,40 @@ void main() {
         'Find a doctor');
     expect(posts, isEmpty);
   });
+
+  testWidgets('medical reports capability when enabled populates summarize prompt',
+      (tester) async {
+    final posts = <http.Request>[];
+    await tester.binding.setSurfaceSize(const Size(420, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    SecureTokenStorage.setTokenForTesting('patient-token');
+    ApiService.setHttpClientForTesting(MockClient((request) async {
+      if (request.url.path.endsWith('/capabilities')) {
+        return jsonResponse([
+          {
+            'id': 'medical-reports',
+            'label': 'Medical Reports',
+            'enabled': true,
+            'prompt': 'Summarize my medical reports'
+          }
+        ]);
+      }
+      if (request.method == 'POST') posts.add(request);
+      return jsonResponse([]);
+    }));
+    await tester.pumpWidget(const MaterialApp(home: HospitalAssistantScreen()));
+    await tester.pumpAndSettle();
+
+    final chipFinder = find.widgetWithText(ActionChip, 'Medical Reports');
+    expect(chipFinder, findsOneWidget);
+    await tester.tap(chipFinder);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      'Summarize my medical reports',
+    );
+    expect(posts, isEmpty);
+  });
 }
+

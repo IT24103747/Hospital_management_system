@@ -379,23 +379,50 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
-                    children: _capabilities
-                        .map((capability) => Padding(
+                      children: _capabilities
+                          .map((capability) {
+                            IconData icon;
+                            switch (capability.id) {
+                              case 'medical-reports':
+                                icon = Icons.description_outlined;
+                                break;
+                              case 'patient-help':
+                                icon = Icons.healing_outlined;
+                                break;
+                              case 'find-doctor':
+                                icon = Icons.person_search_outlined;
+                                break;
+                              case 'appointments':
+                                icon = Icons.calendar_month_outlined;
+                                break;
+                              default:
+                                icon = Icons.auto_awesome_outlined;
+                            }
+                            return Padding(
                               padding: const EdgeInsets.only(right: 8),
                               child: ActionChip(
-                              label: Text(capability.enabled
-                                  ? capability.label
-                                  : '${capability.label} · Coming soon'),
-                              onPressed: !capability.enabled ||
-                                      disabled ||
-                                      _uncertainAction
-                                  ? null
-                                  : () {
-                                      _input.text = capability.prompt;
-                                      _focus.requestFocus();
-                                    },
-                            )))
-                        .toList(),
+                                avatar: Icon(
+                                  icon,
+                                  size: 16,
+                                  color: capability.enabled
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Theme.of(context).colorScheme.outline,
+                                ),
+                                label: Text(capability.enabled
+                                    ? capability.label
+                                    : '${capability.label} · Coming soon'),
+                                onPressed: !capability.enabled ||
+                                        disabled ||
+                                        _uncertainAction
+                                    ? null
+                                    : () {
+                                        _input.text = capability.prompt;
+                                        _focus.requestFocus();
+                                      },
+                              ),
+                            );
+                          })
+                          .toList(),
                     ),
                   )),
             ),
@@ -502,7 +529,7 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                     maxLength: 4000,
                     textCapitalization: TextCapitalization.sentences,
                     decoration: const InputDecoration(
-                      hintText: 'Ask about care or appointments…',
+                      hintText: 'Ask about care, appointments, or medical records…',
                       counterText: '',
                       border: OutlineInputBorder(),
                     ),
@@ -536,7 +563,7 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                   ?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(height: 10),
           const Text('Tell me what you need. I can help with patient guidance, '
-              'find a doctor, or check your appointments. You confirm any booking or cancellation.'),
+              'find a doctor, check your appointments, or summarize your medical reports and prescriptions. You confirm any booking or cancellation.'),
           const SizedBox(height: 12),
           Text(
               'Guidance does not replace a clinician. For an emergency, seek urgent care immediately.',

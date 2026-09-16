@@ -59,18 +59,23 @@ namespace HospitalManagementSystem.Api.Controllers
 
         // GET /api/medicalrecord/me
         [HttpGet("me")]
-        [Authorize(Roles = "Patient")]
+        [Authorize(Roles = "Admin,Doctor,Patient")]
         [ProducesResponseType(typeof(IEnumerable<MedicalRecordDto>), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetMyMedicalRecords()
         {
             var email = User.FindFirstValue(ClaimTypes.Email);
             if (string.IsNullOrWhiteSpace(email))
                 return Unauthorized(new { message = "Token missing email claim." });
 
+            if (User.IsInRole("Admin") || User.IsInRole("Doctor"))
+            {
+                var all = await _service.GetAllRecordsAsync(null, null, null, null, null, null, null, null, null, 1, 100);
+                return Ok(all.Data);
+            }
+
             var records = await _service.GetMyMedicalRecordsAsync(email);
             if (records == null)
-                return NotFound(new { message = "No patient profile associated with this user." });
+                return Ok(new List<MedicalRecordDto>());
 
             return Ok(records);
         }
