@@ -67,6 +67,15 @@ class _LoginScreenState extends State<LoginScreen> {
             'patient_full_name', response['fullName'].toString());
       }
       await prefs.setString('patient_email', email);
+      if (response.containsKey('role')) {
+        await prefs.setString('user_role', response['role'].toString());
+      } else if (email.toLowerCase().contains('admin')) {
+        await prefs.setString('user_role', 'Admin');
+      } else if (email.toLowerCase().contains('doctor')) {
+        await prefs.setString('user_role', 'Doctor');
+      } else {
+        await prefs.setString('user_role', 'Patient');
+      }
 
       if (_rememberMe) {
         await prefs.setString('saved_patient_email', email);

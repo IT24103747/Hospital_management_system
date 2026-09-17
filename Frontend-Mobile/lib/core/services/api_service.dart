@@ -774,8 +774,43 @@ class ApiService {
 
   // ---------- Medical Records Endpoints ----------
 
-  static Future<List<MedicalRecord>>
-      getMyMedicalRecords() async {
+  static Future<List<MedicalRecord>> getMedicalRecords({
+    int page = 1,
+    int pageSize = 100,
+    String? search,
+    String? recordType,
+  }) async {
+    try {
+      final queryParams = <String, String>{
+        'page': page.toString(),
+        'pageSize': pageSize.toString(),
+        if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+        if (recordType != null && recordType != 'All' && recordType.trim().isNotEmpty)
+          'recordType': recordType.trim(),
+      };
+
+      final uri = Uri.parse('$baseUrl/medicalrecord').replace(queryParameters: queryParams);
+      final response = await _client.get(
+        uri,
+        headers: await _authHeaders(),
+      );
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map && decoded.containsKey('data')) {
+          final items = decoded['data'] as List<dynamic>;
+          return items.map((item) => MedicalRecord.fromJson(item as Map<String, dynamic>)).toList();
+        } else if (decoded is List) {
+          return decoded.map((item) => MedicalRecord.fromJson(item as Map<String, dynamic>)).toList();
+        }
+      }
+    } catch (_) {}
+
+    // Fallback to getMyMedicalRecords
+    return getMyMedicalRecords();
+  }
+
+  static Future<List<MedicalRecord>> getMyMedicalRecords() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/medicalrecord/me'),
       headers: await _authHeaders(),
@@ -783,17 +818,61 @@ class ApiService {
 
     if (response.statusCode == 200) {
       final list = jsonDecode(response.body) as List<dynamic>;
-
       return list
-          .map(
-            (item) => MedicalRecord.fromJson(
-              item as Map<String, dynamic>,
-            ),
-          )
+          .map((item) => MedicalRecord.fromJson(item as Map<String, dynamic>))
           .toList();
     }
 
+    // Secondary fallback to /medicalrecord if /me is unauthorized or not a patient
+    final fallback = await _client.get(
+      Uri.parse('$baseUrl/medicalrecord?pageSize=100'),
+      headers: await _authHeaders(),
+    );
+
+    if (fallback.statusCode == 200) {
+      final decoded = jsonDecode(fallback.body);
+      final List<dynamic> items = decoded is Map && decoded.containsKey('data')
+          ? decoded['data'] as List<dynamic>
+          : decoded is List
+              ? decoded
+              : [];
+      return items.map((item) => MedicalRecord.fromJson(item as Map<String, dynamic>)).toList();
+    }
+
     throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<MedicalRecord> createMedicalRecord(Map<String, dynamic> data) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/medicalrecord'),
+      headers: await _authHeaders(),
+      body: jsonEncode(data),
+    );
+
+    if (response.statusCode == 201 || response.statusCode == 200) {
+      return MedicalRecord.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<List<Patient>> getAllPatients({int pageSize = 100}) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/patient?pageSize=$pageSize'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      final decoded = jsonDecode(response.body);
+      final List<dynamic> items = decoded is Map && decoded.containsKey('data')
+          ? decoded['data'] as List<dynamic>
+          : decoded is List
+              ? decoded
+              : [];
+      return items.map((item) => Patient.fromJson(item as Map<String, dynamic>)).toList();
+    }
+
+    return [];
   }
 
   static Future<MedicalRecord> getMedicalRecordById(
@@ -813,8 +892,7 @@ class ApiService {
     throw Exception(_errorMessage(response.body));
   }
 
-  static Future<MedicalRecordAttachment>
-      addMedicalRecordAttachment(
+  static Future<MedicalRecordAttachment> addMedicalRecordAttachment(
     int recordId, {
     required String fileName,
     required String fileType,

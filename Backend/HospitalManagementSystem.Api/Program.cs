@@ -118,6 +118,14 @@ builder.Services.AddHttpClient<IClinicalInformationExtractionAgent, GeminiClinic
     var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
     if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
 });
+builder.Services.AddHttpClient<HospitalManagementSystem.Api.AgenticAI.MedicalReports.IMedicalRecordIntelligenceAgent, HospitalManagementSystem.Api.AgenticAI.MedicalReports.GeminiMedicalRecordClient>((provider, client) =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
+    if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
+});
+builder.Services.AddScoped<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.IHospitalAssistantReadAgent, HospitalManagementSystem.Api.AgenticAI.MedicalReports.MedicalReportAssistantAgent>();
+
 
 // In Development mode, dynamically allow any localhost origin (supporting changing Flutter Web ports).
 // In Production mode, strictly enforce configured AllowedOrigins.

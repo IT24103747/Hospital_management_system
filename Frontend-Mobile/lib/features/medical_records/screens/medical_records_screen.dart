@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartcare_mobile/core/constants/app_colors.dart';
 import 'package:smartcare_mobile/core/services/api_service.dart';
+import 'package:smartcare_mobile/features/medical_records/screens/add_medical_record_dialog.dart';
 import 'package:smartcare_mobile/features/medical_records/screens/medical_record_detail_screen.dart';
 import 'package:smartcare_mobile/models/medical_record.dart';
 
@@ -20,13 +22,40 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
   String? _error;
   String _searchQuery = '';
   String _selectedType = 'All';
+  bool _isAdminOrDoctor = false;
 
-  final List<String> _types = ['All', 'Consultation', 'LabReport', 'Prescription', 'DischargeSummary'];
+  final List<String> _types = [
+    'All',
+    'Consultation',
+    'LabReport',
+    'Prescription',
+    'DischargeSummary',
+    'GeneralNote',
+  ];
 
   @override
   void initState() {
     super.initState();
-    _fetchRecords();
+    _checkRoleAndFetch();
+  }
+
+  Future<void> _checkRoleAndFetch() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final role = prefs.getString('user_role');
+      final email = (prefs.getString('patient_email') ?? '').toLowerCase();
+
+      final isAdminOrDoctor = role == 'Admin' ||
+          role == 'Doctor' ||
+          email.contains('admin') ||
+          email.contains('doctor');
+
+      if (mounted) {
+        setState(() => _isAdminOrDoctor = isAdminOrDoctor);
+      }
+    } catch (_) {}
+
+    await _fetchRecords();
   }
 
   Future<void> _fetchRecords() async {
@@ -36,7 +65,7 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
     });
 
     try {
-      final data = await ApiService.getMyMedicalRecords();
+      final data = await ApiService.getMedicalRecords();
       if (!mounted) return;
       setState(() {
         _records = data;
@@ -45,10 +74,20 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'Unable to load your medical records. Please pull down to refresh.';
+        _error = 'Unable to load medical records. Please pull down or click try again.';
         _loading = false;
       });
     }
+  }
+
+  void _openAddRecordDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AddMedicalRecordDialog(
+        onRecordCreated: _fetchRecords,
+      ),
+    );
   }
 
   List<MedicalRecord> get _filteredRecords {
@@ -58,7 +97,8 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
       final matchesSearch = query.isEmpty ||
           rec.diagnosis.toLowerCase().contains(query) ||
           rec.symptoms.toLowerCase().contains(query) ||
-          (rec.doctorName != null && rec.doctorName!.toLowerCase().contains(query));
+          (rec.doctorName != null && rec.doctorName!.toLowerCase().contains(query)) ||
+          rec.patientName.toLowerCase().contains(query);
       return matchesType && matchesSearch;
     }).toList();
   }
@@ -73,6 +113,8 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
         return const Color(0xFFD97706);
       case 'Prescription':
         return const Color(0xFF4F46E5);
+      case 'GeneralNote':
+        return const Color(0xFF10B981);
       default:
         return Colors.grey;
     }
@@ -91,20 +133,41 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Search Input
-            TextField(
-              decoration: InputDecoration(
-                hintText: 'Search diagnoses, symptoms, doctors...',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                filled: true,
-                fillColor: isDark ? AppColors.surfaceDark : const Color(0xFFF1F5F9),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
+            // Top Search & Add Button Bar
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search diagnoses, symptoms, patients...',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      filled: true,
+                      fillColor: isDark ? AppColors.surfaceDark : const Color(0xFFF1F5F9),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    onChanged: (val) => setState(() => _searchQuery = val),
+                  ),
                 ),
-              ),
-              onChanged: (val) => setState(() => _searchQuery = val),
+                if (_isAdminOrDoctor) ...[
+                  const SizedBox(width: 10),
+                  ElevatedButton.icon(
+                    onPressed: _openAddRecordDialog,
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                    label: const Text('Add Record'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 1,
+                    ),
+                  ),
+                ],
+              ],
             ),
             const SizedBox(height: 12),
 
@@ -119,7 +182,15 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
                   final t = _types[i];
                   final isSelected = _selectedType == t;
                   return ChoiceChip(
-                    label: Text(t == 'LabReport' ? 'Lab Reports' : t == 'DischargeSummary' ? 'Discharge' : t),
+                    label: Text(
+                      t == 'LabReport'
+                          ? 'Lab Reports'
+                          : t == 'DischargeSummary'
+                              ? 'Discharge'
+                              : t == 'GeneralNote'
+                                  ? 'Notes'
+                                  : t,
+                    ),
                     selected: isSelected,
                     selectedColor: AppColors.primary,
                     labelStyle: TextStyle(
@@ -183,18 +254,43 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
                       Text(
                         _searchQuery.isNotEmpty
                             ? 'No matches for "$_searchQuery"'
-                            : 'You do not have any recorded medical history yet.',
+                            : 'No medical records have been recorded yet.',
                         style: const TextStyle(color: Colors.grey, fontSize: 13),
                       ),
+                      if (_isAdminOrDoctor) ...[
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: _openAddRecordDialog,
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          label: const Text('Create First Record'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
               ),
             ] else ...[
               // Summary counter
-              Text(
-                '${_filteredRecords.length} ${_filteredRecords.length == 1 ? 'Record' : 'Records'} Found',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '${_filteredRecords.length} ${_filteredRecords.length == 1 ? 'Record' : 'Records'} Found',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
+                  ),
+                  if (_isAdminOrDoctor)
+                    TextButton.icon(
+                      onPressed: _openAddRecordDialog,
+                      icon: const Icon(Icons.add_circle_outline_rounded, size: 16),
+                      label: const Text('New Record', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                ],
               ),
               const SizedBox(height: 8),
 
@@ -265,6 +361,23 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
                             ],
                           ),
                           const SizedBox(height: 10),
+                          if (_isAdminOrDoctor && rec.patientName.isNotEmpty) ...[
+                            Row(
+                              children: [
+                                const Icon(Icons.person_rounded, size: 14, color: AppColors.primary),
+                                const SizedBox(width: 4),
+                                Text(
+                                  rec.patientName,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                          ],
                           Text(
                             rec.diagnosis,
                             style: TextStyle(
@@ -290,7 +403,7 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
                             children: [
                               Row(
                                 children: [
-                                  const Icon(Icons.person_outline_rounded, size: 15, color: Colors.grey),
+                                  const Icon(Icons.medical_services_outlined, size: 15, color: Colors.grey),
                                   const SizedBox(width: 4),
                                   Text(
                                     rec.doctorName ?? 'Hospital Clinician',
@@ -322,21 +435,39 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
                 },
               ),
             ],
-            const SizedBox(height: 20),
+            const SizedBox(height: 80),
           ],
         ),
       ),
     );
 
-    if (widget.embedded) {
-      return content;
-    }
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Medical Records'),
-      ),
+      backgroundColor: Colors.transparent,
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: const Text('Medical Records'),
+              actions: [
+                if (_isAdminOrDoctor)
+                  IconButton(
+                    icon: const Icon(Icons.add_rounded),
+                    onPressed: _openAddRecordDialog,
+                    tooltip: 'Add Medical Record',
+                  ),
+              ],
+            ),
       body: content,
+      floatingActionButton: _isAdminOrDoctor
+          ? FloatingActionButton.extended(
+              onPressed: _openAddRecordDialog,
+              backgroundColor: AppColors.primary,
+              icon: const Icon(Icons.add_rounded, color: Colors.white),
+              label: const Text(
+                'Add Record',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            )
+          : null,
     );
   }
 }
