@@ -46,3 +46,4 @@ Backend/android/local.properties
 Thumbs.db
 .idea/
 *.pdf
+.neon
