@@ -1,65 +1,12 @@
-import { Users, Stethoscope, Calendar, TrendingUp, ArrowUp, ArrowDown } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Users, Stethoscope, Calendar, TrendingUp, ArrowUp, ArrowDown, Loader2 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar
 } from 'recharts'
-import { MOCK_PATIENTS } from '../../patients/services/patientApi'
+import { dashboardApi } from '../services/dashboardApi'
 import { BloodGroupBadge } from '../../../components/Badge'
 import { formatDate, calculateAge, getInitials, nameToGradient } from '../../../lib/utils'
 import './DashboardPage.css'
-
-const MONTHLY_DATA = [
-  { month: 'Jan', patients: 24, appointments: 40 },
-  { month: 'Feb', patients: 18, appointments: 35 },
-  { month: 'Mar', patients: 31, appointments: 55 },
-  { month: 'Apr', patients: 28, appointments: 48 },
-  { month: 'May', patients: 42, appointments: 62 },
-  { month: 'Jun', patients: 35, appointments: 58 },
-  { month: 'Jul', patients: 50, appointments: 75 },
-  { month: 'Aug', patients: 45, appointments: 70 },
-]
-
-const STATS = [
-  {
-    id: 'stat-patients',
-    label: 'Total Patients',
-    value: '1,284',
-    change: '+12%',
-    up: true,
-    icon: Users,
-    color: 'var(--clr-primary)',
-    bg: 'rgba(14,165,233,0.1)',
-  },
-  {
-    id: 'stat-doctors',
-    label: 'Active Doctors',
-    value: '48',
-    change: '+3',
-    up: true,
-    icon: Stethoscope,
-    color: 'var(--clr-accent)',
-    bg: 'rgba(99,102,241,0.1)',
-  },
-  {
-    id: 'stat-appointments',
-    label: 'Today\'s Appointments',
-    value: '37',
-    change: '-5%',
-    up: false,
-    icon: Calendar,
-    color: 'var(--clr-warning)',
-    bg: 'rgba(245,158,11,0.1)',
-  },
-  {
-    id: 'stat-revenue',
-    label: 'Monthly Revenue',
-    value: 'Rs 4.2M',
-    change: '+18%',
-    up: true,
-    icon: TrendingUp,
-    color: 'var(--clr-success)',
-    bg: 'rgba(16,185,129,0.1)',
-  },
-]
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
@@ -76,12 +23,108 @@ const CustomTooltip = ({ active, payload, label }) => {
 }
 
 export default function DashboardPage() {
-  const recent = MOCK_PATIENTS.slice(0, 5)
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  const fetchStats = () => {
+    setLoading(true)
+    setError(null)
+    dashboardApi.getAdminStats()
+      .then(res => {
+        setData(res)
+        setLoading(false)
+      })
+      .catch(err => {
+        console.error('Failed to load dashboard stats:', err)
+        const msg = err.response?.data?.message || err.message || 'Failed to load dashboard data. Please make sure backend is running.'
+        setError(msg)
+        setLoading(false)
+      })
+  }
+
+  useEffect(() => {
+    fetchStats()
+  }, [])
+
+  const statCards = [
+    {
+      id: 'stat-patients',
+      label: data?.patientsStat?.label || 'Total Patients',
+      value: data?.patientsStat?.value ?? '0',
+      change: data?.patientsStat?.change ?? '0%',
+      up: data?.patientsStat?.up ?? true,
+      icon: Users,
+      color: 'var(--clr-primary)',
+      bg: 'rgba(14,165,233,0.1)',
+    },
+    {
+      id: 'stat-doctors',
+      label: data?.doctorsStat?.label || 'Active Doctors',
+      value: data?.doctorsStat?.value ?? '0',
+      change: data?.doctorsStat?.change ?? '0',
+      up: data?.doctorsStat?.up ?? true,
+      icon: Stethoscope,
+      color: 'var(--clr-accent)',
+      bg: 'rgba(99,102,241,0.1)',
+    },
+    {
+      id: 'stat-appointments',
+      label: data?.appointmentsStat?.label || "Today's Appointments",
+      value: data?.appointmentsStat?.value ?? '0',
+      change: data?.appointmentsStat?.change ?? '0%',
+      up: data?.appointmentsStat?.up ?? true,
+      icon: Calendar,
+      color: 'var(--clr-warning)',
+      bg: 'rgba(245,158,11,0.1)',
+    },
+    {
+      id: 'stat-revenue',
+      label: data?.revenueStat?.label || 'Monthly Revenue',
+      value: data?.revenueStat?.value ?? 'Rs 0',
+      change: data?.revenueStat?.change ?? '0%',
+      up: data?.revenueStat?.up ?? true,
+      icon: TrendingUp,
+      color: 'var(--clr-success)',
+      bg: 'rgba(16,185,129,0.1)',
+    },
+  ]
+
+  const monthlyTrends = data?.monthlyTrends || []
+  const recentPatients = data?.recentPatients || []
+
+  if (loading) {
+    return (
+      <div className="page-wrapper" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '300px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-muted)' }}>
+          <Loader2 className="animate-spin" size={24} />
+          <span>Loading dashboard analytics...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="page-wrapper">
+        <div className="glass-card" style={{ padding: '24px', textAlign: 'center' }}>
+          <p style={{ color: 'var(--clr-danger)', marginBottom: '16px' }}>{error}</p>
+          <button
+            className="btn btn--primary"
+            onClick={fetchStats}
+            style={{ padding: '8px 20px', cursor: 'pointer' }}
+          >
+            Retry Loading Dashboard
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="page-wrapper">
       <div className="grid-cols-4 stagger-children animate-fade-in" style={{ marginBottom: '28px' }}>
-        {STATS.map(stat => {
+        {statCards.map(stat => {
           const Icon = stat.icon
           return (
             <div key={stat.id} id={stat.id} className="stat-card glass-card">
@@ -105,8 +148,8 @@ export default function DashboardPage() {
         <div className="glass-card chart-card">
           <div className="chart-card__header">
             <div>
-              <h3 className="chart-card__title">Patient Admissions</h3>
-              <p className="chart-card__sub">Monthly trend – 2024</p>
+              <h3 className="chart-card__title">Patient Admissions & Appointments</h3>
+              <p className="chart-card__sub">Monthly trend analytics</p>
             </div>
             <div className="chart-legend">
               <span className="chart-legend__dot" style={{ background: 'var(--clr-primary)' }} />
@@ -116,7 +159,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={MONTHLY_DATA} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+            <AreaChart data={monthlyTrends} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="colPrimary" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3} />
@@ -140,12 +183,12 @@ export default function DashboardPage() {
         <div className="glass-card chart-card">
           <div className="chart-card__header">
             <div>
-              <h3 className="chart-card__title">Weekly Admissions</h3>
-              <p className="chart-card__sub">This week vs last week</p>
+              <h3 className="chart-card__title">Recent Activity Breakdown</h3>
+              <p className="chart-card__sub">Monthly comparisons</p>
             </div>
           </div>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={MONTHLY_DATA.slice(-4)} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+            <BarChart data={monthlyTrends.slice(-4)} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
               <XAxis dataKey="month" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -166,25 +209,31 @@ export default function DashboardPage() {
           <a href="/patients" className="dashboard__link" id="view-all-patients">View all →</a>
         </div>
         <div className="recent-patients">
-          {recent.map((p, i) => {
-            const [c1, c2] = nameToGradient(p.firstName)
-            return (
-              <div key={p.patientId} className="recent-patient" style={{ animationDelay: `${i * 0.06}s` }}>
-                <div
-                  className="recent-patient__avatar"
-                  style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
-                >
-                  {getInitials(p.firstName, p.lastName)}
+          {recentPatients.length === 0 ? (
+            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              No recent patients registered yet.
+            </div>
+          ) : (
+            recentPatients.map((p, i) => {
+              const [c1, c2] = nameToGradient(p.firstName || 'P')
+              return (
+                <div key={p.patientId} className="recent-patient" style={{ animationDelay: `${i * 0.06}s` }}>
+                  <div
+                    className="recent-patient__avatar"
+                    style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
+                  >
+                    {getInitials(p.firstName, p.lastName)}
+                  </div>
+                  <div className="recent-patient__info">
+                    <div className="recent-patient__name">{p.firstName} {p.lastName}</div>
+                    <div className="recent-patient__meta">{p.gender} · {calculateAge(p.dateOfBirth)} yrs</div>
+                  </div>
+                  <BloodGroupBadge group={p.bloodGroup} />
+                  <div className="recent-patient__date">{formatDate(p.createdAt)}</div>
                 </div>
-                <div className="recent-patient__info">
-                  <div className="recent-patient__name">{p.firstName} {p.lastName}</div>
-                  <div className="recent-patient__meta">{p.gender} · {calculateAge(p.dateOfBirth)} yrs</div>
-                </div>
-                <BloodGroupBadge group={p.bloodGroup} />
-                <div className="recent-patient__date">{formatDate(p.createdAt)}</div>
-              </div>
-            )
-          })}
+              )
+            })
+          )}
         </div>
       </div>
     </div>
