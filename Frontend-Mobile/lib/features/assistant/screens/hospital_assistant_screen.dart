@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:smartcare_mobile/core/constants/app_colors.dart';
 import 'package:smartcare_mobile/core/services/api_service.dart';
@@ -141,13 +143,14 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
       _accept(result);
       _retryMessage = null;
       _retryRequestId = null;
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       _input.text = text;
       _retryMessage = text;
       _retryRequestId = requestId;
-      setState(() => _error =
-          'Your message could not be completed. Try sending it again, or refresh the conversation.');
+      setState(() => _error = error is http.ClientException || error is TimeoutException
+          ? 'Cannot reach the hospital server. Check your connection and make sure the API is running, then try again.'
+          : 'Your message could not be completed. Try sending it again, or refresh the conversation.');
     } finally {
       if (mounted) {
         setState(() {
@@ -490,7 +493,7 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                               )).toList(),
                             ),
                           ..._conversation!.questions.map((question) => _bubble(
-                              _naturalQuestion(question['prompt']?.toString() ?? ''),
+                              _questionText(question),
                               user: false)),
                           if (!_hasResultHistory) ..._conversation!.doctors.map((doctor) => ListTile(
                                 contentPadding: EdgeInsets.zero,
@@ -642,20 +645,22 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
     );
   }
 
-  // The current assistant accepts a natural-language answer, rather than a
-  // checkbox selection. Translate legacy template wording for clarity.
-  String _naturalQuestion(String prompt) => prompt
-      .replaceFirst(
-          RegExp(r'^Select any red-flag respiratory warning signs:', caseSensitive: false),
-          'Do you have any of these respiratory warning signs?')
-      .replaceFirst(
-          RegExp(r'^Select every warning sign that applies\\.?$', caseSensitive: false),
-          'Do you have any of these warning signs?')
-      .replaceFirst(
-          RegExp(r'^Select every health context that applies\\.?$', caseSensitive: false),
-          'Do any of these health conditions or situations apply to you?')
-      .replaceFirst(RegExp(r'^Select any ', caseSensitive: false), 'Do you have any ')
-      .replaceFirst(RegExp(r'^Select every ', caseSensitive: false), 'Do you have any ');
+  String _questionText(Map<String, dynamic> question) {
+    final parts = <String>[question['prompt']?.toString() ?? ''];
+    final options = (question['options'] as List?)?.map((item) => item.toString()).toList() ?? [];
+    if (options.isNotEmpty) parts.add('Options: ${options.join('; ')}');
+    final hint = question['hint']?.toString();
+    if (hint != null && hint.isNotEmpty) parts.add(hint);
+    if (question['type'] == 'number' || question['type'] == 'severityScale') {
+      final minimum = question['minimum'];
+      final maximum = question['maximum'];
+      final unit = question['unit']?.toString();
+      if (minimum != null && maximum != null) {
+        parts.add('Enter a number from $minimum to $maximum${unit == null ? '' : ' $unit'}.');
+      }
+    }
+    return parts.join('\n\n');
+  }
 
   Widget _approval(AssistantAction action) {
     final expired = action.expiresAt?.isBefore(DateTime.now()) ?? false;

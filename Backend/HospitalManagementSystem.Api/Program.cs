@@ -94,6 +94,11 @@ builder.Services.AddScoped<IDoctorScheduleService, DoctorScheduleService>();
 builder.Services.AddScoped<ITriageWorkflowService, TriageWorkflowService>();
 builder.Services.AddScoped<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.AssistantAgentRegistry>();
 builder.Services.AddScoped<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.HospitalAssistantService>();
+builder.Services.AddHttpClient<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.IAssessmentIntentClient,
+    HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.GeminiAssessmentIntentClient>((provider, client) =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
+});
 builder.Services.AddScoped<IClinicalSafetyTriageAgent, ClinicalSafetyTriageAgent>();
 builder.Services.AddScoped<IPatientCareAssessmentStore, PatientCareAssessmentStore>();
 // Reusable controlled tools for the Member 3 proposal and Member 4 confirmation agents.

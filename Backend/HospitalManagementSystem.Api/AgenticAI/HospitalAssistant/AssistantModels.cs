@@ -37,7 +37,15 @@ public sealed record AssistantMessage(string Id, string Role, string Text, DateT
     public AssistantPendingAction? ProposedAction { get; init; }
 }
 public sealed record AssistantClinicalReview(int WorkflowId, string Status, string ApprovalStatus, string Message);
-public sealed record AssistantQuestion(string Id, string Prompt, bool Required);
+public sealed record AssistantQuestion(string Id, string Prompt, bool Required)
+{
+    public string Type { get; init; } = string.Empty;
+    public IReadOnlyList<string> Options { get; init; } = [];
+    public string? Hint { get; init; }
+    public string? Unit { get; init; }
+    public decimal? Minimum { get; init; }
+    public decimal? Maximum { get; init; }
+}
 public sealed class AssistantPendingAction
 {
     public Guid ActionId { get; set; } = Guid.NewGuid();
