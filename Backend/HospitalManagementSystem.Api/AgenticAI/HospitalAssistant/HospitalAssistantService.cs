@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Globalization;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.ClinicalSafety;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.SafetyApproval;
@@ -22,7 +23,8 @@ public sealed partial class HospitalAssistantService(
     ISafetyValidationApprovalAgent approval,
     IAppointmentAgentTools tools,
     IAppointmentService appointments,
-    AppointmentSmsNotifier sms)
+    AppointmentSmsNotifier sms,
+    IAssessmentIntentClient? intentClient = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     // Fixed stripes avoid a lock dictionary growing with patient data. PostgreSQL locks also
@@ -203,7 +205,23 @@ public sealed partial class HospitalAssistantService(
         {
             if (text.Length > 500) { Reply(state, "Please keep this answer under 500 characters.", "GATHERING_INFORMATION"); return; }
             var question = state.Questions.FirstOrDefault(q => state.Answers.All(a => a.QuestionId != q.Id));
-            if (question != null) state.Answers.Add(new() { QuestionId = question.Id, Value = text });
+            var workflowContext = await workflows.GetForPatientAsync(state.WorkflowId.Value, patient.PatientId);
+            var guidance = workflowContext?.Guidance;
+            var metadata = guidance?.FollowUpItems.FirstOrDefault(q => q.Id == question?.Id);
+            if (question == null || metadata == null || guidance == null)
+            { Reply(state, "I cannot verify the current assessment question. Please refresh the conversation.", "GATHERING_INFORMATION"); return; }
+            var previousReply = state.Messages.LastOrDefault(m => m.Role == "assistant")?.Text;
+            var interpretation = intentClient == null ? null : await intentClient.InterpretAsync(text, metadata, guidance, state.Answers, previousReply, token);
+            if (interpretation?.Intent != "ANSWER")
+            {
+                var response = interpretation is { Intent: "QUESTION_HELP" or "CLARIFICATION" or "GENERAL_QUERY" or "UNCLEAR", Response: { Length: > 0 } }
+                    ? interpretation.Response : AssessmentUnavailableReply(metadata);
+                Reply(state, response, "GATHERING_INFORMATION");
+                return;
+            }
+            if (!TryValidateAssessmentAnswer(metadata, interpretation.NormalizedAnswer, out var accepted))
+            { Reply(state, $"Please answer the current question in the requested format: {metadata.Prompt}", "GATHERING_INFORMATION"); return; }
+            state.Answers.Add(new() { QuestionId = question.Id, Value = accepted });
             if (state.Questions.Any(q => state.Answers.All(a => a.QuestionId != q.Id)))
             { Reply(state, "Thank you. Please answer the next question below.", "GATHERING_INFORMATION"); return; }
             var workflow = await workflows.ContinueForPatientAsync(state.WorkflowId.Value, patient.PatientId, new() { Answers = state.Answers });
@@ -322,6 +340,46 @@ public sealed partial class HospitalAssistantService(
         Reply(state, "I can help with symptoms, find a doctor, show your appointments, or prepare a booking or cancellation for your confirmation. What would you like to do?", "GATHERING_INFORMATION");
     }
 
+    private static bool TryValidateAssessmentAnswer(TriageFollowUpQuestionDto question, string? value, out string accepted)
+    {
+        accepted = value?.Trim() ?? string.Empty;
+        if (accepted.Length is < 1 or > 500) return false;
+        switch (question.Type)
+        {
+            case "number":
+            case "severityScale":
+                if (!decimal.TryParse(accepted, NumberStyles.Number, CultureInfo.InvariantCulture, out var number) ||
+                    (question.Minimum.HasValue && number < question.Minimum) ||
+                    (question.Maximum.HasValue && number > question.Maximum)) return false;
+                accepted = number.ToString(CultureInfo.InvariantCulture);
+                return true;
+            case "yesNo":
+                return accepted is "Yes" or "No" or "yes" or "no";
+            case "singleChoice":
+                var choiceValue = accepted;
+                return question.Options.Any(option => string.Equals(option, choiceValue, StringComparison.OrdinalIgnoreCase));
+            case "multipleChoice":
+                var choices = accepted.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                return choices.Length > 0 && choices.Distinct(StringComparer.OrdinalIgnoreCase).Count() == choices.Length &&
+                    choices.All(choice => question.Options.Any(option => string.Equals(option, choice, StringComparison.OrdinalIgnoreCase)));
+            case "shortText":
+                return accepted.Length >= 3;
+            default:
+                return false;
+        }
+    }
+
+    private static string AssessmentUnavailableReply(TriageFollowUpQuestionDto question)
+    {
+        var parts = new List<string> {
+            "I cannot interpret your message right now because the assessment assistant is unavailable. Your current question is still active.",
+            question.Prompt
+        };
+        if (!string.IsNullOrWhiteSpace(question.Hint)) parts.Add(question.Hint);
+        if (question.Options.Count > 0) parts.Add("Options: " + string.Join("; ", question.Options));
+        return string.Join("\n\n", parts);
+    }
+
     private async Task StartClinicalAsync(PatientDto patient, AssistantState state, string text, CancellationToken token)
     {
         state.State = "GATHERING_INFORMATION";
@@ -365,7 +423,10 @@ public sealed partial class HospitalAssistantService(
                 workflow.Status == TriageWorkflowStatuses.FailedSafely, [], workflow.RedFlags, workflow.UrgentFlags,
                 workflow.ClinicalReviewFlags, null, workflow.MissingInformation, []);
         state.Questions = workflow.Status == TriageWorkflowStatuses.PendingPatientInput
-            ? (workflow.Guidance?.FollowUpItems ?? []).Select(q => new AssistantQuestion(q.Id, q.Prompt, q.Required)).ToList() : [];
+            ? (workflow.Guidance?.FollowUpItems ?? []).Select(q => new AssistantQuestion(q.Id, q.Prompt, q.Required) {
+                Type = q.Type, Options = q.Options, Hint = q.Hint, Unit = q.Unit,
+                Minimum = q.Minimum, Maximum = q.Maximum
+            }).ToList() : [];
         state.Awaiting = state.Questions.Count > 0 ? "clinical-answer" : needsReview ? "clinical-review" : null;
     }
 

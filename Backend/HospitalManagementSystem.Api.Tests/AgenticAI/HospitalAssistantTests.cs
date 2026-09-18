@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
 using HospitalManagementSystem.Api.AgenticAI.HospitalAssistant;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.SafetyApproval;
@@ -11,12 +13,124 @@ using HospitalManagementSystem.Api.Repositories;
 using HospitalManagementSystem.Api.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 
 namespace HospitalManagementSystem.Api.Tests.AgenticAI;
 
 public sealed class HospitalAssistantTests
 {
+    [Fact]
+    public async Task ClarificationsAndGeneralQuestionsKeepTheOriginalQuestionUntilAValidAnswer()
+    {
+        await using var h = await Harness.Create();
+        var start = await h.Send("I have a mild headache");
+        h.Intent.UseNext = true;
+        var firstId = Assert.Single(start.Questions).Id;
+        foreach (var (message, intent) in new[] {
+            ("What does peak mean?", "QUESTION_HELP"), ("wdym?", "CLARIFICATION"),
+            ("Can you explain that?", "QUESTION_HELP"), ("What is this assessment for?", "GENERAL_QUERY") })
+        {
+            h.Intent.Next = new(intent, false, null, "Here is the explanation from the saved question guidance.");
+            var reply = await h.Send(message, start.ConversationId);
+            Assert.Equal(firstId, Assert.Single(reply.Questions).Id);
+            Assert.Equal("Here is the explanation from the saved question guidance.", reply.Messages.Last().Text);
+            Assert.Empty(SavedState(await h.Db.AssistantConversations.SingleAsync()).Answers);
+        }
+        h.Intent.Next = new("ANSWER", true, "not a valid option", null);
+        var invalid = await h.Send("Something else", start.ConversationId);
+        Assert.Equal(firstId, Assert.Single(invalid.Questions).Id);
+        var workflow = await h.Workflows.GetForPatientAsync((await h.Db.TriageWorkflows.SingleAsync()).TriageWorkflowId, 1);
+        var firstOption = workflow!.Guidance!.FollowUpItems.Single(q => q.Id == firstId).Options.First();
+        h.Intent.Next = new("ANSWER", true, firstOption, null);
+        var accepted = await h.Send(firstOption, start.ConversationId);
+        Assert.NotEqual(firstId, Assert.Single(accepted.Questions).Id);
+        Assert.Equal(firstOption, Assert.Single(SavedState(await h.Db.AssistantConversations.SingleAsync()).Answers).Value);
+    }
+
+    [Fact]
+    public async Task InvalidModelResultNeverConsumesAssessmentQuestion()
+    {
+        await using var h = await Harness.Create();
+        var start = await h.Send("I have a mild headache");
+        h.Intent.UseNext = true;
+        h.Intent.Next = null;
+        var reply = await h.Send("What does that mean?", start.ConversationId);
+        Assert.Equal(Assert.Single(start.Questions).Id, Assert.Single(reply.Questions).Id);
+        Assert.Contains("assessment assistant is unavailable", reply.Messages.Last().Text);
+        Assert.Contains(start.Questions[0].Prompt, reply.Messages.Last().Text);
+        Assert.Empty(SavedState(await h.Db.AssistantConversations.SingleAsync()).Answers);
+    }
+
+    [Fact]
+    public async Task UnclearModelResponseIsShownWithoutAdvancing()
+    {
+        await using var h = await Harness.Create();
+        var start = await h.Send("I have a mild headache");
+        h.Intent.UseNext = true;
+        h.Intent.Next = new("UNCLEAR", false, null, "Could you tell me more about what you mean?");
+        var reply = await h.Send("Maybe", start.ConversationId);
+        Assert.Equal("Could you tell me more about what you mean?", reply.Messages.Last().Text);
+        Assert.Equal(Assert.Single(start.Questions).Id, Assert.Single(reply.Questions).Id);
+        Assert.Empty(SavedState(await h.Db.AssistantConversations.SingleAsync()).Answers);
+    }
+
+    private static AssistantState SavedState(AssistantConversation conversation) =>
+        JsonSerializer.Deserialize<AssistantState>(conversation.StateJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+    [Fact]
+    public async Task MalformedGeminiJsonIsRejected()
+    {
+        using var http = new HttpClient(new InvalidIntentHandler()) { BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/") };
+        var settings = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+            ["Gemini:ApiKey"] = "test-key"
+        }).Build();
+        var client = new GeminiAssessmentIntentClient(http, settings,
+            NullLogger<GeminiAssessmentIntentClient>.Instance);
+        var result = await client.InterpretAsync("wdym?", new() { Id = "q", Prompt = "When?", Type = "shortText" },
+            new(), [], null, default);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GeminiClassifiesFollowUpIntentWithoutCallingOllama()
+    {
+        using var http = new HttpClient(new GeminiIntentHandler()) { BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/") };
+        var settings = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+            ["Gemini:ApiKey"] = "test-key", ["Gemini:Model"] = "test-model"
+        }).Build();
+        var client = new GeminiAssessmentIntentClient(http, settings, NullLogger<GeminiAssessmentIntentClient>.Instance);
+        var result = await client.InterpretAsync("like suddenly", new() { Id = "q", Prompt = "How quickly?", Type = "singleChoice",
+            Options = ["Suddenly reached maximum intensity within seconds ('thunderclap')", "Built up gradually over minutes to hours"] }, new(), [], null, default);
+        Assert.Equal("ANSWER", result?.Intent);
+        Assert.Equal("Suddenly reached maximum intensity within seconds ('thunderclap')", result?.NormalizedAnswer);
+    }
+
+    private sealed class GeminiIntentHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Assert.Equal("generativelanguage.googleapis.com", request.RequestUri!.Host);
+            Assert.EndsWith("/models/gemini-3.1-flash-lite:generateContent", request.RequestUri.AbsolutePath);
+            Assert.Contains("test-key", request.Headers.GetValues("x-goog-api-key"));
+            using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+            Assert.True(payload.RootElement.GetProperty("generationConfig").TryGetProperty("responseJsonSchema", out _));
+            var decision = "{\"intent\":\"ANSWER\",\"isAnswer\":true,\"normalizedAnswer\":\"Suddenly reached maximum intensity within seconds ('thunderclap')\",\"response\":null}";
+            var envelope = JsonSerializer.Serialize(new { candidates = new[] { new { content = new { parts = new[] { new { text = decision } } } } } });
+            return new HttpResponseMessage(HttpStatusCode.OK) {
+                Content = new StringContent(envelope, Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
+    private sealed class InvalidIntentHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
+                Content = new StringContent("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"not JSON\"}]}}]}", Encoding.UTF8, "application/json")
+            });
+    }
+
     [Fact]
     public async Task DoctorInformationAndFollowupAvailabilityRetainHistoryWithoutProposals()
     {
@@ -449,6 +563,7 @@ public sealed class HospitalAssistantTests
         public required ApplicationDbContext Db { get; init; }
         public required HospitalAssistantService Service { get; init; }
         public required TriageWorkflowService Workflows { get; init; }
+        public required FakeIntentClient Intent { get; init; }
         public PatientDto Patient { get; } = new() { PatientId = 1, FirstName = "Test", LastName = "Patient", Email = "test@example.com", PhoneNumber = "0771234567" };
         public Task<AssistantConversationResponse> Send(string message, Guid? id = null) => Service.MessageAsync(Patient,
             new() { ConversationId = id, Message = message, RequestId = Guid.NewGuid() }, default);
@@ -467,11 +582,31 @@ public sealed class HospitalAssistantTests
             var appointments = new AppointmentService(new AppointmentRepository(db), SmsTestSupport.Create(db));
             var tools = new FakeTools(appointments, slot);
             var workflows = new TriageWorkflowService(db, NullLogger<TriageWorkflowService>.Instance);
-            return new() { Db = db, Workflows = workflows, Service = new(db, new AssistantAgentRegistry([]), workflows,
+            var intent = new FakeIntentClient();
+            return new() { Db = db, Workflows = workflows, Intent = intent, Service = new(db, new AssistantAgentRegistry([]), workflows,
                 new HospitalAppointmentProposalAgent(tools, new AppointmentProposalStore(db)),
-                new SafetyValidationApprovalAgent(new SafetyApprovalTools(db, tools)), tools, appointments, SmsTestSupport.Create(db)) };
+                new SafetyValidationApprovalAgent(new SafetyApprovalTools(db, tools)), tools, appointments, SmsTestSupport.Create(db), intent) };
         }
         public ValueTask DisposeAsync() => Db.DisposeAsync();
+    }
+
+    private sealed class FakeIntentClient : IAssessmentIntentClient
+    {
+        public AssessmentIntent? Next { get; set; }
+        public bool UseNext { get; set; }
+        public Task<AssessmentIntent?> InterpretAsync(string message, TriageFollowUpQuestionDto question,
+            TriageGuidanceDto guidance, IReadOnlyList<TriageAnswerDto> answers, string? previousReply, CancellationToken token)
+        {
+            if (UseNext) return Task.FromResult(Next);
+            var answer = question.Type switch {
+                "number" or "severityScale" => "2",
+                "yesNo" => "No",
+                "multipleChoice" => question.Options.FirstOrDefault(o => o == "None of these") ?? question.Options.FirstOrDefault(),
+                "singleChoice" => question.Options.FirstOrDefault(o => o.Contains("gradually", StringComparison.OrdinalIgnoreCase)) ?? question.Options.FirstOrDefault(),
+                _ => message
+            };
+            return Task.FromResult<AssessmentIntent?>(new("ANSWER", true, answer, null));
+        }
     }
 
     private sealed class FakeTools(IAppointmentService appointments, DoctorTimeSlot slot) : IAppointmentAgentTools

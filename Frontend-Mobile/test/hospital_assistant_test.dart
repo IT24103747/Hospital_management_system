@@ -150,6 +150,41 @@ void main() {
     expect(find.text('Doctor directory checked'), findsNothing);
   });
 
+  testWidgets('follow-up question shows saved options and guidance', (tester) async {
+    await pump(tester, (request) async {
+      final response = conversation();
+      response['state'] = 'GATHERING_INFORMATION';
+      response['questions'] = [
+        {
+          'id': 'headache_onset',
+          'prompt': 'How quickly did the headache reach its peak intensity?',
+          'type': 'singleChoice',
+          'options': ['Suddenly', 'Gradually'],
+          'hint': 'Choose the closest description.',
+        }
+      ];
+      return jsonResponse(response);
+    });
+    await tester.enterText(find.byType(TextField), 'I have a headache');
+    await tester.tap(find.byTooltip('Send message'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Options: Suddenly; Gradually'), findsOneWidget);
+    expect(find.textContaining('Choose the closest description.'), findsOneWidget);
+  });
+
+  testWidgets('connection failure keeps draft and explains server is unreachable', (tester) async {
+    await pump(tester, (request) async {
+      if (request.method == 'POST') throw http.ClientException('Failed to fetch');
+      return jsonResponse([]);
+    });
+    await tester.enterText(find.byType(TextField), 'What does this mean?');
+    await tester.tap(find.byTooltip('Send message'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Cannot reach the hospital server'), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'What does this mean?');
+  });
+
   testWidgets(
       'single option is selected automatically; explicit confirmation displays final number',
       (tester) async {
@@ -329,4 +364,3 @@ void main() {
     expect(posts, isEmpty);
   });
 }
-
