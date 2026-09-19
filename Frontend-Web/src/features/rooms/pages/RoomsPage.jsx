@@ -1,6 +1,7 @@
 import { Building2, CheckCircle, Plus, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import Button from '../../../components/Button'
+import RoomCard from '../components/RoomCard'
 import { roomApi } from '../services/roomApi'
 import './RoomsPage.css'
 
@@ -55,10 +56,24 @@ export default function RoomsPage() {
     </form>}
     {error && <p className="room-message room-message--error">{error}</p>}{success && <p className="room-message room-message--success">{success}</p>}
     <div className="doctors__search-wrap room-search"><Search size={15}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search room number, name, or floor" /></div>
-    {loading ? <p>Loading rooms...</p> : visible.length === 0 ? <div className="doctor-empty">No rooms have been added.</div> : <div className="room-grid">{visible.map(room => <article key={room.roomId} className="room-card glass-card">
-      <div className="room-card__heading"><Building2/><div><h3>{room.roomNumber}</h3><p>{room.roomName}</p></div><span className={`room-status room-status--${room.status.toLowerCase()}`}>{room.status}</span></div>
-      <p><strong>Floor:</strong> {room.floor}</p><p>{room.description || 'No description'}</p>
-      <div className="room-card__footer"><span className={room.isConfirmed ? 'confirmed' : 'unconfirmed'}>{room.isConfirmed ? 'Confirmed' : 'Awaiting confirmation'}</span>{!room.isConfirmed && <Button size="sm" onClick={() => confirmRoom(room)}>Confirm</Button>}</div>
-    </article>)}</div>}
+    {loading ? (
+      <div className="room-grid">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="skeleton" style={{ height: '260px', borderRadius: '18px' }} />
+        ))}
+      </div>
+    ) : visible.length === 0 ? (
+      <div className="doctor-empty">No rooms have been added.</div>
+    ) : (
+      <div className="room-grid stagger-children animate-fade-in">
+        {visible.map(room => (
+          <RoomCard
+            key={room.roomId}
+            room={room}
+            onConfirm={confirmRoom}
+          />
+        ))}
+      </div>
+    )}
   </div>
 }

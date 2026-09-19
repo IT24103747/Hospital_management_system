@@ -1,6 +1,7 @@
 import { CalendarPlus, DoorOpen, Edit3, RefreshCw, Save, Trash2, X, XCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import Button from '../../../components/Button'
+import DoctorScheduleCard from '../components/DoctorScheduleCard'
 import { roomApi } from '../../rooms/services/roomApi'
 import { doctorScheduleApi } from '../services/doctorScheduleApi'
 import '../../rooms/pages/RoomsPage.css'
@@ -123,14 +124,26 @@ export default function DoctorSchedulesPage() {
     </form>
     {error && <p className="room-message room-message--error">{error}</p>}{success && <p className="room-message room-message--success">{success}</p>}
     <h2 className="schedule-heading">My Schedules</h2>
-    {loading ? <p>Loading schedules...</p> : schedules.length === 0 ? <div className="doctor-empty">You have no appointment schedules.</div> : <div className="room-grid">{schedules.map(schedule=><article className="room-card glass-card" key={schedule.doctorTimeSlotId}>
-      <div className="room-card__heading"><DoorOpen/><div><h3>{schedule.roomNumber}</h3><p>{schedule.roomName} · {schedule.floor}</p></div><span className={`room-status room-status--${schedule.isActive?'available':'booked'}`}>{schedule.isActive?'Active':'Cancelled'}</span></div>
-      <p><strong>Date:</strong> {new Date(schedule.startAt).toLocaleDateString()}</p><p><strong>Time:</strong> {new Date(schedule.startAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} – {new Date(schedule.endAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</p><p><strong>Appointments:</strong> {schedule.bookedCount}/{schedule.capacity}</p><p><strong>Consulting Fee:</strong> LKR {Number(schedule.consultationFee).toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2})}</p>
-      <div className="schedule-actions">
-        {schedule.isActive && new Date(schedule.endAt).getTime() > Date.now() && <Button variant="outline" size="sm" icon={Edit3} onClick={()=>beginEdit(schedule)}>Edit</Button>}
-        {!schedule.hasPatientBookings && <>{schedule.isActive && <Button variant="danger" size="sm" icon={XCircle} onClick={()=>cancel(schedule)}>Cancel</Button>}<Button variant="danger" size="sm" icon={Trash2} onClick={()=>remove(schedule)}>Delete</Button></>}
+    {loading ? (
+      <div className="schedules-grid">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="skeleton" style={{ height: '280px', borderRadius: '18px' }} />
+        ))}
       </div>
-      {schedule.hasPatientBookings && <p className="schedule-locked">Schedule changes notify booked patients. Booked schedules cannot be cancelled or deleted.</p>}
-    </article>)}</div>}
+    ) : schedules.length === 0 ? (
+      <div className="doctor-empty">You have no appointment schedules.</div>
+    ) : (
+      <div className="schedules-grid stagger-children animate-fade-in">
+        {schedules.map(schedule => (
+          <DoctorScheduleCard
+            key={schedule.doctorTimeSlotId}
+            schedule={schedule}
+            onEdit={beginEdit}
+            onCancel={cancel}
+            onDelete={remove}
+          />
+        ))}
+      </div>
+    )}
   </div>
 }

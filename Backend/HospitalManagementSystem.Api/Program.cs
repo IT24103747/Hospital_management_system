@@ -92,6 +92,7 @@ builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IDoctorScheduleService, DoctorScheduleService>();
 builder.Services.AddScoped<ITriageWorkflowService, TriageWorkflowService>();
+builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.AssistantAgentRegistry>();
 builder.Services.AddScoped<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.HospitalAssistantService>();
 builder.Services.AddHttpClient<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.IAssessmentIntentClient,
@@ -175,7 +176,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
-app.UseHttpsRedirection();
 app.UseCors("AppCors");
 app.UseAuthentication();
 app.UseAuthorization();

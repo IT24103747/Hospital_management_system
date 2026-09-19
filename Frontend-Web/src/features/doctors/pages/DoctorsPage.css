@@ -1,141 +1,99 @@
-.doctors__search-wrap {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 10px var(--space-md);
-  max-width: 400px;
-  box-shadow: var(--shadow-sm);
-}
-
-.doctors__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: var(--space-lg);
-}
-
-.doctor-card {
-  padding: var(--space-lg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  transition: all var(--transition-base);
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-}
-
-.doctor-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--clr-primary);
-  box-shadow: var(--shadow-md);
-}
-
-.doctor-card__top {
+.doctor-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
-.doctor-card__avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: var(--radius-md);
+.doctors__search-wrap {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 1.1rem;
-  color: white;
-}
-
-.doctor-card__status {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: var(--radius-full);
-}
-
-.doctor-card__status--available {
-  background: rgba(16, 185, 129, 0.12);
-  color: var(--clr-success);
-}
-
-.doctor-card__status--busy {
-  background: rgba(220, 38, 38, 0.12);
-  color: var(--clr-danger);
-}
-
-.doctor-card__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: pulse-glow 2s infinite;
-}
-
-.doctor-card__name {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.doctor-card__specialty {
-  font-size: 0.92rem;
-  color: var(--clr-primary);
-  font-weight: 600;
-}
-
-.doctor-card__stats {
-  display: flex;
-  gap: var(--space-md);
-  padding: var(--space-sm) 0;
-  border-top: 1px solid var(--border-default);
-  border-bottom: 1px solid var(--border-default);
-}
-
-.doctor-card__stat {
+  gap: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 8px 14px;
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
+  max-width: 420px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
 }
 
-.doctor-card__stat-val {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--text-primary);
+.doctors__search-wrap:focus-within {
+  border-color: var(--clr-primary);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
 }
 
-.doctor-card__stat-lbl {
-  font-size: 0.8rem;
+.doctors__search-icon {
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  flex-shrink: 0;
 }
 
-.doctor-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
-.doctor-tabs { display:flex; gap:6px; background:var(--bg-surface); border:1px solid var(--border-default); padding:5px; border-radius:var(--radius-md); }
-.doctor-tabs button { padding:7px 14px; border-radius:8px; color:var(--text-secondary); }
-.doctor-tabs button.active { background:var(--clr-primary); color:white; }
-.doctor-request-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:var(--space-lg); }
-.doctor-request { padding:var(--space-lg); }
-.doctor-request__heading { display:flex; align-items:center; gap:14px; margin-bottom:18px; }
-.doctor-request dl { display:grid; grid-template-columns:1fr 1fr; gap:13px; }
-.doctor-request dt { font-size:.7rem; color:var(--text-muted); text-transform:uppercase; }
-.doctor-request dd { font-size:.85rem; color:var(--text-primary); overflow-wrap:anywhere; }
-.request-status { display:inline-block; font-size:.7rem; margin-top:4px; padding:2px 8px; border-radius:20px; }
-.status-pending { color:var(--clr-warning); background:rgba(217,119,6,.12); }
-.status-approved { color:var(--clr-success); background:rgba(5,150,105,.12); }
-.status-declined { color:var(--clr-danger); background:rgba(220,38,38,.12); }
-.doctor-request__actions { display:flex; gap:10px; margin-top:20px; }
-.doctor-empty { padding:48px; text-align:center; color:var(--text-muted); background:var(--bg-card); border:1px dashed var(--border-default); border-radius:var(--radius-lg); }
-.review-result { display:flex; gap:7px; color:var(--clr-success); margin-top:20px; }.review-result.declined,.decline-reason { color:var(--clr-danger); }
-@media(max-width:700px){.doctor-toolbar{align-items:stretch;flex-direction:column}.doctor-request dl{grid-template-columns:1fr}}
+.doctors__search-wrap input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.doctor-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  padding: 4px;
+  border-radius: 12px;
+}
+
+.doctor-tabs button {
+  padding: 8px 18px;
+  border-radius: 9px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.83rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.doctor-tabs button:hover {
+  color: var(--text-primary);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.doctor-tabs button.active {
+  background: var(--clr-primary);
+  color: white;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+}
+
+.doctor-request-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.doctor-empty {
+  padding: 56px 24px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  border: 1px dashed var(--border-default);
+  border-radius: 18px;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 700px) {
+  .doctor-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .doctors__search-wrap {
+    max-width: 100%;
+  }
+}
