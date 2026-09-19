@@ -14,6 +14,7 @@ using HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.SafetyApproval;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.Shared;
 using HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator;
+using HospitalManagementSystem.Api.AgenticAI.SafeTriage;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
@@ -91,7 +92,12 @@ builder.Services.AddScoped<IDoctorService, DoctorService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IDoctorScheduleService, DoctorScheduleService>();
-builder.Services.AddScoped<ITriageWorkflowService, TriageWorkflowService>();
+builder.Services.AddScoped<ITriageWorkflowService>(provider => new TriageWorkflowService(
+    provider.GetRequiredService<ApplicationDbContext>(),
+    provider.GetRequiredService<ILogger<TriageWorkflowService>>(),
+    provider.GetRequiredService<ISafeTriageSemanticExtractionAgent>(),
+    provider.GetRequiredService<ISafeTriageQuestionPlanningAgent>(),
+    provider.GetRequiredService<ISafeTriageResponseGenerationAgent>()));
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.AssistantAgentRegistry>();
 builder.Services.AddScoped<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.HospitalAssistantService>();
@@ -119,6 +125,25 @@ builder.Services.AddHttpClient<IPlanningModelClient, GeminiPlanningModelClient>(
     if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
 });
 builder.Services.AddHttpClient<IClinicalInformationExtractionAgent, GeminiClinicalInformationExtractionAgent>((provider, client) =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
+});
+// SafeTriage owns separate Gemini stages so the shared PatientCare extractor remains behaviorally unchanged.
+builder.Services.AddHttpClient<ISafeTriageSemanticExtractionAgent, GeminiSafeTriageSemanticExtractionAgent>((provider, client) =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
+});
+builder.Services.AddHttpClient<ISafeTriageQuestionPlanningAgent, GeminiSafeTriageQuestionPlanningAgent>((provider, client) =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
+});
+builder.Services.AddHttpClient<ISafeTriageResponseGenerationAgent, GeminiSafeTriageResponseGenerationAgent>((provider, client) =>
 {
     client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
     var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];

@@ -30,6 +30,7 @@ public sealed class SafeTriageAgentContext
     public List<string> UrgentFlags { get; } = [];
     public List<string> ClinicalReviewFlags { get; } = [];
     public List<string> PlannedInformationNeeds { get; } = [];
+    public List<TriageFollowUpQuestionDto> PlannedQuestions { get; } = [];
     public ClinicalExtractionResult? Extraction { get; set; }
     public string? ProposedRoute { get; set; }
     public bool IsWithinValidatedRoutineScope { get; set; }
@@ -83,7 +84,7 @@ public sealed class SafetyRedFlagAgent : ISafeTriageAgent
     }
 }
 
-public sealed class ClinicalInformationExtractionWorkflowAgent(IClinicalInformationExtractionAgent extractionTool) : ISafeTriageAgent
+public sealed class ClinicalInformationExtractionWorkflowAgent(ISafeTriageSemanticExtractionAgent extractionTool) : ISafeTriageAgent
 {
     public string Name => "ClinicalInformationExtractionAgent";
     public string ToolName => "GeminiStructuredExtractionTool";
@@ -96,7 +97,7 @@ public sealed class ClinicalInformationExtractionWorkflowAgent(IClinicalInformat
         do
         {
             attempts++;
-            context.Extraction = await extractionTool.ExtractAsync(context.Symptoms, !context.Request.IsFollowUp, cancellationToken);
+            context.Extraction = await extractionTool.ExtractAsync(context.Symptoms, context.Request.IsFollowUp, cancellationToken);
         } while (context.Extraction.Status != "Completed" && attempts < maxAttempts && !cancellationToken.IsCancellationRequested);
         watch.Stop();
         var completed = context.Extraction.Status == "Completed";
@@ -129,39 +130,21 @@ public sealed class CareRoutingAgent : ISafeTriageAgent
     }
 }
 
-public sealed class AdaptiveQuestionPlanningAgent : ISafeTriageAgent
+public sealed class AdaptiveQuestionPlanningAgent(ISafeTriageQuestionPlanningAgent planner) : ISafeTriageAgent
 {
     public string Name => nameof(AdaptiveQuestionPlanningAgent);
     public string ToolName => "RankMissingInformationTool";
 
-    public Task<SafeTriageAgentExecution> ExecuteAsync(SafeTriageAgentContext context, CancellationToken cancellationToken = default)
+    public async Task<SafeTriageAgentExecution> ExecuteAsync(SafeTriageAgentContext context, CancellationToken cancellationToken = default)
     {
         var watch = Stopwatch.StartNew();
-        if (context.Request.IsFollowUp)
-        {
-            watch.Stop();
-            return Task.FromResult(new SafeTriageAgentExecution(Name, ToolName, "Completed", true,
-                "Final clarification round reached; no additional question cycle was planned.",
-                (int)watch.ElapsedMilliseconds));
-        }
-        var facts = context.Extraction?.Facts;
-        context.PlannedInformationNeeds.Add("warning signs");
-        if (facts?.DurationMinutes is null && facts?.DurationDays is null)
-            context.PlannedInformationNeeds.Add("onset and duration");
-        if (facts?.SeverityScore is null && context.PlannedInformationNeeds.Count < 3)
-            context.PlannedInformationNeeds.Add("severity and functional impact");
-        if (context.PlannedInformationNeeds.Count < 3)
-            context.PlannedInformationNeeds.Add("relevant medical risk context");
-        foreach (var missing in context.Extraction?.MissingInformation ?? [])
-        {
-            if (context.PlannedInformationNeeds.Count >= 3) break;
-            if (!context.PlannedInformationNeeds.Contains(missing, StringComparer.OrdinalIgnoreCase))
-                context.PlannedInformationNeeds.Add(missing);
-        }
+        var plan = await planner.PlanAsync(context.Extraction ?? new ClinicalExtractionResult([], [], null, "FailedSafely"), [], cancellationToken);
+        context.PlannedQuestions.AddRange(plan.Questions);
+        context.PlannedInformationNeeds.AddRange(plan.Questions.Select(item => item.Prompt));
         watch.Stop();
-        return Task.FromResult(new SafeTriageAgentExecution(Name, ToolName, "Planned", true,
-            $"Ranked {context.PlannedInformationNeeds.Count} decision-relevant information needs; maximum follow-up count is 3.",
-            (int)watch.ElapsedMilliseconds));
+        return new SafeTriageAgentExecution(Name, ToolName, plan.Status, plan.Status == "Completed",
+            plan.Status == "Completed" ? $"Gemini planned {context.PlannedInformationNeeds.Count} validated follow-up questions." : "Question planning failed safely.",
+            (int)watch.ElapsedMilliseconds, 0, plan.ErrorCode);
     }
 }
 
@@ -231,11 +214,15 @@ public sealed class SafeTriageWorkflowCoordinator
     private readonly SafetyRedFlagAgent _redFlags = new();
     private readonly ClinicalInformationExtractionWorkflowAgent _extraction;
     private readonly StructuredSafetyAssessmentAgent _structuredSafety = new();
-    private readonly AdaptiveQuestionPlanningAgent _questionPlanning = new();
+    private readonly AdaptiveQuestionPlanningAgent _questionPlanning;
     private readonly CareRoutingAgent _routing = new();
     private readonly SafetyValidationAgent _validation = new();
 
-    public SafeTriageWorkflowCoordinator(IClinicalInformationExtractionAgent extractionTool) => _extraction = new(extractionTool);
+    public SafeTriageWorkflowCoordinator(ISafeTriageSemanticExtractionAgent extractionTool, ISafeTriageQuestionPlanningAgent questionPlanner)
+    {
+        _extraction = new(extractionTool);
+        _questionPlanning = new(questionPlanner);
+    }
 
     public async Task<(SafeTriageAgentContext Context, IReadOnlyList<SafeTriageAgentExecution> Trace)> RunAsync(StartTriageWorkflowDto request, CancellationToken cancellationToken = default)
     {

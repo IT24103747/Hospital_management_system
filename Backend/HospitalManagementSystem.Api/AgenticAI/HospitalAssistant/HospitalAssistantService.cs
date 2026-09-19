@@ -284,12 +284,13 @@ public sealed partial class HospitalAssistantService(
                 return;
             }
             if (!TryValidateAssessmentAnswer(metadata, interpretation.NormalizedAnswer, out var accepted))
-            { Reply(state, $"Please answer the current question in the requested format: {metadata.Prompt}", "GATHERING_INFORMATION"); return; }
-            state.Answers.Add(new() { QuestionId = question.Id, Value = accepted });
-            if (state.Questions.Any(q => state.Answers.All(a => a.QuestionId != q.Id)))
-            { Reply(state, "Thank you. Please answer the next question below.", "GATHERING_INFORMATION"); return; }
-            var workflow = await workflows.ContinueForPatientAsync(state.WorkflowId.Value, patient.PatientId, new() { Answers = state.Answers });
+            { Reply(state, "I could not use that response. Please share a little more detail about the current question.", "GATHERING_INFORMATION"); return; }
+            // Submit every useful answer immediately. The persisted workflow, rather
+            // than this conversation cache, decides what remains missing next.
+            var workflow = await workflows.ContinueForPatientAsync(state.WorkflowId.Value, patient.PatientId,
+                new() { Answers = [new TriageAnswerDto { QuestionId = question.Id, Value = accepted }] });
             if (workflow == null) throw new InvalidOperationException("The assessment is no longer waiting for answers. Refresh the conversation.");
+            state.Answers = [];
             ApplyWorkflow(state, workflow);
             ClinicalReply(state, workflow);
             if (!state.SafetyBlocked && state.WantsAppointment) await SearchAsync(patient, state, token);

@@ -494,7 +494,7 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                               )).toList(),
                             ),
                           if (_conversation!.assessmentInputActive)
-                            ..._conversation!.questions.map((question) => _bubble(
+                            ..._conversation!.questions.take(1).map((question) => _bubble(
                                 _questionText(question),
                                 user: false)),
                           if (!_hasResultHistory) ..._conversation!.doctors.map((doctor) => ListTile(
