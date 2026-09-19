@@ -15,7 +15,8 @@ public sealed record AppointmentProposalRequest(
     string Specialty,
     DateOnly? PreferredDate = null,
     string? Period = null,
-    DateOnly? ThroughDate = null);
+    DateOnly? ThroughDate = null,
+    IReadOnlyList<int>? ExcludedDoctorTimeSlotIds = null);
 
 public sealed record HospitalAppointmentProposal(
     string Status,
@@ -69,6 +70,7 @@ public sealed class HospitalAppointmentProposalAgent(IAppointmentAgentTools tool
         }
         var verified = slots.Where(slot =>
                 (!request.ThroughDate.HasValue || (DateOnly.FromDateTime(slot.StartAt.DateTime) >= request.PreferredDate && DateOnly.FromDateTime(slot.StartAt.DateTime) <= request.ThroughDate)) &&
+                !(request.ExcludedDoctorTimeSlotIds?.Contains(slot.DoctorTimeSlotId) ?? false) &&
                 (request.Period == null || request.Period switch {
                     "morning" => slot.StartAt.Hour < 12,
                     "afternoon" => slot.StartAt.Hour >= 12 && slot.StartAt.Hour < 17,

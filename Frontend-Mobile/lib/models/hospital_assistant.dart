@@ -27,6 +27,7 @@ class AssistantMessage {
   final List<AssistantJson> slots;
   final List<AssistantJson> doctors;
   final AssistantAction? proposedAction;
+  final bool availabilityChecked;
 
   AssistantMessage.fromJson(AssistantJson json)
       : id = json['id'].toString(),
@@ -37,7 +38,8 @@ class AssistantMessage {
         slots = assistantObjects(json['slots']),
         doctors = assistantObjects(json['doctors']),
         proposedAction = json['proposedAction'] is Map
-            ? AssistantAction.fromJson(Map<String, dynamic>.from(json['proposedAction'])) : null;
+            ? AssistantAction.fromJson(Map<String, dynamic>.from(json['proposedAction'])) : null,
+        availabilityChecked = json['availabilityChecked'] as bool? ?? false;
 }
 
 class AssistantAction {
@@ -48,6 +50,7 @@ class AssistantAction {
   final DateTime? expiresAt;
   final List<AssistantJson> slots;
   final List<AssistantJson> appointments;
+  final String status;
 
   AssistantAction.fromJson(AssistantJson json)
       : id = json['actionId'] as String,
@@ -56,7 +59,8 @@ class AssistantAction {
         description = json['description'] as String? ?? '',
         expiresAt = DateTime.tryParse(json['expiresAt']?.toString() ?? ''),
         slots = assistantObjects(json['slots']),
-        appointments = assistantObjects(json['appointments']);
+        appointments = assistantObjects(json['appointments']),
+        status = json['status'] as String? ?? 'Pending';
 }
 
 class AssistantConversation {
@@ -71,6 +75,8 @@ class AssistantConversation {
   final List<AssistantJson> doctors;
   final List<AssistantCapability> capabilities;
   final List<AssistantJson> clinicalReviews;
+  final bool availabilityChecked;
+  final bool assessmentInputActive;
 
   AssistantConversation.fromJson(AssistantJson json)
       : id = json['conversationId'] as String,
@@ -88,6 +94,8 @@ class AssistantConversation {
         slots = assistantObjects(json['slots']),
         doctors = assistantObjects(json['doctors']),
         clinicalReviews = assistantObjects(json['clinicalReviews']),
+        availabilityChecked = json['availabilityChecked'] as bool? ?? false,
+        assessmentInputActive = json['assessmentInputActive'] as bool? ?? false,
         capabilities = assistantObjects(json['capabilities'])
             .map(AssistantCapability.fromJson)
             .toList();
