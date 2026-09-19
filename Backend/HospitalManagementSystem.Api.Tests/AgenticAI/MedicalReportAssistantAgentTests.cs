@@ -42,6 +42,8 @@ public sealed class MedicalReportAssistantAgentTests
     [InlineData("My blood tests summary", true)]
     [InlineData("Book an appointment tomorrow", false)]
     [InlineData("What doctors work in Cardiology?", false)]
+    [InlineData("What doctors work in General Medicine?", false)]
+    [InlineData("Show me the General Medicine doctors", false)]
     [InlineData("Show my appointments", false)]
     [InlineData("Hello", false)]
     [InlineData("", false)]

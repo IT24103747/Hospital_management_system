@@ -35,6 +35,7 @@ public sealed record AssistantMessage(string Id, string Role, string Text, DateT
     public IReadOnlyList<AgentSlot> Slots { get; init; } = [];
     public IReadOnlyList<AgentDoctor> Doctors { get; init; } = [];
     public AssistantPendingAction? ProposedAction { get; init; }
+    public bool AvailabilityChecked { get; init; }
 }
 public sealed record AssistantClinicalReview(int WorkflowId, string Status, string ApprovalStatus, string Message);
 public sealed record AssistantQuestion(string Id, string Prompt, bool Required)
@@ -56,6 +57,8 @@ public sealed class AssistantPendingAction
     public IReadOnlyList<AppointmentDto> Appointments { get; set; } = [];
     public DateTime ExpiresAt { get; set; } = DateTime.UtcNow.AddMinutes(30);
     public int? ProposalId { get; set; }
+    // Historical proposals remain visible, but only Pending can be confirmed.
+    public string Status { get; set; } = "Pending";
 }
 public sealed class AssistantState
 {
@@ -80,6 +83,9 @@ public sealed class AssistantState
     public string? CancellationReason { get; set; }
     public IReadOnlyList<AssistantClinicalReview> ClinicalReviews { get; set; } = [];
     public string? ReadSearchMode { get; set; }
+    public string? ActiveTask { get; set; }
+    public bool AvailabilityChecked { get; set; }
+    public IReadOnlyList<int> ExcludedDoctorTimeSlotIds { get; set; } = [];
 }
 public sealed record AssistantConversationResponse(Guid ConversationId, string Title, string State,
     DateTime UpdatedAt, IReadOnlyList<AssistantMessage> Messages, AssistantPendingAction? PendingAction,
@@ -87,6 +93,8 @@ public sealed record AssistantConversationResponse(Guid ConversationId, string T
     IReadOnlyList<AgentSlot> Slots, IReadOnlyList<AgentDoctor> Doctors, IReadOnlyList<AssistantCapability> Capabilities)
 {
     public IReadOnlyList<AssistantClinicalReview> ClinicalReviews { get; init; } = [];
+    public bool AvailabilityChecked { get; init; }
+    public bool AssessmentInputActive { get; init; }
 }
 
 // Register future capability handlers here and in the coordinator; clients consume this list.

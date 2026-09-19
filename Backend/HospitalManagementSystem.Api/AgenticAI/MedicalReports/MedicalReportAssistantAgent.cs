@@ -28,6 +28,11 @@ public sealed class MedicalReportAssistantAgent : IHospitalAssistantReadAgent
     {
         if (string.IsNullOrWhiteSpace(message)) return false;
 
+        // "General Medicine" is a doctor specialty, not a request to read a
+        // patient's medication/medical-record data. Let the directory route own it.
+        if (Regex.IsMatch(message, @"\b(doctors?|specialists?)\b.*\b(work|available|availability|find|show)\b|\b(work|available|availability|find|show)\b.*\b(doctors?|specialists?)\b", RegexOptions.IgnoreCase))
+            return false;
+
         var pattern = @"\b(medical\s*reports?|medical\s*records?|my\s*reports?|my\s*records?|lab\s*reports?|lab\s*results?|prescriptions?|medications?|medicines?|diagnos(is|es)|discharge\s*summary|doctor\s*notes?|blood\s*tests?|what\s+did\s+(the\s+)?doctor\s+prescribe)\b";
         return Regex.IsMatch(message, pattern, RegexOptions.IgnoreCase);
     }

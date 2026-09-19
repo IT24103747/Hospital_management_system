@@ -10,10 +10,45 @@ public sealed partial class HospitalAssistantService
     {
         // Mutation verbs remain in the existing proposal/approval route.
         if (Has(text, @"\b(book|booking|reserve|schedule|reschedule|cancel|create|confirm|proceed)\b")) return false;
+        if (Has(text, @"\b(thank(s| you)?|appreciate it)\b"))
+        {
+            Reply(state, "You're welcome.", "COMPLETED");
+            return true;
+        }
+        if (Has(text, @"^(nothing|never mind|nevermind|no thanks|that's all|that is all)[.! ]*$"))
+        {
+            Reply(state, "No problem. Let me know if you need anything else.", "COMPLETED");
+            return true;
+        }
         if (Has(text, @"^(yes|okay|ok|go ahead|do it|no need|not needed|nothing else|no thanks|that's all|that is all)[.! ]*$")) return false;
         if (Has(text, @"^(hello|hi|help|what can you do)[?!. ]*$"))
         {
             Reply(state, "I can show your appointments, find approved doctors, check availability, and prepare appointment requests for your confirmation. You can keep using these information services while an assessment is pending.", "COMPLETED");
+            return true;
+        }
+        var allSpecialties = Has(text, @"\b(all|every|show|list)\b.*\b(specialt(y|ies)|specialit(y|ies))\b|\b(specialt(y|ies)|specialit(y|ies))\b.*\b(all|every|show|list)\b");
+        var allDoctors = Has(text, @"\b(all|every|show|list|who are)\b.*\b(doctors?|specialists?)\b|\b(doctors?|specialists?)\b.*\b(working|work)\b.*\b(here|hospital)\b");
+        if (allSpecialties || allDoctors)
+        {
+            var directory = await tools.FindDoctorsAsync("");
+            state.ActiveTask = allSpecialties ? "specialty-list" : "doctor-list";
+            state.ReadSearchMode = "doctors";
+            state.SearchQuery = null;
+            state.Slots = [];
+            state.AvailabilityChecked = false;
+            if (allSpecialties)
+            {
+                state.Doctors = [];
+                var specialties = directory.Select(d => d.Specialty).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToArray();
+                Reply(state, specialties.Length == 0 ? "No approved specialties are currently available."
+                    : "Available specialties: " + string.Join(", ", specialties) + ".", "COMPLETED", ["The approved doctor directory was checked."]);
+            }
+            else
+            {
+                state.Doctors = directory;
+                Reply(state, directory.Count == 0 ? "No approved doctors are currently listed."
+                    : $"Here are {directory.Count} approved doctors working in this hospital.", "COMPLETED", ["The approved doctor directory was checked."]);
+            }
             return true;
         }
         var extension = registry.AdditionalAgents.FirstOrDefault(agent => agent.Capability.Enabled && agent.CanHandle(text));
@@ -53,16 +88,33 @@ public sealed partial class HospitalAssistantService
 
         var doctorRequest = Has(text, @"\b(doctors?|specialists?|cardiologists?|cardiology|general medicine|ophthalmologists?|dermatologists?|neurologists?)\b");
         var followup = state.SearchQuery != null && Has(text, @"\b(which one|which of them|available|availability|tomorrow|morning|afternoon|evening)\b");
-        var preferenceReply = state.ReadSearchMode != null && state.PendingAction == null;
+        var preferenceReply = state.ActiveTask == "availability" && state.ReadSearchMode != null && state.PendingAction == null;
         if (!doctorRequest && !followup && !preferenceReply) return false;
         // A date-only reply to an explicit booking stays in the booking flow.
         if (!doctorRequest && state.WantsAppointment && state.ReadSearchMode == null) return false;
         var doctors = await tools.FindDoctorsAsync("");
         if (!doctorRequest && !followup && Query(text, doctors) == null) return false;
-        var query = Query(text, doctors) ?? state.SearchQuery;
+        var continuesAvailability = followup || preferenceReply;
+        var priorSearchQuery = state.SearchQuery;
+        if (!continuesAvailability)
+        {
+            // A new directory/availability request starts fresh; only a recognised
+            // follow-up can inherit the previous doctor, date, and daypart.
+            state.SearchQuery = null;
+            state.PreferredDate = null;
+            state.ThroughDate = null;
+            state.Period = null;
+            state.Slots = [];
+            state.AvailabilityChecked = false;
+        }
+        // A blocked booking can still ask for an independent availability read;
+        // retain its explicit doctor/specialty only when the new wording does not
+        // contain another recognised query.
+        var query = Query(text, doctors) ?? (continuesAvailability || state.ActiveTask == "booking" ? priorSearchQuery : null);
         var availability = Has(text, @"\b(available|availability|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening)\b") ||
             Has(text, @"\b\d{4}-\d{2}-\d{2}\b") || state.ReadSearchMode == "availability";
         state.ReadSearchMode = availability ? "availability" : "doctors";
+        state.ActiveTask = availability ? "availability" : "doctor-information";
         if (query == null)
         {
             Reply(state, "Which doctor or specialty would you like me to look up?", "GATHERING_INFORMATION", ["The approved doctor directory was checked."]);
@@ -77,7 +129,9 @@ public sealed partial class HospitalAssistantService
                 "COMPLETED", ["The approved doctor directory was checked."]);
             return true;
         }
-        var preferences = new AssistantState();
+        // Continue only the active availability task; a new request gets an
+        // isolated preference object and therefore cannot inherit stale filters.
+        var preferences = continuesAvailability ? state : new AssistantState();
         var dateError = ApplyDates(text, preferences, Today());
         if (dateError != null) { Reply(state, dateError, "GATHERING_INFORMATION"); return true; }
         var slots = new List<AgentSlot>();
@@ -93,14 +147,21 @@ public sealed partial class HospitalAssistantService
             "morning" => s.StartAt.Hour < 12, "afternoon" => s.StartAt.Hour is >= 12 and < 17,
             "evening" => s.StartAt.Hour >= 17, _ => false
         }).DistinctBy(s => s.DoctorTimeSlotId).OrderBy(s => s.StartAt).Take(5).ToArray();
-        // Retain verified preferences for an explicit follow-up booking request.
         state.PreferredDate = preferences.PreferredDate;
         state.ThroughDate = preferences.ThroughDate;
         state.Period = preferences.Period;
-        Reply(state, state.Slots.Count == 0 ? "No available sessions matched that request."
+        state.AvailabilityChecked = true;
+        Reply(state, state.Slots.Count == 0
+            ? $"{(state.Doctors.Count == 0 ? "No approved doctors matched that request." : $"{string.Join(", ", state.Doctors.Select(d => d.Name))} works in {query}, but no matching sessions are available{AvailabilityConstraint(state)}.")}" + " Would you like me to check another date?"
             : "Here are available sessions. Nothing is reserved. Ask me to book an option if you want a confirmation proposal.",
             "COMPLETED", state.Doctors.Count == 0 ? ["The approved doctor directory was checked."]
                 : ["The approved doctor directory was checked.", "Doctor availability was checked using hospital sessions."]);
         return true;
+    }
+
+    private static string AvailabilityConstraint(AssistantState state)
+    {
+        var date = state.PreferredDate.HasValue ? $" on {state.PreferredDate:dddd, d MMMM}" : "";
+        return state.Period == null ? date : date + $" in the {state.Period}";
     }
 }

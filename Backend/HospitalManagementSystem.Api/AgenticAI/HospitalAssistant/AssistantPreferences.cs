@@ -16,7 +16,10 @@ public static class AssistantPreferences
             text.Contains(doctor.Name, StringComparison.OrdinalIgnoreCase) ||
             text.Contains(doctor.Name.Replace("Dr. ", "", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase)).ToArray();
         if (named.Length == 1) return named[0].Name;
-        var match = Regex.Match(text, @"\bdr\.?\s+([\p{L}]+(?:\s+[\p{L}]+)?)", RegexOptions.IgnoreCase);
+        // Patients commonly omit the space after the title (for example, "Dr.Silva").
+        // The extracted text remains only a search term; the approved doctor service
+        // below is still the authority for resolving it.
+        var match = Regex.Match(text, @"\bdr\.?\s*([\p{L}]+(?:\s+[\p{L}]+)?)", RegexOptions.IgnoreCase);
         if (match.Success)
         {
             // A surname alone is a valid search, but candidates still come from the approved doctor service.

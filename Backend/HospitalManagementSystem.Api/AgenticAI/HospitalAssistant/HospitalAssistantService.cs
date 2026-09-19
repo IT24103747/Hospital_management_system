@@ -102,13 +102,23 @@ public sealed partial class HospitalAssistantService(
             var action = state.PendingAction;
             if (action == null || action.ActionId != request.ActionId)
                 throw new InvalidOperationException("This request is no longer awaiting confirmation. Refresh the conversation.");
-            if (request.Decision != "confirm")
+            if (request.Decision == "chooseAnother")
+            {
+                state.ExcludedDoctorTimeSlotIds = state.ExcludedDoctorTimeSlotIds
+                    .Concat(action.Slots.Select(slot => slot.DoctorTimeSlotId)).Distinct().ToArray();
+                await InvalidateAsync(state, "Superseded", token);
+                state.Slots = [];
+                state.Doctors = [];
+                state.AvailabilityChecked = false;
+                state.WantsAppointment = true;
+                state.Awaiting = "preferences";
+                await SearchAsync(patient, state, token);
+            }
+            else if (request.Decision == "cancel")
             {
                 await InvalidateAsync(state, "Cancelled", token);
                 state.Awaiting = null;
-                Reply(state, request.Decision == "chooseAnother"
-                    ? "The previous request was dismissed. What doctor, date, or time would you prefer?"
-                    : "Request dismissed. No appointment was changed.", "CANCELLED");
+                Reply(state, "Request dismissed. No appointment was changed.", "CANCELLED");
             }
             else if (action.ExpiresAt <= DateTime.UtcNow)
             {
@@ -135,9 +145,19 @@ public sealed partial class HospitalAssistantService(
                         throw new ArgumentException("Select one of the appointment options shown in this request.");
                     state.State = "EXECUTING";
                     var result = await approval.ConfirmAsync(new(action.ProposalId.Value, request.DoctorTimeSlotId.Value), patient, token);
+                    // The proposal is retained as an audit trail, but its selectable
+                    // availability must not remain visible after one option is booked.
+                    foreach (var message in state.Messages.Where(m => m.ProposedAction?.ActionId == action.ActionId))
+                    {
+                        message.ProposedAction!.Status = "Confirmed";
+                        message.ProposedAction.Slots = [];
+                    }
                     state.PendingAction = null;
                     state.WantsAppointment = false;
                     state.Awaiting = null;
+                    state.Slots = [];
+                    state.Doctors = [];
+                    state.AvailabilityChecked = false;
                     if (result.AppointmentId.HasValue)
                     {
                         var booked = await appointments.GetAppointmentByIdAsync(result.AppointmentId.Value);
@@ -185,21 +205,65 @@ public sealed partial class HospitalAssistantService(
             (state.SearchQuery != null && Has(text, @"\bproceed\b"));
         var askingCancel = Has(text, @"\b(cancel|cancellation)\b") && appointmentIntent;
         var lookingForAlternative = appointmentIntent && Has(text, @"\b(another|alternative|cannot attend|can't attend)\b");
+        var startsBookingTask = Has(text, @"\b(book|booking|schedule|create|reserve)\b");
+        var resumesAssessment = state.WorkflowId.HasValue &&
+            Has(text, @"\b(resume|continue|return to|go back to)\b.*\b(assessment|triage|question|questions|clinical review)\b");
+        var defersAssessment = state.Awaiting == "clinical-answer" && state.WorkflowId.HasValue &&
+            Has(text, @"\b(not now|later|skip|don't want to answer|do not want to answer|stop asking)\b");
 
         // A raw safety flag always takes priority, including during a clarification or approval.
         if (rawSafety.HasEscalation)
         {
             await InvalidateAsync(state, "Superseded", token);
+            if (!startsBookingTask) ClearAppointmentTask(state);
             await StartClinicalAsync(patient, state, text, token);
             return;
         }
         // Independent reads must not be consumed as clinical answers or dismiss
         // an existing confirmation. Emergency input above still takes priority.
         if (!symptoms && await TryReadAsync(patient, state, text, token)) return;
+        // A patient can explicitly return to an unfinished assessment after completing
+        // an independent task. This restores the persisted workflow rather than treating
+        // the request as an appointment preference or a new symptom report.
+        if (resumesAssessment)
+        {
+            var workflow = await workflows.GetForPatientAsync(state.WorkflowId!.Value, patient.PatientId);
+            if (workflow?.Status == TriageWorkflowStatuses.PendingPatientInput)
+            {
+                await InvalidateAsync(state, "Superseded", token);
+                ClearAppointmentTask(state);
+                state.ActiveTask = "triage";
+                ApplyWorkflow(state, workflow);
+                ClinicalReply(state, workflow);
+                return;
+            }
+        }
+        if (defersAssessment)
+        {
+            // Leave the workflow safely persisted, but do not keep presenting its
+            // question while the patient has explicitly moved on to another task.
+            state.ActiveTask = null;
+            state.Awaiting = null;
+            state.SafetyBlocked = false;
+            Reply(state, "No problem. I have kept the assessment for later. You can ask to resume your assessment whenever you are ready.", "COMPLETED");
+            return;
+        }
         if (state.Awaiting == "clinical-answer" && state.WorkflowId.HasValue && appointmentIntent)
         {
-            await ReplySafetyBlockedAsync(patient.PatientId, state);
-            return;
+            // A routine, unfinished assessment remains persisted but does not own a
+            // later independent booking request. High-risk routes still retain their
+            // existing block and guidance.
+            var workflow = await workflows.GetForPatientAsync(state.WorkflowId.Value, patient.PatientId);
+            var highRisk = workflow?.TriageLevel is TriageLevels.Emergency or TriageLevels.Urgent ||
+                workflow?.Status == TriageWorkflowStatuses.FailedSafely;
+            if (workflow?.Status != TriageWorkflowStatuses.PendingPatientInput || highRisk)
+            {
+                await ReplySafetyBlockedAsync(patient.PatientId, state);
+                return;
+            }
+            state.ActiveTask = "booking";
+            state.Awaiting = null;
+            state.SafetyBlocked = false;
         }
         if (state.Awaiting == "clinical-answer" && state.WorkflowId.HasValue)
         {
@@ -241,6 +305,20 @@ public sealed partial class HospitalAssistantService(
             Reply(state, "Request dismissed. No appointment was changed.", "CANCELLED");
             return;
         }
+        // "Yes" to an explicit no-availability follow-up broadens the existing
+        // verified search instead of rerunning the same date/daypart constraint.
+        if (state.Awaiting == "preferences" && state.WantsAppointment &&
+            state.AvailabilityChecked && state.PendingAction == null &&
+            (state.PreferredDate.HasValue || state.ThroughDate.HasValue || state.Period != null) &&
+            Has(text, @"^(yes|okay|ok|go ahead|do it)[.! ]*$"))
+        {
+            state.PreferredDate = null;
+            state.ThroughDate = null;
+            state.Period = null;
+            state.AvailabilityChecked = false;
+            await SearchAsync(patient, state, token);
+            return;
+        }
 
         if (Has(text, @"\b(reschedule|rescheduling)\b"))
         {
@@ -251,6 +329,9 @@ public sealed partial class HospitalAssistantService(
         if (symptoms || state.Awaiting == "symptoms")
         {
             await InvalidateAsync(state, "Superseded", token);
+            // Symptoms start a separate safety task. Preserve booking preferences only
+            // when this very message explicitly asks for a booking after assessment.
+            if (!startsBookingTask) ClearAppointmentTask(state);
             if (Has(text, @"^(i need help with my symptoms|patient help|help with symptoms)[.! ]*$"))
             { state.Awaiting = "symptoms"; Reply(state, "Please describe how you feel, when it started, and any current symptoms.", "GATHERING_INFORMATION"); return; }
             if (Has(text, @"\b(book|booking|schedule|create|reserve)\b"))
@@ -318,8 +399,13 @@ public sealed partial class HospitalAssistantService(
         if (appointmentIntent || state.Awaiting == "preferences" || state.WantsAppointment)
         {
             await InvalidateAsync(state, "Superseded", token);
+            var priorSearchQuery = state.SearchQuery;
+            // An explicit new booking must not inherit date/time filters from a prior
+            // availability or completed task. Preference-only replies keep booking context.
+            if (startsBookingTask && state.ActiveTask != "booking") ClearAppointmentTask(state);
             var doctors = await tools.FindDoctorsAsync("");
             var query = Query(text, doctors);
+            if (query == null && Has(text, @"\b(that doctor|that specialist|that one)\b")) query = priorSearchQuery;
             if (query == null && lookingForAlternative)
             {
                 var current = (await MyAppointmentsAsync(patient)).Where(a => a.Status == "Confirmed" && a.EndAt > DateTime.UtcNow).ToArray();
@@ -331,6 +417,7 @@ public sealed partial class HospitalAssistantService(
             // existing valid preference until the patient supplies a recognised
             // doctor/specialty or an explicit date/time preference.
             state.WantsAppointment = true;
+            state.ActiveTask = "booking";
             state.ReadSearchMode = null;
             var error = ApplyDates(text, state, Today());
             if (error != null) { state.Awaiting = "preferences"; Reply(state, error, "GATHERING_INFORMATION"); return; }
@@ -382,6 +469,7 @@ public sealed partial class HospitalAssistantService(
 
     private async Task StartClinicalAsync(PatientDto patient, AssistantState state, string text, CancellationToken token)
     {
+        state.ActiveTask = "triage";
         state.State = "GATHERING_INFORMATION";
         state.Answers = [];
         // Keep one active review per patient. Repeated messages/conversations must
@@ -417,7 +505,10 @@ public sealed partial class HospitalAssistantService(
         // selection; it must not prevent the patient from receiving a safe proposal.
         // Only urgent/emergency, failed-safe, and missing-required-information states
         // block normal appointment actions.
-        state.SafetyBlocked = unsafeResult || alreadyUrgent || workflow.Status == TriageWorkflowStatuses.PendingPatientInput;
+        // PendingPatientInput blocks only the active triage task. It is not a global
+        // prohibition on unrelated appointment management.
+        state.SafetyBlocked = unsafeResult || alreadyUrgent ||
+            (state.ActiveTask == "triage" && workflow.Status == TriageWorkflowStatuses.PendingPatientInput);
         if (!alreadyUrgent)
             state.Clinical = new(workflow.TriageLevel, "Existing safety workflow", needsReview,
                 workflow.Status == TriageWorkflowStatuses.FailedSafely, [], workflow.RedFlags, workflow.UrgentFlags,
@@ -457,11 +548,14 @@ public sealed partial class HospitalAssistantService(
             Reply(state, "Which doctor or specialty would you prefer? You can also include a date and morning, afternoon, or evening.", "GATHERING_INFORMATION");
             return;
         }
+        // A doctor or specialty is enough to query real upcoming availability. Date
+        // and daypart are optional filters, not prerequisites for seeing slots.
         state.State = "PROPOSING_ACTION";
         var proposal = await proposals.CreateAsync(new(patient.PatientId, state.Clinical, state.SearchQuery,
-            state.PreferredDate, state.Period, state.ThroughDate), token);
+            state.PreferredDate, state.Period, state.ThroughDate, state.ExcludedDoctorTimeSlotIds), token);
         state.Doctors = proposal.Doctors;
         state.Slots = proposal.Slots;
+        state.AvailabilityChecked = true;
         state.Awaiting = "preferences";
         if (proposal.ProposalId.HasValue && proposal.Slots.Count > 0)
         {
@@ -475,7 +569,7 @@ public sealed partial class HospitalAssistantService(
             Reply(state, $"I found {proposal.Slots.Count} available option(s){preference}. Please review the details and confirm one below.",
                 "WAITING_FOR_HUMAN_APPROVAL", ["Approved doctors were found.", "Available hospital sessions were checked.", "Options were saved for your confirmation; no booking was made."]);
         }
-        else Reply(state, proposal.Message + " Tell me another doctor, specialty, or date to try.", "GATHERING_INFORMATION",
+        else Reply(state, NoAvailabilityMessage(state, proposal.Message), "GATHERING_INFORMATION",
             ["Approved doctors and available hospital sessions were checked."]);
     }
 
@@ -567,7 +661,41 @@ public sealed partial class HospitalAssistantService(
             var proposal = await db.AppointmentProposals.SingleOrDefaultAsync(p => p.AppointmentProposalId == proposalId, token);
             if (proposal?.Status == "PendingPatientConfirmation") proposal.Status = status;
         }
+        if (state.PendingAction != null)
+        {
+            var actionId = state.PendingAction.ActionId;
+            var terminalStatus = status == "Cancelled" ? "Dismissed" : status;
+            state.PendingAction.Status = terminalStatus;
+            foreach (var message in state.Messages.Where(m => m.ProposedAction?.ActionId == actionId))
+                message.ProposedAction!.Status = terminalStatus;
+        }
         state.PendingAction = null;
+    }
+
+    private static void ClearAppointmentTask(AssistantState state)
+    {
+        state.ActiveTask = null;
+        state.ReadSearchMode = null;
+        state.SearchQuery = null;
+        state.PreferredDate = null;
+        state.ThroughDate = null;
+        state.Period = null;
+        state.WantsAppointment = false;
+        state.AvailabilityChecked = false;
+        state.ExcludedDoctorTimeSlotIds = [];
+        state.Doctors = [];
+        state.Slots = [];
+        state.Appointments = [];
+    }
+
+    private static string NoAvailabilityMessage(AssistantState state, string fallback)
+    {
+        var constraint = state.PreferredDate.HasValue ? $" for {state.PreferredDate:yyyy-MM-dd}" : "";
+        if (state.ThroughDate.HasValue) constraint += $" through {state.ThroughDate:yyyy-MM-dd}";
+        if (state.Period != null) constraint += $" in the {state.Period}";
+        return state.Doctors.Count > 0
+            ? $"Approved doctor matches were found, but no matching sessions are available{constraint}. Would you like me to check another date?"
+            : fallback + " Would you like me to check another date?";
     }
 
     private static bool Seen(AssistantState state, Guid id, string fingerprint)
@@ -585,6 +713,7 @@ public sealed partial class HospitalAssistantService(
         state.State = status;
         state.Messages.Add(new(Guid.NewGuid().ToString(), "assistant", text, DateTime.UtcNow, progress ?? []) {
             Appointments = state.Appointments.ToArray(), Slots = state.Slots.ToArray(), Doctors = state.Doctors.ToArray(),
+            AvailabilityChecked = state.AvailabilityChecked,
             ProposedAction = state.PendingAction != null && !state.Messages.Any(m => m.ProposedAction?.ActionId == state.PendingAction.ActionId)
                 ? state.PendingAction : null
         });
@@ -603,7 +732,11 @@ public sealed partial class HospitalAssistantService(
     private AssistantConversationResponse Response(AssistantConversation entity, AssistantState state) => new(
         entity.AssistantConversationId, entity.Title, state.State, entity.UpdatedAt, state.Messages, state.PendingAction,
         state.Questions.Where(q => state.Answers.All(a => a.QuestionId != q.Id)).Take(1).ToArray(),
-        state.Appointments, state.Slots, state.Doctors, Capabilities) { ClinicalReviews = state.ClinicalReviews };
+        state.Appointments, state.Slots, state.Doctors, Capabilities) {
+            ClinicalReviews = state.ClinicalReviews,
+            AvailabilityChecked = state.AvailabilityChecked,
+            AssessmentInputActive = state.ActiveTask == "triage" && state.Awaiting == "clinical-answer"
+        };
 
     private async Task<T> LockedAsync<T>(int patientId, Func<Task<T>> action, CancellationToken token)
     {
