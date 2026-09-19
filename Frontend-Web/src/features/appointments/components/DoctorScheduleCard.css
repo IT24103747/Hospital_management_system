@@ -1,11 +1,11 @@
 .schedule-card-item {
   position: relative;
-  min-height: 290px;
+  min-height: 320px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   overflow: hidden;
-  padding: 20px;
+  padding: 24px;
   border: 1px solid var(--border-default);
   border-radius: 18px;
   background: var(--bg-card);
@@ -115,6 +115,12 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+/* A time range is the primary schedule detail: keep it on a full row rather
+   than truncating the end time in a narrow two-column cell. */
+.schedule-card-item__details .schedule-card-item__detail:nth-child(2) {
+  grid-column: 1 / -1;
 }
 
 .schedule-card-item__detail {

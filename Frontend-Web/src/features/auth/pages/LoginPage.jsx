@@ -64,6 +64,7 @@ export default function LoginPage() {
                 id="login-email"
                 type="email"
                 name="email"
+                autoComplete="email"
                 className="login-field__input"
                 placeholder="admin@medicore.lk"
                 value={form.email}
@@ -81,6 +82,7 @@ export default function LoginPage() {
                 id="login-password"
                 type={showPass ? 'text' : 'password'}
                 name="password"
+                autoComplete="current-password"
                 className="login-field__input"
                 placeholder="Enter your password"
                 value={form.password}

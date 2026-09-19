@@ -483,7 +483,8 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                             ]),
                           ),
                         if (_conversation != null && !_busy) ...[
-                          if (_conversation!.clinicalReviews.isNotEmpty)
+                          if (_conversation!.assessmentInputActive &&
+                              _conversation!.clinicalReviews.isNotEmpty)
                             ExpansionTile(
                               title: const Text('Pending clinical reviews / assessment input'),
                               subtitle: const Text('You can still check appointments and doctor availability.'),
@@ -492,16 +493,18 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                                 subtitle: Text('${review['status'] == 'PendingPatientInput' ? 'Waiting for your assessment answers' : 'Waiting for clinical review'}\n${review['message'] ?? ''}'),
                               )).toList(),
                             ),
-                          ..._conversation!.questions.map((question) => _bubble(
-                              _questionText(question),
-                              user: false)),
+                          if (_conversation!.assessmentInputActive)
+                            ..._conversation!.questions.map((question) => _bubble(
+                                _questionText(question),
+                                user: false)),
                           if (!_hasResultHistory) ..._conversation!.doctors.map((doctor) => ListTile(
                                 contentPadding: EdgeInsets.zero,
                                 leading:
                                     const Icon(Icons.medical_services_outlined),
                                 title: Text(doctor['name']?.toString() ?? ''),
-                                subtitle:
-                                    Text(doctor['specialty']?.toString() ?? ''),
+                                subtitle: Text(_doctorSubtitle(
+                                    doctor, _conversation!.availabilityChecked,
+                                    _conversation!.slots.isNotEmpty)),
                               )),
                           if (!_hasResultHistory && _conversation!.pendingAction == null)
                             ..._conversation!.slots.map(
@@ -578,21 +581,32 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
       message.doctors.isNotEmpty || message.slots.isNotEmpty ||
       message.appointments.isNotEmpty || message.proposedAction != null) ?? false;
 
+  String _doctorSubtitle(AssistantJson doctor, bool availabilityChecked,
+      bool hasMatchingSlots) {
+    final specialty = doctor['specialty']?.toString() ?? '';
+    if (availabilityChecked && !hasMatchingSlots) {
+      return '$specialty\nNo matching availability for the requested date.';
+    }
+    return specialty;
+  }
+
   Widget _message(AssistantMessage message) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _bubble(message.text, user: message.role == 'user'),
           ...message.doctors.map((doctor) => ListTile(
             title: Text(doctor['name']?.toString() ?? ''),
-            subtitle: Text(doctor['specialty']?.toString() ?? ''),
+            subtitle: Text(_doctorSubtitle(doctor, message.availabilityChecked,
+                message.slots.isNotEmpty)),
           )),
           if (message.proposedAction == null)
             ...message.slots.map((slot) => _detailsCard(slot, isSlot: true)),
           ...message.appointments.map(_confirmedAppointmentCard),
-          if (message.proposedAction != null)
+          if (message.proposedAction?.status == 'Pending' &&
+              message.proposedAction?.id != _conversation?.pendingAction?.id)
             ExpansionTile(
               title: Text(message.proposedAction!.title),
-              subtitle: const Text('Proposal history — details as originally shown'),
+              subtitle: Text('Proposal ${message.proposedAction!.status.toLowerCase()} — details as originally shown'),
               children: [
                 ...message.proposedAction!.slots.map((slot) => _detailsCard(slot, isSlot: true)),
                 ...message.proposedAction!.appointments.map(_confirmedAppointmentCard),

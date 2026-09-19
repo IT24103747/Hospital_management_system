@@ -1,4 +1,4 @@
-import { DoorOpen, Calendar, Clock, Users, Banknote, Edit3, XCircle, Trash2, Lock, Building2 } from 'lucide-react'
+import { DoorOpen, Calendar, Clock, Users, Banknote, Edit3, XCircle, Trash2, Lock } from 'lucide-react'
 import Button from '../../../components/Button'
 import { formatDate } from '../../../lib/utils'
 import './DoctorScheduleCard.css'
@@ -64,7 +64,6 @@ export default function DoctorScheduleCard({ schedule, onEdit, onCancel, onDelet
       <div className="schedule-card-item__details">
         <Detail icon={Calendar} label="Date" value={formatDate(schedule.startAt)} />
         <Detail icon={Clock} label="Time Slot" value={formatTimeRange(schedule.startAt, schedule.endAt)} />
-        <Detail icon={Building2} label="Location" value={`${schedule.roomName} (${schedule.floor})`} />
       </div>
 
       {schedule.hasPatientBookings && (

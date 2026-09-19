@@ -29,6 +29,13 @@ export default function DoctorSchedulesPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
+  // Keep confirmations visible long enough to be noticed without leaving stale feedback on the page.
+  useEffect(() => {
+    if (!success) return undefined
+    const timeoutId = window.setTimeout(() => setSuccess(''), 4000)
+    return () => window.clearTimeout(timeoutId)
+  }, [success])
+
   const loadSchedules = async () => {
     setLoading(true)
     try { setSchedules(await doctorScheduleApi.getMine()) }

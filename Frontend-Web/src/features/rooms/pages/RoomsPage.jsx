@@ -51,7 +51,6 @@ export default function RoomsPage() {
       <label>Room Number<input required maxLength="30" value={form.roomNumber} onChange={e => setForm({...form,roomNumber:e.target.value})} placeholder="C-204" /></label>
       <label>Room Name<input required maxLength="100" value={form.roomName} onChange={e => setForm({...form,roomName:e.target.value})} placeholder="Consultation Room 4" /></label>
       <label>Floor<input required maxLength="50" value={form.floor} onChange={e => setForm({...form,floor:e.target.value})} placeholder="Second Floor" /></label>
-      <label className="room-form__wide">Description<textarea maxLength="500" value={form.description} onChange={e => setForm({...form,description:e.target.value})} /></label>
       <div className="room-form__actions room-form__wide"><Button type="submit" loading={saving} icon={CheckCircle}>Add and Confirm Room</Button><Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button></div>
     </form>}
     {error && <p className="room-message room-message--error">{error}</p>}{success && <p className="room-message room-message--success">{success}</p>}
