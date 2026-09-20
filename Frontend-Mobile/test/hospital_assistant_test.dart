@@ -123,6 +123,39 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('decline sends a structured action without a medical answer', (tester) async {
+    var requests = 0;
+    await pump(tester, (request) async {
+      requests++;
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      final response = conversation();
+      if (requests == 1) {
+        response['state'] = 'GATHERING_INFORMATION';
+      response['assessmentInputActive'] = true;
+        response['questions'] = [
+          {'id': 'severity_score', 'prompt': 'How severe is it?', 'type': 'shortText'}
+        ];
+      } else {
+        expect(body['requirementId'], 'severity_score');
+        expect(body['requirementState'], 'Declined');
+        expect(body['message'], '');
+        response['messages'] = [
+          {'id': '3', 'role': 'assistant', 'text': 'Your assessment has been sent for clinical review.', 'progress': []}
+        ];
+      }
+      return jsonResponse(response);
+    });
+    await tester.enterText(find.byType(TextField), 'I have a cough');
+    await tester.tap(find.byTooltip('Send message'));
+    await tester.pumpAndSettle();
+    expect(find.text('How severe is it?'), findsOneWidget);
+    await tester.tap(find.text('Prefer not to answer'));
+    await tester.pumpAndSettle();
+    expect(requests, 2);
+    expect(find.text('Prefer not to answer'), findsNothing);
+    expect(find.text('Your assessment has been sent for clinical review.'), findsOneWidget);
+  });
+
   testWidgets('persisted result cards remain visible across replies and reviews are separate', (tester) async {
     await pump(tester, (request) async {
       final response = conversation();
@@ -133,6 +166,7 @@ void main() {
         {'id': '3', 'role': 'user', 'text': 'Latest question', 'progress': []},
         {'id': '4', 'role': 'assistant', 'text': 'Latest answer', 'progress': []},
       ];
+      response['assessmentInputActive'] = true;
       response['clinicalReviews'] = [{'workflowId': 3, 'status': 'FailedSafely',
         'approvalStatus': 'Pending', 'message': 'Assessment requires review'}];
       return jsonResponse(response);
@@ -154,6 +188,7 @@ void main() {
     await pump(tester, (request) async {
       final response = conversation();
       response['state'] = 'GATHERING_INFORMATION';
+      response['assessmentInputActive'] = true;
       response['questions'] = [
         {
           'id': 'headache_onset',
@@ -171,6 +206,87 @@ void main() {
     expect(find.textContaining('Options: Suddenly; Gradually'), findsOneWidget);
     expect(find.textContaining('Choose the closest description.'), findsOneWidget);
   });
+
+  testWidgets('dismissal removes appointment controls and duplicate doctor headings', (tester) async {
+    var dismissed = false;
+    await pump(tester, (request) async {
+      if (request.url.path.endsWith('/actions')) {
+        expect(jsonDecode(request.body)['decision'], 'cancel');
+        dismissed = true;
+      }
+      final response = conversation(pending: !dismissed);
+      final proposal = conversation(pending: true)['pendingAction'] as Map<String, dynamic>;
+      proposal['status'] = dismissed ? 'Dismissed' : 'Pending';
+      response['messages'] = [
+        {'id': 'proposal', 'role': 'assistant', 'text': 'Choose a time.',
+          'doctors': [{'name': 'Dr. Silva', 'specialty': 'Cardiology'}],
+          'slots': [slot()], 'proposedAction': proposal},
+        if (dismissed) {'id': 'dismissal', 'role': 'assistant', 'text': "Okay, I've cancelled this appointment request."},
+      ];
+      return jsonResponse(response);
+    });
+    await tester.enterText(find.byType(TextField), 'Book a cardiologist');
+    await tester.tap(find.byTooltip('Send message'));
+    await tester.pumpAndSettle();
+    expect(find.text('Dr. Silva'), findsOneWidget);
+    expect(find.textContaining('Expected appointment number'), findsNothing);
+    await tester.ensureVisible(find.text('Cancel request'));
+    await tester.tap(find.text('Cancel request'));
+    await tester.pumpAndSettle();
+    expect(dismissed, isTrue);
+    expect(find.byKey(const ValueKey('assistant-option-11')), findsNothing);
+    expect(find.text('Confirm appointment'), findsNothing);
+    expect(find.text('Dr. Silva'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final status in ['Answered', 'Declined', 'Unknown', 'NotApplicable']) {
+    testWidgets('completed $status follow-up retains context with one next question', (tester) async {
+      var sent = 0;
+      const prompt = 'Has the pain been getting better, worse, or staying the same?';
+      const nextPrompt = 'When did it begin?';
+      final answer = switch (status) {
+        'Declined' => 'Prefer not to answer',
+        'Unknown' => "I don't know",
+        'NotApplicable' => 'That does not apply to me',
+        _ => "It hasn't really changed.",
+      };
+      await pump(tester, (request) async {
+        sent++;
+        final response = conversation();
+        response['assessmentInputActive'] = true;
+        response['questions'] = [{'id': sent == 1 ? 'progression' : 'onset',
+          'prompt': sent == 1 ? prompt : nextPrompt, 'type': 'shortText'}];
+        response['clinicalReviews'] = [{'workflowId': 1, 'status': 'PendingPatientInput', 'message': nextPrompt}];
+        response['messages'] = [
+          if (sent > 1) {'id': 'answer', 'role': 'user', 'text': answer,
+            'followUpQuestion': {'id': 'progression', 'prompt': prompt, 'type': 'shortText'},
+            'followUpState': status},
+        ];
+        return jsonResponse(response);
+      });
+      await tester.enterText(find.byType(TextField), 'I have a headache');
+      await tester.tap(find.byTooltip('Send message'));
+      await tester.pumpAndSettle();
+      expect(find.text(prompt), findsOneWidget);
+      if (status == 'Declined') {
+        await tester.tap(find.text('Prefer not to answer'));
+      } else {
+        await tester.enterText(find.byType(TextField), answer);
+        await tester.tap(find.byTooltip('Send message'));
+      }
+      await tester.pumpAndSettle();
+      expect(find.text(prompt), findsOneWidget);
+      expect(find.text(answer), findsWidgets);
+      expect(find.text(nextPrompt), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Prefer not to answer'), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
+      await tester.tap(find.text('Pending clinical reviews / assessment input'));
+      await tester.pumpAndSettle();
+      expect(find.text(nextPrompt), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('connection failure keeps draft and explains server is unreachable', (tester) async {
     await pump(tester, (request) async {

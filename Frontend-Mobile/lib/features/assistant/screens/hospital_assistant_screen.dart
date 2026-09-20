@@ -115,15 +115,16 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
         }
       });
 
-  Future<void> _send() async {
-    final text = _input.text.trim();
+  Future<void> _send({String? declinedRequirementId}) async {
+    final text = declinedRequirementId == null ? _input.text.trim() : 'Prefer not to answer';
     if (_busy || _initializing || _uncertainAction || text.isEmpty) return;
     if (text.length > 4000) {
       setState(
           () => _error = 'Please keep your message under 4,000 characters.');
       return;
     }
-    final requestId = _retryMessage == text && _retryRequestId != null
+    final retryKey = '${declinedRequirementId ?? ''}:$text';
+    final requestId = _retryMessage == retryKey && _retryRequestId != null
         ? _retryRequestId!
         : _requestId();
     setState(() {
@@ -137,7 +138,9 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
     try {
       final result = await ApiService.sendAssistantMessage(
           conversationId: _conversation?.id,
-          message: text,
+          message: declinedRequirementId == null ? text : '',
+          requirementId: declinedRequirementId,
+          requirementState: declinedRequirementId == null ? null : 'Declined',
           requestId: requestId);
       if (!mounted) return;
       _accept(result);
@@ -145,8 +148,8 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
       _retryRequestId = null;
     } catch (error) {
       if (!mounted) return;
-      _input.text = text;
-      _retryMessage = text;
+      if (declinedRequirementId == null) _input.text = text;
+      _retryMessage = retryKey;
       _retryRequestId = requestId;
       setState(() => _error = error is http.ClientException || error is TimeoutException
           ? 'Cannot reach the hospital server. Check your connection and make sure the API is running, then try again.'
@@ -490,14 +493,25 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                               subtitle: const Text('You can still check appointments and doctor availability.'),
                               children: _conversation!.clinicalReviews.map((review) => ListTile(
                                 title: Text('Assessment #${review['workflowId']}'),
-                                subtitle: Text('${review['status'] == 'PendingPatientInput' ? 'Waiting for your assessment answers' : 'Waiting for clinical review'}\n${review['message'] ?? ''}'),
+                                subtitle: Text(review['status'] == 'PendingPatientInput'
+                                    ? 'Waiting for your assessment answers'
+                                    : 'Waiting for clinical review\n${review['message'] ?? ''}'),
                               )).toList(),
                             ),
                           if (_conversation!.assessmentInputActive)
                             ..._conversation!.questions.take(1).map((question) => _bubble(
                                 _questionText(question),
                                 user: false)),
-                          if (!_hasResultHistory) ..._conversation!.doctors.map((doctor) => ListTile(
+                          if (_conversation!.assessmentInputActive && _conversation!.questions.isNotEmpty)
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton(
+                                onPressed: disabled || _uncertainAction ? null : () => _send(
+                                    declinedRequirementId: _conversation!.questions.first['id']?.toString()),
+                                child: const Text('Prefer not to answer'),
+                              ),
+                            ),
+                          if (!_hasResultHistory && _conversation!.pendingAction == null) ..._conversation!.doctors.map((doctor) => ListTile(
                                 contentPadding: EdgeInsets.zero,
                                 leading:
                                     const Icon(Icons.medical_services_outlined),
@@ -513,7 +527,7 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                             ..._conversation!.appointments.map(
                                 _confirmedAppointmentCard),
                           if (_conversation!.pendingAction != null)
-                            const Text('Pending patient approval — waiting for your confirmation'),
+                            const Text('Choose an appointment to confirm'),
                           if (_conversation!.pendingAction != null)
                             _approval(_conversation!.pendingAction!),
                         ],
@@ -541,11 +555,13 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                     ),
                   )),
                   const SizedBox(width: 8),
-                  IconButton.filled(
-                    tooltip: 'Send message',
-                    onPressed: disabled || _uncertainAction ? null : _send,
+                  Tooltip(
+                    message: 'Send message',
+                    child: FilledButton.icon(
+                    onPressed: disabled || _uncertainAction ? null : () => _send(),
                     icon: const Icon(Icons.send_rounded),
-                  ),
+                    label: const Text('Send'),
+                  )),
                 ]),
               )),
         ]),
@@ -593,7 +609,20 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
   Widget _message(AssistantMessage message) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (message.followUpQuestion != null)
+            _bubble(_questionText(message.followUpQuestion!), user: false),
           _bubble(message.text, user: message.role == 'user'),
+          if (message.followUpQuestion != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(switch (message.followUpState) {
+                'Declined' => 'Declined — recorded',
+                'Unknown' => 'Unsure — recorded',
+                'NotApplicable' => 'Not applicable — recorded',
+                _ => '✓ Answer recorded',
+              }, style: Theme.of(context).textTheme.bodySmall),
+            ),
+          if (message.proposedAction == null && message.slots.isEmpty)
           ...message.doctors.map((doctor) => ListTile(
             title: Text(doctor['name']?.toString() ?? ''),
             subtitle: Text(_doctorSubtitle(doctor, message.availabilityChecked,
@@ -772,7 +801,7 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                     onPressed: _busy || _uncertainAction
                         ? null
                         : () => _decide('cancel'),
-                    child: const Text('Dismiss request')),
+                    child: const Text('Cancel request')),
               ]),
             ],
           )),
@@ -842,11 +871,11 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
       const SizedBox(height: 6),
       Text(_date(item['startAt'])),
       Text(_timeRange(item['startAt'], item['endAt'])),
-      if (number is num && number > 0)
+      if (!isSlot && number is num && number > 0)
         Padding(
           padding: const EdgeInsets.only(top: 6),
           child: Text(
-              '${isSlot ? 'Expected appointment number' : 'Appointment No'}: $number',
+              'Appointment No: $number',
               style: const TextStyle(fontWeight: FontWeight.w600)),
         ),
       if (location.isNotEmpty) Text(location),
