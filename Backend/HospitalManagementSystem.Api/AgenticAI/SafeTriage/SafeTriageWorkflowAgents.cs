@@ -1,8 +1,108 @@
 using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using HospitalManagementSystem.Api.DTOs;
 using HospitalManagementSystem.Api.Services;
+using HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator;
 
 namespace HospitalManagementSystem.Api.AgenticAI.SafeTriage;
+
+/// <summary>The response state of an individual SafeTriage information requirement.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<SafeTriageRequirementState>))]
+public enum SafeTriageRequirementState
+{
+    /// <summary>No response has been provided.</summary>
+    Missing = 0,
+    /// <summary>The requested information has been provided.</summary>
+    Answered = 1,
+    /// <summary>The patient explicitly chose not to provide the information.</summary>
+    Declined = 2,
+    /// <summary>The patient explicitly indicated that they do not know the answer.</summary>
+    Unknown = 3,
+    /// <summary>The requirement does not apply to this patient or situation.</summary>
+    NotApplicable = 4
+}
+
+/// <summary>
+/// Tracks an information requirement independently of whether a question has been asked.
+/// Declined, unknown, and inapplicable responses are distinct from answered information.
+/// </summary>
+public sealed record SafeTriageRequirement(
+    string Key,
+    SafeTriageRequirementState State = SafeTriageRequirementState.Missing,
+    string? Value = null,
+    DateTime? UpdatedAt = null,
+    string? Evidence = null);
+
+public sealed class SafeTriageOptions
+{
+    public const int HardFollowUpLimit = 10;
+    public int MaxFollowUpQuestions { get; set; } = HardFollowUpLimit;
+    public int EffectiveMaxFollowUpQuestions => Math.Clamp(MaxFollowUpQuestions, 1, HardFollowUpLimit);
+}
+
+public static class SafeTriageRequirementRules
+{
+    // Canonical field identifiers are shared by extraction, persisted state and planning.
+    public static string CanonicalKey(string key)
+    {
+        var normalized = System.Text.RegularExpressions.Regex.Replace(key.Trim(), "([a-z])([A-Z])", "$1_$2").ToLowerInvariant();
+        return normalized switch { "severity" => "severity_score", "trend" => "progression", _ => normalized };
+    }
+
+    public static void Merge(List<SafeTriageRequirement> state, IEnumerable<SafeTriageRequirement> updates)
+    {
+        foreach (var update in updates)
+        {
+            var key = CanonicalKey(update.Key);
+            if (!System.Text.RegularExpressions.Regex.IsMatch(key, "^[a-z][a-z0-9_]{1,79}$") || !Enum.IsDefined(update.State)) continue;
+            if (update.State == SafeTriageRequirementState.Answered && string.IsNullOrWhiteSpace(update.Value)) continue;
+            var index = state.FindIndex(item => item.Key == key);
+            if (index >= 0 && update.State == SafeTriageRequirementState.Missing) continue;
+            var merged = update with { Key = key, Value = update.State == SafeTriageRequirementState.Answered ? update.Value : null,
+                UpdatedAt = update.UpdatedAt ?? DateTime.UtcNow };
+            if (index < 0) state.Add(merged); else state[index] = merged;
+        }
+    }
+
+    public static SafeTriageRequirementState? UnavailableResponse(string text) => text.Trim().TrimEnd('.', '!', '?').ToLowerInvariant().Replace('’', '\'') switch
+    {
+        "i'd rather not answer" or "prefer not to answer" or "i prefer not to answer" or "i don't want to answer" or "i do not want to answer" => SafeTriageRequirementState.Declined,
+        "i don't know" or "i do not know" or "not sure" or "i'm not sure" => SafeTriageRequirementState.Unknown,
+        "that doesn't apply to me" or "that does not apply to me" or "not applicable" => SafeTriageRequirementState.NotApplicable,
+        _ => null
+    };
+
+    public static ClinicalFactSet? MergeFacts(ClinicalFactSet? previous, ClinicalFactSet? incoming)
+    {
+        if (incoming is null) return previous;
+        var merged = JsonSerializer.SerializeToNode(previous ?? new ClinicalFactSet())!.AsObject();
+        var next = JsonSerializer.SerializeToNode(incoming)!.AsObject();
+        foreach (var field in next.Where(p => p.Key != nameof(ClinicalFactSet.Evidence)))
+        {
+            if (!incoming.Evidence.Any(e => CanonicalKey(e.Field) == CanonicalKey(field.Key))) continue;
+            if (field.Value is System.Text.Json.Nodes.JsonArray array)
+            {
+                var old = merged[field.Key]?.Deserialize<List<string>>() ?? [];
+                var grounded = (array.Deserialize<List<string>>() ?? []).Where(value => incoming.Evidence.Any(e =>
+                    CanonicalKey(e.Field) == CanonicalKey(field.Key) && string.Equals(e.Value, value, StringComparison.OrdinalIgnoreCase)));
+                merged[field.Key] = JsonSerializer.SerializeToNode(old.Concat(grounded).Distinct(StringComparer.OrdinalIgnoreCase));
+            }
+            else if (field.Value is not null) merged[field.Key] = field.Value.DeepClone();
+        }
+        merged[nameof(ClinicalFactSet.Evidence)] = JsonSerializer.SerializeToNode((previous?.Evidence ?? []).Concat(incoming.Evidence).Distinct());
+        return merged.Deserialize<ClinicalFactSet>();
+    }
+
+    public static ClinicalFactSet? FactsFromCurrentAnswer(ClinicalFactSet? facts, string? currentAnswerText)
+    {
+        if (facts is null || currentAnswerText is null) return facts;
+        var node = JsonSerializer.SerializeToNode(facts)!.AsObject();
+        node[nameof(ClinicalFactSet.Evidence)] = JsonSerializer.SerializeToNode(facts.Evidence.Where(e =>
+            !string.IsNullOrWhiteSpace(e.Quote) && currentAnswerText.Contains(e.Quote, StringComparison.OrdinalIgnoreCase)));
+        return node.Deserialize<ClinicalFactSet>();
+    }
+}
 
 /// <summary>
 /// Typed, least-privilege contracts for the SafeTriage workflow. Each agent has one purpose and
@@ -30,8 +130,13 @@ public sealed class SafeTriageAgentContext
     public List<string> UrgentFlags { get; } = [];
     public List<string> ClinicalReviewFlags { get; } = [];
     public List<string> PlannedInformationNeeds { get; } = [];
+    public List<SafeTriageRequirement> Requirements { get; } = [];
     public List<TriageFollowUpQuestionDto> PlannedQuestions { get; } = [];
     public ClinicalExtractionResult? Extraction { get; set; }
+    public ClinicalFactSet? PreviousFacts { get; set; }
+    public string? CurrentAnswerText { get; set; }
+    public int FollowUpCount { get; set; }
+    public int MaxFollowUpQuestions { get; set; } = SafeTriageOptions.HardFollowUpLimit;
     public string? ProposedRoute { get; set; }
     public bool IsWithinValidatedRoutineScope { get; set; }
     public bool RequiresClinicalApproval { get; set; }
@@ -97,10 +202,19 @@ public sealed class ClinicalInformationExtractionWorkflowAgent(ISafeTriageSemant
         do
         {
             attempts++;
-            context.Extraction = await extractionTool.ExtractAsync(context.Symptoms, context.Request.IsFollowUp, cancellationToken);
+            context.Extraction = await extractionTool.ExtractWithRequirementsAsync(context.Symptoms, context.Request.IsFollowUp, context.Requirements, cancellationToken);
         } while (context.Extraction.Status != "Completed" && attempts < maxAttempts && !cancellationToken.IsCancellationRequested);
         watch.Stop();
         var completed = context.Extraction.Status == "Completed";
+        if (completed)
+        {
+            var updates = context.Extraction.Requirements ?? [];
+            // A historical quote must not undo a more recent answer or explicit decline.
+            SafeTriageRequirementRules.Merge(context.Requirements, updates.Where(item => item.State == SafeTriageRequirementState.Missing ||
+                context.CurrentAnswerText is null || (!string.IsNullOrWhiteSpace(item.Evidence) && context.CurrentAnswerText.Contains(item.Evidence, StringComparison.OrdinalIgnoreCase))));
+        }
+        context.Extraction = context.Extraction with { Facts = SafeTriageRequirementRules.MergeFacts(context.PreviousFacts,
+            SafeTriageRequirementRules.FactsFromCurrentAnswer(context.Extraction.Facts, context.CurrentAnswerText)), Requirements = context.Requirements.ToArray() };
         return new SafeTriageAgentExecution(Name, ToolName, context.Extraction.Status, completed,
             completed ? "Structured non-diagnostic extraction passed schema and safety validation." : "Structured extraction was unavailable; safe fallback required.",
             (int)watch.ElapsedMilliseconds, attempts - 1, context.Extraction.ErrorCode);
@@ -138,9 +252,14 @@ public sealed class AdaptiveQuestionPlanningAgent(ISafeTriageQuestionPlanningAge
     public async Task<SafeTriageAgentExecution> ExecuteAsync(SafeTriageAgentContext context, CancellationToken cancellationToken = default)
     {
         var watch = Stopwatch.StartNew();
-        var plan = await planner.PlanAsync(context.Extraction ?? new ClinicalExtractionResult([], [], null, "FailedSafely"), [], cancellationToken);
-        context.PlannedQuestions.AddRange(plan.Questions);
-        context.PlannedInformationNeeds.AddRange(plan.Questions.Select(item => item.Prompt));
+        var missing = context.Requirements.Where(r => r.State == SafeTriageRequirementState.Missing).Select(r => r.Key).ToHashSet();
+        var excluded = context.Requirements.Where(r => r.State != SafeTriageRequirementState.Missing).Select(r => r.Key).ToArray();
+        var plan = missing.Count == 0 || context.FollowUpCount >= context.MaxFollowUpQuestions
+            ? new SafeTriageQuestionPlan([], "Completed")
+            : await planner.PlanAsync(context.Extraction ?? new ClinicalExtractionResult([], [], null, "FailedSafely"), excluded, cancellationToken);
+        context.PlannedQuestions.AddRange(plan.Questions.Where(q => missing.Contains(SafeTriageRequirementRules.CanonicalKey(q.Id)))
+            .Take(1).Select(q => { q.Id = SafeTriageRequirementRules.CanonicalKey(q.Id); return q; }));
+        context.PlannedInformationNeeds.AddRange(context.PlannedQuestions.Select(item => item.Prompt));
         watch.Stop();
         return new SafeTriageAgentExecution(Name, ToolName, plan.Status, plan.Status == "Completed",
             plan.Status == "Completed" ? $"Gemini planned {context.PlannedInformationNeeds.Count} validated follow-up questions." : "Question planning failed safely.",
@@ -224,9 +343,22 @@ public sealed class SafeTriageWorkflowCoordinator
         _questionPlanning = new(questionPlanner);
     }
 
-    public async Task<(SafeTriageAgentContext Context, IReadOnlyList<SafeTriageAgentExecution> Trace)> RunAsync(StartTriageWorkflowDto request, CancellationToken cancellationToken = default)
+    public async Task<(SafeTriageAgentContext Context, IReadOnlyList<SafeTriageAgentExecution> Trace)> RunAsync(StartTriageWorkflowDto request, CancellationToken cancellationToken = default,
+        IReadOnlyList<SafeTriageRequirement>? requirements = null, ClinicalFactSet? previousFacts = null, string? currentAnswerText = null,
+        int followUpCount = 0, int maxFollowUpQuestions = SafeTriageOptions.HardFollowUpLimit, PlanningWorkflowRecord? execution = null,
+        Func<SafeTriageAgentContext, Task>? persistExecution = null, Action<SafeTriageAgentContext>? restoreSafety = null)
     {
+        if (execution is not null)
+            execution.AuditEvents.Add(new() { EventType = "AgentDispatched", Description = "Clinical SafeTriage", Metadata = "Persisted plan execution" });
         var context = new SafeTriageAgentContext(request);
+        context.Requirements.AddRange(requirements ?? []);
+        context.PreviousFacts = previousFacts;
+        if (previousFacts is not null)
+            context.Extraction = new ClinicalExtractionResult([], [], null, "NotRun", Facts: previousFacts, Requirements: context.Requirements);
+        context.CurrentAnswerText = currentAnswerText;
+        context.FollowUpCount = followUpCount;
+        context.MaxFollowUpQuestions = maxFollowUpQuestions;
+        restoreSafety?.Invoke(context);
         var trace = new List<SafeTriageAgentExecution>();
         async Task Run(ISafeTriageAgent agent)
         {
@@ -234,17 +366,71 @@ public sealed class SafeTriageWorkflowCoordinator
             trace.Add(await agent.ExecuteAsync(context, cancellationToken));
         }
 
-        await Run(_intake);
-        if (context.FailedSafely) return (context, trace);
-        await Run(_redFlags);
-        if (!context.RequiresClinicalApproval)
+        if (execution is null)
         {
-            await Run(_extraction);
-            await Run(_structuredSafety);
-            if (!context.RequiresClinicalApproval) await Run(_questionPlanning);
+            await Run(_intake); if (context.FailedSafely) return (context, trace);
+            await Run(_redFlags);
+            if (!context.RequiresClinicalApproval)
+            {
+                await Run(_extraction); await Run(_structuredSafety);
+                if (!context.RequiresClinicalApproval) await Run(_questionPlanning);
+            }
+            await Run(_routing); await Run(_validation);
+            return (context, trace);
         }
-        await Run(_routing);
-        await Run(_validation);
+
+        while (true)
+        {
+            var step = execution.Steps.FirstOrDefault(candidate => candidate.Status == "Pending" &&
+                candidate.AssignedAgent == "Clinical SafeTriage" && candidate.StepType is PlanningWorkflowSteps.SafetyCheck or PlanningWorkflowSteps.SymptomExtraction or PlanningWorkflowSteps.TriageAssessment &&
+                candidate.Dependencies.All(id => execution.Steps.Any(done => done.StepId == id && done.Status == "Completed")));
+            if (step is null) break;
+            step.StartedAt = DateTimeOffset.UtcNow; step.Status = "Running";
+            var before = trace.Count;
+            var waitingForPatient = false;
+            switch (step.StepType)
+            {
+                case PlanningWorkflowSteps.SafetyCheck:
+                    await Run(_intake);
+                    if (!context.FailedSafely) await Run(_redFlags);
+                    break;
+                case PlanningWorkflowSteps.SymptomExtraction:
+                    if (!context.RequiresClinicalApproval) { await Run(_extraction); await Run(_structuredSafety); }
+                    break;
+                case PlanningWorkflowSteps.TriageAssessment:
+                    if (!context.RequiresClinicalApproval)
+                    {
+                        if (!context.RequiresClinicalApproval) await Run(_questionPlanning);
+                    }
+                    waitingForPatient = !context.RequiresClinicalApproval && context.PlannedQuestions.Count > 0;
+                    if (!waitingForPatient) { await Run(_routing); await Run(_validation); }
+                    break;
+                default:
+                    step.Status = "Failed"; step.ValidationStatus = "Failed"; step.Error = "UnapprovedStep";
+                    execution.Status = "FailedSafely"; execution.ErrorCode = "UnapprovedStep";
+                    await (persistExecution?.Invoke(context) ?? Task.CompletedTask);
+                    return (context, trace);
+            }
+            // Finish the same controlled safety outcome as the legacy pipeline at
+            // the detecting step, without advancing any downstream plan dependency.
+            if (context.RequiresClinicalApproval && !context.FailedSafely && step.StepType != PlanningWorkflowSteps.TriageAssessment)
+            {
+                await Run(_routing);
+                await Run(_validation);
+            }
+            var completed = trace.Skip(before).ToArray();
+            var valid = completed.All(item => item.ValidationPassed);
+            var result = completed.LastOrDefault() ?? new SafeTriageAgentExecution(step.StepType, "", "FailedSafely", false, "No agent result.", 0, ErrorCode: "NoAgentResult");
+            step.EndedAt = DateTimeOffset.UtcNow; step.OutputSummary = result.Outcome;
+            step.ValidationStatus = valid ? "Passed" : "Failed"; step.Error = valid ? null : result.ErrorCode;
+            step.Status = context.RequiresClinicalApproval || context.FailedSafely ? "WaitingForClinicalReview"
+                : !valid ? "Failed" : waitingForPatient ? "WaitingForPatient" : "Completed";
+            if (context.RequiresClinicalApproval || context.FailedSafely) execution.Status = "AwaitingClinicalReview";
+            execution.CurrentStep = step.StepId; execution.CurrentAgent = step.AssignedAgent;
+            execution.AuditEvents.Add(new() { EventType = "SafeTriageAgentExecuted", Description = step.AssignedAgent, Metadata = result.Status });
+            await (persistExecution?.Invoke(context) ?? Task.CompletedTask);
+            if (!valid || waitingForPatient || context.FailedSafely || context.RequiresClinicalApproval) break;
+        }
         return (context, trace);
     }
 }
@@ -282,7 +468,7 @@ internal static class SafeTriageRules
 
     private static readonly string[] ValidatedRoutinePhrases =
     [
-        "runny nose", "blocked nose", "nasal congestion", "nosebleed", "nose bleed",
+        "runny nose", "blocked nose", "nasal congestion", "sneezing", "sneeze", "nosebleed", "nose bleed",
         "headache", "migraine", "head pain", "dizzy", "dizziness", "lightheaded",
         "cough", "sore throat", "throat pain", "cold", "flu", "fever", "chills", "body ache", "fatigue", "tiredness",
         "stomach", "abdominal", "nausea", "vomiting", "diarrhea", "diarrhoea", "indigestion", "heartburn", "cramps",

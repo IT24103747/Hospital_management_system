@@ -1,8 +1,10 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using HospitalManagementSystem.Api.Data;
 using HospitalManagementSystem.Api.DTOs;
 using HospitalManagementSystem.Api.Models;
 using HospitalManagementSystem.Api.AgenticAI.SafeTriage;
+using HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -16,14 +18,16 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
     private readonly ILogger<TriageWorkflowService> _logger;
     private readonly ISafeTriageResponseGenerationAgent _responseAgent;
     private readonly SafeTriageWorkflowCoordinator _coordinator;
+    private readonly SafeTriageOptions _options;
 
     [ActivatorUtilitiesConstructor]
-    public TriageWorkflowService(ApplicationDbContext db, ILogger<TriageWorkflowService> logger, ISafeTriageSemanticExtractionAgent extractionAgent, ISafeTriageQuestionPlanningAgent questionPlanner, ISafeTriageResponseGenerationAgent responseAgent)
+    public TriageWorkflowService(ApplicationDbContext db, ILogger<TriageWorkflowService> logger, ISafeTriageSemanticExtractionAgent extractionAgent, ISafeTriageQuestionPlanningAgent questionPlanner, ISafeTriageResponseGenerationAgent responseAgent, SafeTriageOptions? options = null)
     {
         _db = db;
         _logger = logger;
         _responseAgent = responseAgent;
         _coordinator = new SafeTriageWorkflowCoordinator(extractionAgent, questionPlanner);
+        _options = options ?? new SafeTriageOptions();
     }
 
     // Retained only for existing isolated tests that explicitly provide the shared extractor.
@@ -32,7 +36,37 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             new LegacySafeTriageSemanticExtractionAgent(extractionAgent ?? new SafeFallbackClinicalInformationExtractionAgent()),
             new LegacySafeTriageQuestionPlanningAgent(), new LegacySafeTriageResponseGenerationAgent()) { }
 
-    public async Task<TriageWorkflowDto> StartForPatientAsync(int patientId, StartTriageWorkflowDto request)
+    private async Task<AgenticAI.PlanningCoordinator.PlanningWorkflowRecord?> LoadExecutionAsync(string workflowId, int patientId, bool resetForFollowUp = false)
+    {
+        var store = new AgenticAI.PlanningCoordinator.PlanningCoordinatorStore(_db);
+        var execution = await store.GetAsync(workflowId);
+        if (execution?.PatientId != patientId) throw new InvalidOperationException("Workflow ownership mismatch.");
+        if (execution.Plan.WorkflowType is not ("SafeTriage" or "TriageThenAppointmentProposal"))
+        {
+            execution.PreviousPlans.Add(execution.Plan);
+            execution.Plan = new() { WorkflowType = "SafeTriage", RequiredSteps = PlanningWorkflowSteps.DefaultStepsByWorkflow[PlanningWorkflowType.SafeTriage] };
+            PlanningCoordinatorAgent.SetSteps(execution, execution.Plan.RequiredSteps);
+            execution.ErrorCode = null; execution.ErrorSummary = null; execution.FailedStep = null; execution.FailedAt = null;
+            execution.AuditEvents.Add(new() { EventType = "Replanned", Description = "Clinical routing requires the canonical SafeTriage safety plan." });
+        }
+        if (resetForFollowUp)
+        {
+            // A patient answer starts the next persisted SafeTriage execution cycle.
+            // The plan remains canonical; completed stages are retained in audit events.
+            foreach (var step in execution.Steps.Where(step => step.AssignedAgent == "Clinical SafeTriage" || PlanningWorkflowSteps.IsSafeTriageAgent(step.AssignedAgent)))
+            {
+                step.Status = "Pending"; step.ValidationStatus = "Pending"; step.OutputSummary = null;
+                step.Error = null; step.StartedAt = null; step.EndedAt = null;
+            }
+            execution.Revision++;
+            execution.Status = "InProgress";
+            execution.AuditEvents.Add(new() { EventType = "SafeTriageResumed", Description = "Patient input started a fresh persisted SafeTriage safety evaluation." });
+            await store.SaveAsync(execution);
+        }
+        return execution;
+    }
+
+    public async Task<TriageWorkflowDto> StartForPatientAsync(int patientId, StartTriageWorkflowDto request, string? executionWorkflowId = null)
     {
         var workflow = new TriageWorkflow
         {
@@ -42,11 +76,14 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             PlanJson = JsonSerializer.Serialize(CreatePlan()),
             RuleSetVersion = RuleSetVersion,
             WorkflowVersion = WorkflowVersion,
+            ExecutionWorkflowId = executionWorkflowId,
         };
         _db.TriageWorkflows.Add(workflow);
 
-        var run = await _coordinator.RunAsync(request);
-        foreach (var execution in run.Trace) await AddExecutionEvent(workflow, execution);
+        var executionPlan = executionWorkflowId is null ? null : await LoadExecutionAsync(executionWorkflowId, patientId, resetForFollowUp: true);
+        var run = await _coordinator.RunAsync(request, maxFollowUpQuestions: _options.EffectiveMaxFollowUpQuestions, execution: executionPlan,
+            persistExecution: executionPlan is null ? null : context => PersistSafetyCheckpointAsync(workflow, context, executionPlan));
+        foreach (var agentExecution in run.Trace) await AddExecutionEvent(workflow, agentExecution);
         var validationProblems = run.Context.ValidationProblems;
         var redFlags = run.Context.RedFlags;
         var urgentFlags = run.Context.UrgentFlags;
@@ -56,14 +93,14 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         TriageGuidanceDto? guidance = null;
 
         if (request.Vitals is null) missingInformation.Add("No verified vital signs were supplied.");
-        if (validationProblems.Count > 0)
+        if (run.Context.FailedSafely)
         {
             workflow.Status = TriageWorkflowStatuses.FailedSafely;
             workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
             workflow.TriageLevel = TriageLevels.InsufficientInformation;
             workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
             workflow.RequiresHumanReview = true;
-            workflow.ErrorCode = "InvalidOrSuspiciousInput";
+            workflow.ErrorCode = run.Trace.LastOrDefault(e => e.ErrorCode != null)?.ErrorCode ?? "InvalidOrSuspiciousInput";
             workflow.FinalOutcome = "The system cannot safely assess this situation with the available information. Please seek assessment from a qualified healthcare professional.";
             missingInformation.AddRange(validationProblems);
         }
@@ -158,32 +195,65 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
 
         if (workflow.Status == TriageWorkflowStatuses.PendingPatientInput && (guidance is null || guidance.FollowUpItems.Count == 0))
         {
-            workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
-            workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
-            workflow.TriageLevel = TriageLevels.ClinicalReview;
-            workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
-            workflow.RequiresHumanReview = true;
-            workflow.ErrorCode ??= "QuestionOrResponseGenerationUnavailable";
-            workflow.FinalOutcome = "The system could not safely generate the required follow-up guidance. A qualified clinician must review this assessment.";
+            if (redFlags.Count == 0 && urgentFlags.Count == 0 && clinicalReviewFlags.Count == 0 &&
+                SafeTriageRules.IsWithinValidatedRoutineScope(request.Symptoms))
+            {
+                workflow.Status = TriageWorkflowStatuses.Completed;
+                workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+                workflow.TriageLevel = TriageLevels.NonUrgent;
+                workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
+                workflow.RequiresHumanReview = false;
+                workflow.ErrorCode ??= "RoutineGuidanceUnavailable";
+                workflow.FinalOutcome = "No configured urgent or high-risk warning sign was detected. General guidance is temporarily unavailable; seek medical advice if symptoms become severe or worsen.";
+            }
+            else
+            {
+                workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
+                workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
+                workflow.TriageLevel = TriageLevels.ClinicalReview;
+                workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
+                workflow.RequiresHumanReview = true;
+                workflow.ErrorCode ??= "QuestionOrResponseGenerationUnavailable";
+                workflow.FinalOutcome = "The system could not safely generate the required follow-up guidance. A qualified clinician must review this assessment.";
+            }
         }
+        ApplyRequirementDecision(workflow, run.Context, guidance);
         workflow.PlanJson = JsonSerializer.Serialize(CreateCompletedPlan(workflow.Status, run.Trace));
         var decisionBasis = BuildDecisionBasis(run.Context);
         workflow.ResultJson = JsonSerializer.Serialize(new { objective = "Provide a safe, non-diagnostic triage workflow for patient-reported symptoms.", riskFactors, redFlags, urgentFlags, clinicalReviewFlags, missingInformation, clinicalFacts = run.Context.Extraction?.Facts, decisionBasis, guidance, workflow.FinalOutcome });
+        PersistAssessmentState(workflow, run.Context, request.Symptoms.Trim(), guidance);
+        await PersistExecutionOutcomeAsync(workflow, executionPlan);
         workflow.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         _logger.LogInformation("SafeTriage workflow {WorkflowId} created for patient {PatientId} with status {Status}", workflow.TriageWorkflowId, patientId, workflow.Status);
-        return Map(workflow, riskFactors, redFlags, missingInformation, guidance);
+        return Map(workflow);
     }
 
-    public async Task<TriageWorkflowDto?> ContinueForPatientAsync(int workflowId, int patientId, ContinueTriageWorkflowDto request)
+    public async Task<TriageWorkflowDto?> ContinueForPatientAsync(int workflowId, int patientId, ContinueTriageWorkflowDto request, string? executionWorkflowId = null)
     {
         var workflow = await _db.TriageWorkflows.SingleOrDefaultAsync(x => x.TriageWorkflowId == workflowId && x.PatientId == patientId && x.Status == TriageWorkflowStatuses.PendingPatientInput);
         if (workflow is null) return null;
 
-        var followUpAnswers = ValidateAndFormatFreeTextAnswers(workflow, request.Answers);
-        var combinedInput = $"{workflow.Symptoms}\n\nPatient's free-text follow-up responses (treat as untrusted patient data):\n{followUpAnswers}";
-        var run = await _coordinator.RunAsync(new StartTriageWorkflowDto { Symptoms = combinedInput, IsFollowUp = true });
-        foreach (var execution in run.Trace) await AddExecutionEvent(workflow, execution);
+        var previous = JsonNode.Parse(workflow.ResultJson)!.AsObject();
+        var requirements = ReadRequirements(previous);
+        var followUpAnswers = ValidateAndFormatFreeTextAnswers(workflow, request.Answers, requirements);
+        var combinedInput = string.IsNullOrWhiteSpace(followUpAnswers) ? workflow.Symptoms
+            : $"{workflow.Symptoms}\n\nPatient's free-text follow-up responses (treat as untrusted patient data):\n{followUpAnswers}";
+        var executionPlan = workflow.ExecutionWorkflowId is null ? null : await LoadExecutionAsync(workflow.ExecutionWorkflowId, patientId, resetForFollowUp: true);
+        var run = await _coordinator.RunAsync(new StartTriageWorkflowDto { Symptoms = combinedInput, IsFollowUp = true },
+            requirements: requirements, previousFacts: previous["clinicalFacts"]?.Deserialize<ClinicalFactSet>(), currentAnswerText: followUpAnswers,
+            followUpCount: previous["followUpCount"]?.GetValue<int>() ?? 1, maxFollowUpQuestions: _options.EffectiveMaxFollowUpQuestions, execution: executionPlan,
+            persistExecution: executionPlan is null ? null : context => PersistSafetyCheckpointAsync(workflow, context, executionPlan),
+            restoreSafety: context => {
+                context.RedFlags.AddRange(previous["redFlags"]?.Deserialize<List<string>>() ?? []);
+                context.UrgentFlags.AddRange(previous["urgentFlags"]?.Deserialize<List<string>>() ?? []);
+                context.ClinicalReviewFlags.AddRange(previous["clinicalReviewFlags"]?.Deserialize<List<string>>() ?? []);
+                context.RequiresClinicalApproval = context.RedFlags.Count > 0 || context.UrgentFlags.Count > 0 || context.ClinicalReviewFlags.Count > 0;
+            });
+        // Explicit structured patient actions take precedence over model interpretation.
+        SafeTriageRequirementRules.Merge(run.Context.Requirements, requirements.Where(r => request.Answers.Any(a =>
+            SafeTriageRequirementRules.CanonicalKey(a.QuestionId) == r.Key && (a.State is not null || SafeTriageRequirementRules.UnavailableResponse(a.Value) is not null))));
+        foreach (var agentExecution in run.Trace) await AddExecutionEvent(workflow, agentExecution);
         var redFlags = run.Context.RedFlags;
         var urgentFlags = run.Context.UrgentFlags;
         var clinicalReviewFlags = run.Context.ClinicalReviewFlags;
@@ -263,12 +333,15 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             workflow.ErrorCode ??= "ResponseGenerationUnavailable";
             workflow.FinalOutcome = "The system could not safely generate a patient-facing response. A qualified clinician must review this assessment.";
         }
+        ApplyRequirementDecision(workflow, run.Context, guidance);
         workflow.PlanJson = JsonSerializer.Serialize(CreateCompletedPlan(workflow.Status, run.Trace));
         var decisionBasis = BuildDecisionBasis(run.Context);
         workflow.ResultJson = JsonSerializer.Serialize(new { objective = "Reassess the safe triage workflow using additional patient-provided information.", riskFactors = risks, redFlags, urgentFlags, clinicalReviewFlags, missingInformation = missing, clinicalFacts = run.Context.Extraction?.Facts, decisionBasis, guidance, workflow.FinalOutcome });
+        PersistAssessmentState(workflow, run.Context, previous["originalComplaint"]?.GetValue<string>() ?? workflow.Symptoms.Split("\n\nPatient's free-text")[0], guidance);
+        await PersistExecutionOutcomeAsync(workflow, executionPlan);
         workflow.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
-        return Map(workflow, risks, redFlags, missing, guidance);
+        return Map(workflow);
     }
 
     public async Task<TriageWorkflowDto?> GetForPatientAsync(int workflowId, int patientId)
@@ -325,8 +398,14 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         if (!legacyFailure && workflow.ApprovalStatus is not (TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested)) return null;
 
         var decision = request.Decision.Trim();
-        if (decision is not (TriageApprovalStatuses.Approved or TriageApprovalStatuses.Rejected or TriageApprovalStatuses.RevisionRequested))
-            throw new ArgumentException("Decision must be Approved, Rejected, or RevisionRequested.");
+        if (decision is not (TriageApprovalStatuses.Approved or TriageApprovalStatuses.Rejected or TriageApprovalStatuses.RevisionRequested or "ClinicianResponse"))
+            throw new ArgumentException("Decision must be Approved, ClinicianResponse, Rejected, or RevisionRequested.");
+        if (decision == "ClinicianResponse" && (string.IsNullOrWhiteSpace(request.FinalResponse) || request.FinalResponse.Length > 4000))
+            throw new ArgumentException("Provide a non-empty clinical response of at most 4000 characters.");
+        var assessment = JsonNode.Parse(workflow.ResultJson)!.AsObject();
+        var suggestion = assessment["safeTriageSuggestion"]?.GetValue<string>() ?? workflow.FinalOutcome;
+        if (decision == TriageApprovalStatuses.Approved && string.IsNullOrWhiteSpace(suggestion))
+            throw new ArgumentException("No SafeTriage suggestion is available to approve. Provide your own suggestion.");
 
         // Repair legacy queue eligibility only as part of an authorized, audited
         // review. Reading the queue never mutates patient records.
@@ -341,11 +420,33 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         workflow.Status = decision == TriageApprovalStatuses.RevisionRequested ? TriageWorkflowStatuses.PendingClinicalReview : TriageWorkflowStatuses.Completed;
         workflow.FinalOutcome = decision switch
         {
-            TriageApprovalStatuses.Approved => $"A clinical reviewer approved the {workflow.TriageLevel} recommendation.",
+            TriageApprovalStatuses.Approved => suggestion,
+            "ClinicianResponse" => request.FinalResponse!.Trim(),
             TriageApprovalStatuses.Rejected => "A clinical reviewer did not approve the proposed escalation. Contact the care team for further guidance.",
             _ => "A clinical reviewer requested additional information before a decision can be made."
         };
+        if (decision is TriageApprovalStatuses.Approved or "ClinicianResponse")
+        {
+            assessment["safeTriageSuggestion"] = suggestion;
+            assessment["reviewedResponse"] = workflow.FinalOutcome;
+            assessment["reviewDecision"] = decision;
+            workflow.ResultJson = assessment.ToJsonString();
+            workflow.RequiresHumanReview = false;
+        }
         await AddEvent(workflow, "HumanClinicalReview", decision, new { note = request.Note?.Trim(), reviewerUserId });
+        if (workflow.ExecutionWorkflowId != null)
+        {
+            var store = new AgenticAI.PlanningCoordinator.PlanningCoordinatorStore(_db);
+            var execution = await store.GetAsync(workflow.ExecutionWorkflowId);
+            if (execution != null && execution.PatientId == workflow.PatientId)
+            {
+                execution.ApprovalStatus = decision;
+                execution.Status = decision == TriageApprovalStatuses.RevisionRequested ? "AwaitingClinicalReview" : "Completed";
+                execution.FinalOutcome = workflow.FinalOutcome;
+                execution.AuditEvents.Add(new() { EventType = "ClinicalReview", Description = decision, Metadata = "Reviewer: " + reviewerUserId });
+                await store.SaveAsync(execution);
+            }
+        }
         await _db.SaveChangesAsync();
         return Map(workflow);
     }
@@ -384,7 +485,7 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         new() { Agent = "SafetyRedFlagAgent", Status = "Planned", Purpose = "Apply versioned deterministic emergency rules." },
         new() { Agent = "ClinicalInformationExtractionAgent", Status = "Planned", Purpose = "Structure patient-reported information without inventing facts." },
         new() { Agent = "StructuredSafetyAssessmentAgent", Status = "Planned", Purpose = "Apply deterministic policy to grounded facts and their patient-text evidence." },
-        new() { Agent = "AdaptiveQuestionPlanningAgent", Status = "Planned", Purpose = "Rank at most three missing, decision-relevant information needs." },
+        new() { Agent = "AdaptiveQuestionPlanningAgent", Status = "Planned", Purpose = "Select one eligible missing information requirement." },
         new() { Agent = "CareRoutingAgent", Status = "Planned", Purpose = "Propose an approved care path; never book or prescribe." },
         new() { Agent = "SafetyValidationAgent", Status = "Planned", Purpose = "Validate output and enforce escalation/approval rules." },
     ];
@@ -429,7 +530,7 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         var guidance = MapGuidance(generated);
         if (guidance is not null && questions is not null)
         {
-            guidance.FollowUpItems = questions.Take(3).ToList();
+            guidance.FollowUpItems = questions.Take(1).ToList();
             guidance.FollowUpQuestions = guidance.FollowUpItems.Select(question => question.Prompt).ToList();
         }
         if (guidance is not null)
@@ -440,7 +541,7 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         return guidance;
     }
 
-    private static string ValidateAndFormatFreeTextAnswers(TriageWorkflow workflow, IReadOnlyList<TriageAnswerDto> answers)
+    private static string ValidateAndFormatFreeTextAnswers(TriageWorkflow workflow, IReadOnlyList<TriageAnswerDto> answers, List<SafeTriageRequirement> requirements)
     {
         using var result = JsonDocument.Parse(workflow.ResultJson);
         if (!result.RootElement.TryGetProperty("guidance", out var guidanceElement) || guidanceElement.ValueKind == JsonValueKind.Null)
@@ -451,26 +552,162 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         if (questions.Count == 0)
             throw new ArgumentException("This workflow has no valid follow-up questions.");
 
-        var duplicate = answers.GroupBy(answer => answer.QuestionId.Trim(), StringComparer.Ordinal)
+        if (answers.Count == 0 || answers.Count > 12) throw new ArgumentException("Provide an answer or an explicit unavailable state.");
+        var duplicate = answers.GroupBy(answer => SafeTriageRequirementRules.CanonicalKey(answer.QuestionId), StringComparer.Ordinal)
             .FirstOrDefault(group => group.Count() > 1);
         if (duplicate is not null)
             throw new ArgumentException($"Duplicate answer for question '{duplicate.Key}'.");
 
-        var supplied = answers.ToDictionary(answer => answer.QuestionId.Trim(), StringComparer.Ordinal);
-        if (supplied.Keys.Any(id => questions.All(question => question.Id != id)))
+        var supplied = answers.ToDictionary(answer => SafeTriageRequirementRules.CanonicalKey(answer.QuestionId), StringComparer.Ordinal);
+        if (supplied.Keys.Any(id => questions.All(question => question.Id != id) && requirements.All(r => r.Key != id)))
             throw new ArgumentException("A follow-up answer contains an unknown question identifier.");
+        if (!questions.Any(q => supplied.ContainsKey(q.Id))) throw new ArgumentException("Respond to the active question; earlier fields may also be corrected.");
 
         var formatted = new List<string>();
-        foreach (var question in questions)
+        foreach (var (id, answer) in supplied)
         {
-            if (!supplied.TryGetValue(question.Id, out var answer) || string.IsNullOrWhiteSpace(answer.Value))
+            if (answer.Value.Length > 500) throw new ArgumentException("Keep each answer under 500 characters.");
+            var state = answer.State ?? SafeTriageRequirementRules.UnavailableResponse(answer.Value);
+            if (state is not null && state is not (SafeTriageRequirementState.Declined or SafeTriageRequirementState.Unknown or SafeTriageRequirementState.NotApplicable))
+                throw new ArgumentException("Only explicit unavailable states may be submitted; answers are validated by extraction.");
+            if (state is not null)
             {
-                continue;
+                if (answer.State is not null && !string.IsNullOrWhiteSpace(answer.Value)) throw new ArgumentException("An unavailable action must not include a clinical value.");
+                SafeTriageRequirementRules.Merge(requirements, [new(id, state.Value)]);
             }
-            formatted.Add($"Patient response for follow-up field '{question.Id}': {answer.Value.Trim()}");
+            else if (string.IsNullOrWhiteSpace(answer.Value)) throw new ArgumentException("Provide an answer or choose Prefer not to answer.");
+            if (!string.IsNullOrWhiteSpace(answer.Value)) formatted.Add($"Patient response for follow-up field '{id}': {answer.Value.Trim()}");
         }
 
         return string.Join('\n', formatted);
+    }
+
+    private static List<SafeTriageRequirement> ReadRequirements(JsonObject result)
+    {
+        var requirements = result["requirements"]?.Deserialize<List<SafeTriageRequirement>>() ?? [];
+        // Older in-flight assessments already have stable question identifiers.
+        var guidance = result["guidance"]?.Deserialize<TriageGuidanceDto>();
+        SafeTriageRequirementRules.Merge(requirements, (guidance?.FollowUpItems ?? []).Select(q => new SafeTriageRequirement(q.Id)));
+        return requirements;
+    }
+
+    private void ApplyRequirementDecision(TriageWorkflow workflow, SafeTriageAgentContext context, TriageGuidanceDto? guidance)
+    {
+        if (!context.FailedSafely && context.RedFlags.Count == 0 && context.UrgentFlags.Count == 0 && context.ClinicalReviewFlags.Count == 0)
+        {
+            var extractionFailed = context.Extraction?.Status == "FailedSafely";
+            var sufficient = context.Extraction?.Status == "Completed" && context.IsWithinValidatedRoutineScope &&
+                context.Extraction.Facts is { } facts && SafeTriageRules.HasGroundedConcept(facts) &&
+                context.Requirements.All(r => r.State is SafeTriageRequirementState.Answered or SafeTriageRequirementState.NotApplicable) &&
+                (context.Requirements.Count > 0 || context.Extraction.MissingInformation.Count == 0);
+            var next = context.PlannedQuestions.FirstOrDefault(q => context.Requirements.Any(r => r.Key == q.Id && r.State == SafeTriageRequirementState.Missing));
+            if (sufficient && guidance is not null)
+            {
+                workflow.Status = TriageWorkflowStatuses.Completed;
+                workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+                workflow.TriageLevel = TriageLevels.NonUrgent;
+                workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
+                workflow.RequiresHumanReview = false;
+                workflow.FinalOutcome = "Your assessment is complete. This general guidance is not a diagnosis.";
+                workflow.ErrorCode = null;
+            }
+            else if (context.Extraction?.Status == "Completed" && next is not null && guidance is not null && context.FollowUpCount < _options.EffectiveMaxFollowUpQuestions)
+            {
+                workflow.Status = TriageWorkflowStatuses.PendingPatientInput;
+                workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+                workflow.RequiresHumanReview = false;
+                workflow.TriageLevel = context.IsWithinValidatedRoutineScope ? TriageLevels.NonUrgent : TriageLevels.InsufficientInformation;
+                workflow.FinalOutcome = "Please answer the next question, or choose Prefer not to answer.";
+                workflow.ErrorCode = null;
+                guidance.FollowUpItems = [next];
+                guidance.FollowUpQuestions = [next.Prompt];
+                context.FollowUpCount++;
+            }
+            else if (extractionFailed || context.Requirements.Any(r => r.State is SafeTriageRequirementState.Missing or SafeTriageRequirementState.Declined or SafeTriageRequirementState.Unknown))
+            {
+                // Do not turn an exhausted question budget, unavailable required
+                // information, or failed extraction into a routine completion.
+                workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
+                workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
+                workflow.RequiresHumanReview = true;
+                workflow.TriageLevel = TriageLevels.ClinicalReview;
+                workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
+                workflow.ErrorCode ??= extractionFailed ? context.Extraction?.ErrorCode ?? "ExtractionUnavailable" : "FollowUpInformationUnavailable";
+                workflow.FinalOutcome = extractionFailed
+                    ? "The system could not safely complete the information assessment. A qualified clinician must review this assessment."
+                    : "The assessment still needs required information, but no further SafeTriage question can be issued. A qualified clinician must review this assessment.";
+            }
+            else
+            {
+                workflow.Status = TriageWorkflowStatuses.Completed;
+                workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+                workflow.RequiresHumanReview = false;
+                workflow.TriageLevel = TriageLevels.NonUrgent;
+                workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
+                workflow.FinalOutcome = "No configured emergency, urgent, or high-risk warning sign was detected. Seek medical advice if symptoms become severe or worsen.";
+            }
+        }
+        if (workflow.Status != TriageWorkflowStatuses.PendingPatientInput && guidance is not null)
+        {
+            guidance.FollowUpItems = [];
+            guidance.FollowUpQuestions = [];
+        }
+    }
+
+    private async Task PersistSafetyCheckpointAsync(TriageWorkflow workflow, SafeTriageAgentContext context, PlanningWorkflowRecord execution)
+    {
+        var result = JsonNode.Parse(workflow.ResultJson)!.AsObject();
+        result["redFlags"] = JsonSerializer.SerializeToNode(context.RedFlags);
+        result["urgentFlags"] = JsonSerializer.SerializeToNode(context.UrgentFlags);
+        result["clinicalReviewFlags"] = JsonSerializer.SerializeToNode(context.ClinicalReviewFlags);
+        result["clinicalFacts"] = JsonSerializer.SerializeToNode(context.Extraction?.Facts ?? context.PreviousFacts);
+        result["requirements"] = JsonSerializer.SerializeToNode(context.Requirements);
+        result["followUpCount"] = context.FollowUpCount;
+        result["requiresClinicalApproval"] = context.RequiresClinicalApproval;
+        result["failedSafely"] = context.FailedSafely;
+        result["proposedRoute"] = context.ProposedRoute;
+        result["decisionBasis"] = JsonSerializer.SerializeToNode(BuildDecisionBasis(context));
+        workflow.ResultJson = result.ToJsonString();
+        await new PlanningCoordinatorStore(_db).SaveAsync(execution);
+    }
+
+    private async Task PersistExecutionOutcomeAsync(TriageWorkflow workflow, PlanningWorkflowRecord? execution)
+    {
+        if (execution is null) return;
+        var step = execution.Steps.FirstOrDefault(s => s.StepId == execution.CurrentStep);
+        execution.ApprovalStatus = workflow.ApprovalStatus;
+        if (workflow.RequiresHumanReview)
+        {
+            execution.Status = "AwaitingClinicalReview";
+            if (step is not null)
+            {
+                step.Status = "WaitingForClinicalReview";
+                step.OutputSummary = workflow.FinalOutcome;
+                execution.CompletedStages.Remove(step.StepId);
+            }
+            execution.FinalOutcome = null;
+            execution.AuditEvents.Add(new() { EventType = "ClinicalReviewRequired", Description = workflow.FinalOutcome ?? "Clinical review required.", Metadata = execution.CurrentStep });
+        }
+        await new PlanningCoordinatorStore(_db).SaveAsync(execution);
+    }
+
+    private static void PersistAssessmentState(TriageWorkflow workflow, SafeTriageAgentContext context, string originalComplaint, TriageGuidanceDto? guidance)
+    {
+        var result = JsonNode.Parse(workflow.ResultJson)!.AsObject();
+        result["requirements"] = JsonSerializer.SerializeToNode(context.Requirements);
+        result["followUpCount"] = context.FollowUpCount;
+        result["originalComplaint"] = originalComplaint;
+        result["requiresClinicalApproval"] = workflow.RequiresHumanReview;
+        result["failedSafely"] = context.FailedSafely;
+        result["proposedRoute"] = context.ProposedRoute;
+        result["triageLevel"] = workflow.TriageLevel;
+        var limitations = result["missingInformation"]?.Deserialize<List<string>>() ?? [];
+        limitations.AddRange(context.Requirements.Where(r => r.State is SafeTriageRequirementState.Missing or SafeTriageRequirementState.Declined or SafeTriageRequirementState.Unknown)
+            .Select(r => $"{r.Key}: {r.State}."));
+        result["missingInformation"] = JsonSerializer.SerializeToNode(limitations.Distinct());
+        result["safeTriageSuggestion"] = string.Join("\n\n", new[] { workflow.FinalOutcome, guidance?.Summary }
+            .Concat(guidance?.Actions ?? []).Concat(guidance?.SeekHelpIf ?? []).Where(s => !string.IsNullOrWhiteSpace(s)));
+        workflow.ResultJson = result.ToJsonString();
     }
 
     private static IReadOnlyList<string> BuildDecisionBasis(SafeTriageAgentContext context)
@@ -505,6 +742,12 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
     private static TriageWorkflowDto Map(TriageWorkflow workflow, List<string>? risks = null, List<string>? flags = null, List<string>? missing = null, TriageGuidanceDto? guidance = null, bool redactPatientText = false)
     {
         using var result = JsonDocument.Parse(workflow.ResultJson);
+        var assessment = JsonNode.Parse(workflow.ResultJson)!.AsObject();
+        var reviewedResponse = assessment["reviewedResponse"]?.GetValue<string>();
+        var pendingReview = workflow.RequiresHumanReview && workflow.Status != TriageWorkflowStatuses.Completed;
+        var patientMessage = reviewedResponse ?? (pendingReview && !redactPatientText
+            ? "Your assessment has been sent for clinical review." + (workflow.TriageLevel is TriageLevels.Emergency or TriageLevels.Urgent ? " " + workflow.FinalOutcome : "")
+            : workflow.FinalOutcome);
         risks ??= result.RootElement.TryGetProperty("riskFactors", out var riskElement) ? riskElement.Deserialize<List<string>>() ?? [] : [];
         flags ??= result.RootElement.TryGetProperty("redFlags", out var flagElement) ? flagElement.Deserialize<List<string>>() ?? [] : [];
         missing ??= result.RootElement.TryGetProperty("missingInformation", out var missingElement) ? missingElement.Deserialize<List<string>>() ?? [] : [];
@@ -517,7 +760,16 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         var decisionBasis = result.RootElement.TryGetProperty("decisionBasis", out var basisElement)
             ? basisElement.Deserialize<List<string>>() ?? []
             : [];
-        return new TriageWorkflowDto { WorkflowId = workflow.TriageWorkflowId, Status = workflow.Status, ApprovalStatus = workflow.ApprovalStatus, TriageLevel = workflow.TriageLevel, UncertaintyState = workflow.UncertaintyState, RequiresHumanReview = workflow.RequiresHumanReview, PatientMessage = workflow.FinalOutcome ?? "The system cannot safely assess this situation.", PatientReportedSymptoms = redactPatientText ? RedactUnneededIdentifiers(workflow.Symptoms) : workflow.Symptoms, Guidance = guidance, RiskFactors = risks, RedFlags = flags, UrgentFlags = urgentFlags, ClinicalReviewFlags = clinicalReviewFlags, MissingInformation = missing, ClinicalFacts = MapFacts(facts), DecisionBasis = decisionBasis, Plan = JsonSerializer.Deserialize<List<TriagePlanStepDto>>(workflow.PlanJson) ?? [], RuleSetVersion = workflow.RuleSetVersion, WorkflowVersion = workflow.WorkflowVersion, CreatedAt = workflow.CreatedAt, UpdatedAt = workflow.UpdatedAt };
+        if (!redactPatientText && (pendingReview || reviewedResponse is not null)) guidance = null;
+        var originalComplaint = assessment["originalComplaint"]?.GetValue<string>() ?? workflow.Symptoms;
+        var requirements = ReadRequirements(assessment);
+        return new TriageWorkflowDto { WorkflowId = workflow.TriageWorkflowId, Status = workflow.Status, ApprovalStatus = workflow.ApprovalStatus, TriageLevel = workflow.TriageLevel, UncertaintyState = workflow.UncertaintyState, RequiresHumanReview = workflow.RequiresHumanReview, PatientMessage = patientMessage ?? "The system cannot safely assess this situation.",
+            OriginalComplaint = redactPatientText ? RedactUnneededIdentifiers(originalComplaint) : originalComplaint,
+            Requirements = redactPatientText ? requirements.Select(r => r with { Value = r.Value is null ? null : RedactUnneededIdentifiers(r.Value), Evidence = r.Evidence is null ? null : RedactUnneededIdentifiers(r.Evidence) }).ToList() : requirements,
+            FollowUpCount = assessment["followUpCount"]?.GetValue<int>() ?? 0,
+            SafeTriageSuggestion = redactPatientText ? assessment["safeTriageSuggestion"]?.GetValue<string>() ?? workflow.FinalOutcome : null,
+            ReviewedResponse = reviewedResponse,
+            PatientReportedSymptoms = redactPatientText ? RedactUnneededIdentifiers(workflow.Symptoms) : workflow.Symptoms, Guidance = guidance, RiskFactors = risks, RedFlags = flags, UrgentFlags = urgentFlags, ClinicalReviewFlags = clinicalReviewFlags, MissingInformation = missing, ClinicalFacts = MapFacts(facts), DecisionBasis = decisionBasis, Plan = JsonSerializer.Deserialize<List<TriagePlanStepDto>>(workflow.PlanJson) ?? [], RuleSetVersion = workflow.RuleSetVersion, WorkflowVersion = workflow.WorkflowVersion, CreatedAt = workflow.CreatedAt, UpdatedAt = workflow.UpdatedAt };
     }
 
     private static string RedactUnneededIdentifiers(string text) => System.Text.RegularExpressions.Regex

@@ -66,6 +66,10 @@ public sealed class TriageWorkflowController : ControllerBase
         {
             return BadRequest(new { message = exception.Message });
         }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
+        {
+            return Conflict(new { message = "This assessment was already updated. Refresh before answering again." });
+        }
     }
 
     [HttpGet("{id:int}/clinical-review")]
@@ -101,6 +105,7 @@ public sealed class TriageWorkflowController : ControllerBase
             return workflow is null ? NotFound(new { message = "A pending workflow was not found." }) : Ok(workflow);
         }
         catch (ArgumentException exception) { return BadRequest(new { message = exception.Message }); }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { return Conflict(new { message = "This review was already updated. Refresh the assessment." }); }
     }
 
     private async Task<PatientDto?> CurrentPatient()

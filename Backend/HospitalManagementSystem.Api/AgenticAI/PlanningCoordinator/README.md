@@ -1,3 +1,7 @@
+> Updated architecture: see [the unified implementation report](../../../../Docs/unified-agentic-ai.md).
+> PlanningCoordinatorAgent now owns the active assistant execution and uses a scoped PostgreSQL-backed store.
+> The original planning-only design notes below are historical; they do not describe the current runtime architecture.
+
 # Planning / Coordinator Agent (Member 1)
 
 > **Subsystem**: Planning & Coordinator Agent for SmartCare Hospital Management System  

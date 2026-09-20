@@ -16,8 +16,11 @@ public sealed class AssistantConversation
 }
 public sealed class AssistantMessageRequest
 {
+    [System.Text.Json.Serialization.JsonIgnore] public TriageVitalsDto? Vitals { get; set; }
     public Guid? ConversationId { get; set; }
-    [Required, StringLength(4000, MinimumLength = 1)] public string Message { get; set; } = string.Empty;
+    [StringLength(4000)] public string Message { get; set; } = string.Empty;
+    [MaxLength(80)] public string? RequirementId { get; set; }
+    public HospitalManagementSystem.Api.AgenticAI.SafeTriage.SafeTriageRequirementState? RequirementState { get; set; }
     public Guid RequestId { get; set; }
 }
 public sealed class AssistantActionRequest
@@ -36,6 +39,9 @@ public sealed record AssistantMessage(string Id, string Role, string Text, DateT
     public IReadOnlyList<AgentDoctor> Doctors { get; init; } = [];
     public AssistantPendingAction? ProposedAction { get; init; }
     public bool AvailabilityChecked { get; init; }
+    // Snapshot on an accepted patient answer, separate from the next active question.
+    public AssistantQuestion? FollowUpQuestion { get; init; }
+    public SafeTriage.SafeTriageRequirementState? FollowUpState { get; init; }
 }
 public sealed record AssistantClinicalReview(int WorkflowId, string Status, string ApprovalStatus, string Message);
 public sealed record AssistantQuestion(string Id, string Prompt, bool Required)
@@ -62,6 +68,7 @@ public sealed class AssistantPendingAction
 }
 public sealed class AssistantState
 {
+    public string? ExecutionWorkflowId { get; set; }
     public string State { get; set; } = "COMPLETED";
     public List<AssistantMessage> Messages { get; set; } = [];
     public AssistantPendingAction? PendingAction { get; set; }
@@ -94,6 +101,7 @@ public sealed record AssistantConversationResponse(Guid ConversationId, string T
 {
     public IReadOnlyList<AssistantClinicalReview> ClinicalReviews { get; init; } = [];
     public bool AvailabilityChecked { get; init; }
+    public string? ExecutionWorkflowId { get; init; }
     public bool AssessmentInputActive { get; init; }
 }
 

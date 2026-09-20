@@ -3,6 +3,7 @@ namespace HospitalManagementSystem.Api.Models;
 public class AppointmentProposal
 {
     public int AppointmentProposalId { get; set; }
+    public string? ExecutionWorkflowId { get; set; }
     public int PatientId { get; set; }
     public string CandidateSlotsJson { get; set; } = "[]";
     public string TriageLevel { get; set; } = string.Empty;

@@ -15,8 +15,7 @@ namespace HospitalManagementSystem.Api.AgenticAI.PatientCare;
 [Route("api/patient-care")]
 [Authorize(Roles = "Patient")]
 public sealed class PatientCareController(
-    IClinicalSafetyTriageAgent clinicalSafety,
-    IHospitalAppointmentProposalAgent appointmentProposal,
+    HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.HospitalAssistantService assistant,
     IPatientCareAssessmentStore assessments,
     IPatientService patients) : ControllerBase
 {
@@ -27,18 +26,10 @@ public sealed class PatientCareController(
         var patient = string.IsNullOrWhiteSpace(email) ? null : await patients.GetPatientByEmailAsync(email);
         if (patient is null) return NotFound(new { message = "No patient profile was found for this account." });
 
-        var clinical = await clinicalSafety.AssessAsync(new(request.Symptoms, request.Vitals), cancellationToken);
-        if (clinical.FailedSafely || clinical.TriageLevel is "Emergency" or "Urgent")
-            return Ok(await SaveResponse(patient.PatientId, request, clinical, null, cancellationToken));
-
-        if (!request.RequestAppointmentProposal)
-            return Ok(await SaveResponse(patient.PatientId, request, clinical, null, cancellationToken));
-
-        if (string.IsNullOrWhiteSpace(request.Specialty) || request.Specialty.Trim().Length < 2)
-            return BadRequest(new { message = "Choose a specialty before requesting appointment options." });
-
-        var proposal = await appointmentProposal.CreateAsync(new(patient.PatientId, clinical, request.Specialty!, request.PreferredDate), cancellationToken);
-        return Ok(await SaveResponse(patient.PatientId, request, clinical, proposal, cancellationToken));
+        // Legacy mutation is redirected to the same persisted assistant execution.
+        return Ok(await assistant.MessageAsync(patient, new() {
+            RequestId = Guid.NewGuid(), Message = request.Symptoms + (request.RequestAppointmentProposal ? " Please book an appointment" + (string.IsNullOrWhiteSpace(request.Specialty) ? "." : " with " + request.Specialty) + (request.PreferredDate.HasValue ? " on " + request.PreferredDate.Value.ToString("yyyy-MM-dd") : "") : ""), Vitals = request.Vitals
+        }, cancellationToken));
     }
 
     [HttpGet("history")]

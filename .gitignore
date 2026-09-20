@@ -47,3 +47,6 @@ Thumbs.db
 .idea/
 *.pdf
 .neon
+
+# Isolated verification output
+.test-output/

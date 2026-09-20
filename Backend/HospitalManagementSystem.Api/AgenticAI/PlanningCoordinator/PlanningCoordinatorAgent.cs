@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator;
 
-public sealed class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
+public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
 {
     private readonly IPlanningModelClient _modelClient;
     private readonly IPlanningCoordinatorStore _store;
@@ -74,12 +74,14 @@ public sealed class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
         ArgumentNullException.ThrowIfNull(request);
 
         var objective = (request.Objective ?? string.Empty).Trim();
-        if (objective.Length < 2)
+        if (objective.Length is < 2 or > 4000)
         {
             throw new ArgumentException("A valid patient objective must be provided.", nameof(request));
         }
 
-        var workflowRecord = new PlanningWorkflowRecord
+        var previous = request.ExistingWorkflowId == null ? null : await _store.GetAsync(request.ExistingWorkflowId, cancellationToken);
+        if (previous != null && previous.PatientId != request.PatientId) throw new InvalidOperationException("Workflow ownership mismatch.");
+        var workflowRecord = previous ?? new PlanningWorkflowRecord
         {
             PatientId = request.PatientId,
             Objective = objective,
@@ -88,9 +90,11 @@ public sealed class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
             UpdatedAt = DateTimeOffset.UtcNow
         };
 
+        activeExecution = workflowRecord;
+        if (previous != null) { workflowRecord.PreviousPlans.Add(workflowRecord.Plan); workflowRecord.Revision++; workflowRecord.Objective = objective; }
         workflowRecord.AuditEvents.Add(new PlanningAuditEvent
         {
-            EventType = "WorkflowInitialized",
+            EventType = previous == null ? "WorkflowInitialized" : "Replanned",
             Description = "Planning workflow record created for patient objective.",
             Metadata = $"PatientId: {request.PatientId}"
         });
@@ -107,7 +111,13 @@ public sealed class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
 
         try
         {
-            rawDecision = await _modelClient.PlanObjectiveAsync(objective, cancellationToken);
+            try { rawDecision = await _modelClient.PlanObjectiveAsync(objective, cancellationToken); }
+            catch (Exception ex) when (ex is System.Text.Json.JsonException or HttpRequestException || ex is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+            {
+                workflowRecord.RetryCount++;
+                workflowRecord.AuditEvents.Add(new() { EventType = "ModelRetry", Description = "Retrying structured planning once." });
+                rawDecision = await _modelClient.PlanObjectiveAsync(objective, cancellationToken);
+            }
             workflowRecord.AuditEvents.Add(new PlanningAuditEvent
             {
                 EventType = "ModelPlanningCompleted",
@@ -115,15 +125,24 @@ public sealed class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
                 Metadata = $"RawWorkflowType: {rawDecision.WorkflowType}"
             });
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning(ex, "Gemini planning client threw an exception for objective. Falling back to deterministic planner.");
-            errors.Add($"Model planning fallback engaged: {ex.Message}");
+            workflowRecord.Status = "FailedSafely"; workflowRecord.ErrorCode = "Cancelled";
+            workflowRecord.ErrorSummary = "Planning was cancelled."; workflowRecord.FailedStep = "PlanningStage";
+            workflowRecord.FailedAt = DateTimeOffset.UtcNow;
+            using var failureTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await _store.SaveAsync(workflowRecord, failureTimeout.Token);
+            throw;
+        }
+        catch (Exception)
+        {
+            _logger.LogWarning( "Gemini planning client threw an exception for objective. Falling back to deterministic planner.");
+            errors.Add("Planning model unavailable; validated fallback used.");
             workflowRecord.AuditEvents.Add(new PlanningAuditEvent
             {
                 EventType = "ModelPlanningFailed",
                 Description = "Gemini model failed or returned malformed JSON; deterministic safety fallback engaged.",
-                Metadata = ex.Message
+                Metadata = "ModelUnavailable"
             });
             rawDecision = DeterministicRuleBasedFallback(objective, request);
         }
@@ -132,16 +151,24 @@ public sealed class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
         var plan = BuildAndSanitizePlan(rawDecision, objective, request, workflowRecord);
 
         workflowRecord.Plan = plan;
+        SetSteps(workflowRecord, plan.RequiredSteps);
         workflowRecord.Status = plan.WorkflowType == PlanningWorkflowType.Unsupported.ToString()
             ? "Unsupported"
             : "Planned";
 
         if (workflowRecord.Status == "Planned")
         {
-            workflowRecord.CompletedStages.Add("PlanningStage");
+            workflowRecord.ErrorCode = null; workflowRecord.ErrorSummary = null; workflowRecord.FailedStep = null; workflowRecord.FailedAt = null;
+            if (!workflowRecord.CompletedStages.Contains("PlanningStage")) workflowRecord.CompletedStages.Add("PlanningStage");
         }
 
         workflowRecord.Errors.AddRange(errors);
+        if (errors.Count > 0 && workflowRecord.Status == "Unsupported")
+        {
+            workflowRecord.Status = "FailedSafely"; workflowRecord.ErrorCode = "PlanningUnavailable";
+            workflowRecord.ErrorSummary = "A supported plan could not be produced safely.";
+            workflowRecord.FailedStep = "PlanningStage"; workflowRecord.FailedAt = DateTimeOffset.UtcNow;
+        }
         workflowRecord.UpdatedAt = DateTimeOffset.UtcNow;
 
         workflowRecord.AuditEvents.Add(new PlanningAuditEvent
@@ -193,6 +220,7 @@ public sealed class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
             SafeResponse = "I can only assist with hospital triage assessments, doctor information, and appointment inquiries. Please specify your health concern or appointment question."
         };
 
+        SetSteps(record, record.Plan.RequiredSteps);
         record.UpdatedAt = DateTimeOffset.UtcNow;
         await _store.SaveAsync(record, cancellationToken);
 
@@ -206,7 +234,7 @@ public sealed class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
         PlanningWorkflowRecord record)
     {
         // 1. Resolve workflow type to allow-listed enum
-        if (!Enum.TryParse<PlanningWorkflowType>(decision.WorkflowType, true, out var workflowType))
+        if (!Enum.TryParse<PlanningWorkflowType>(decision.WorkflowType, true, out var workflowType) || !Enum.IsDefined(workflowType))
         {
             workflowType = PlanningWorkflowType.Unsupported;
             record.AuditEvents.Add(new PlanningAuditEvent
@@ -241,6 +269,8 @@ public sealed class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
             appointmentRequested = true;
         }
 
+        if (workflowType == PlanningWorkflowType.TriageThenAppointmentProposal && !appointmentRequested) workflowType = PlanningWorkflowType.SafeTriage;
+
         // 3. ENFORCE PATIENT CONFIRMATION RULE
         // Booking or proposing always requires explicit patient confirmation
         var confirmationRequired = workflowType is PlanningWorkflowType.TriageThenAppointmentProposal or PlanningWorkflowType.AppointmentProposal
@@ -263,6 +293,8 @@ public sealed class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
         {
             sanitizedSteps.AddRange(PlanningWorkflowSteps.DefaultStepsByWorkflow[workflowType]);
         }
+
+        sanitizedSteps = PlanningWorkflowSteps.DefaultStepsByWorkflow[workflowType].ToList();
 
         // 5. ENFORCE MAXIMUM 3 FOLLOW-UP QUESTIONS
         // Combine, clean, and take at most 3 questions
@@ -306,7 +338,7 @@ public sealed class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
             PreferredDate = preferredDate,
             PreferredTime = preferredTime,
             FollowUpQuestions = questions,
-            Rationale = decision.Rationale ?? string.Empty,
+            Rationale = "Validated workflow selection",
             SafeResponse = safeResponse
         };
     }
