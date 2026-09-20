@@ -266,9 +266,11 @@ public sealed partial class PlanningCoordinatorAgent
         var plannedClinical = planned?.Objective == text && planned.Plan.WorkflowType is "SafeTriage" or "TriageThenAppointmentProposal";
         var symptoms = plannedClinical || rawSafety.HasEscalation || ClinicalSafetyTools.IsRoutine(text, null) ||
             Has(text, @"\b(symptom|symptoms|pain|bleeding|fever|cough|sick|unwell|dizzy|headache|nausea|vomiting|breathing|rash|swollen|feel ill|hurt|suffering|nosebleed|shortness|feeling)\b");
-        var appointmentIntent = (planned?.Objective == text && planned.Plan.WorkflowType == "AppointmentProposal" && planned.Plan.AppointmentRequested) || Has(text, @"\b(appointment|appointments|book|booking|doctor|specialist|cardiologist|ophthalmologist|dermatologist|neurologist|consultation|cardiology|ophthalmology)\b") ||
+        var appointmentIntent = (planned?.Objective == text && planned.Plan.WorkflowType is ("AppointmentProposal" or "AppointmentStatus") &&
+            (planned.Plan.AppointmentRequested || planned.Plan.WorkflowType == "AppointmentStatus")) || Has(text, @"\b(appointment|appointments|book|booking|doctor|specialist|cardiologist|ophthalmologist|dermatologist|neurologist|consultation|cardiology|ophthalmology)\b") ||
             (state.SearchQuery != null && Has(text, @"\bproceed\b"));
-        var askingCancel = Has(text, @"\b(cancel|cancellation)\b") && appointmentIntent;
+        var askingCancel = Has(text, @"\b(cancel|cancellation)\b") &&
+            (appointmentIntent || Has(text, @"\b(my|next|current|existing|booking|reservation)\b"));
         var lookingForAlternative = appointmentIntent && Has(text, @"\b(another|alternative|cannot attend|can't attend)\b");
         var startsBookingTask = Has(text, @"\b(book|booking|schedule|create|reserve)\b");
         var resumesAssessment = state.WorkflowId.HasValue &&

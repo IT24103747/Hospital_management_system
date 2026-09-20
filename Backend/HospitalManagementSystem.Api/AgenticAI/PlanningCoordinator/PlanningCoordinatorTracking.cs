@@ -9,7 +9,7 @@ public sealed partial class PlanningCoordinatorAgent
         // An independent appointment request must get its own execution record.
         // Keep the paused assessment's record attached to its TriageWorkflow so it
         // can later resume the same WaitingForPatient step.
-        var startsIndependentAppointment = System.Text.RegularExpressions.Regex.IsMatch(objective, @"\b(book|booking|schedule|create|reserve|appointment|doctor|specialist)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var startsIndependentAppointment = System.Text.RegularExpressions.Regex.IsMatch(objective, @"\b(book|booking|schedule|create|reserve|appointment|doctor|specialist|cancel|cancellation)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         if (state.ExecutionWorkflowId != null && state.Awaiting == "clinical-answer" && !startsIndependentAppointment)
         {
             activeExecution = await _store.GetAsync(state.ExecutionWorkflowId, token);

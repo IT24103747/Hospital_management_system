@@ -813,6 +813,19 @@ public sealed class HospitalAssistantTests
     }
 
     [Fact]
+    public async Task CancellationWithIncompleteAppointmentWordStillRequestsReason()
+    {
+        await using var h = await Harness.Create();
+        var search = await h.Send("Book a cardiologist tomorrow");
+        await h.Service.DecideAsync(h.Patient, search.ConversationId, h.Confirm(search.PendingAction!), default);
+
+        var request = await h.Send("Cancel my next appointmen", search.ConversationId);
+
+        Assert.Contains("reason", request.Messages.Last().Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(request.PendingAction);
+    }
+
+    [Fact]
     public async Task ExpiredAndDismissedRequestsCannotWrite()
     {
         await using var h = await Harness.Create();
