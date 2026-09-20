@@ -12,19 +12,40 @@ public static class AssistantPreferences
 
     public static string? Query(string text, IReadOnlyList<AgentDoctor> doctors)
     {
+        // Full-name match: "Dr. Neranjani Perera" or "Neranjani Perera"
         var named = doctors.Where(doctor =>
             text.Contains(doctor.Name, StringComparison.OrdinalIgnoreCase) ||
             text.Contains(doctor.Name.Replace("Dr. ", "", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase)).ToArray();
         if (named.Length == 1) return named[0].Name;
-        // Patients commonly omit the space after the title (for example, "Dr.Silva").
-        // The extracted text remains only a search term; the approved doctor service
-        // below is still the authority for resolving it.
-        var match = Regex.Match(text, @"\bdr\.?\s*([\p{L}]+(?:\s+[\p{L}]+)?)", RegexOptions.IgnoreCase);
-        if (match.Success)
+
+        // Patients commonly omit the space after the title (for example, "Dr.Silva" or "dr neranjani").
+        var drMatch = Regex.Match(text, @"\bdr\.?\s*([\p{L}]+(?:\s+[\p{L}]+)?)", RegexOptions.IgnoreCase);
+        if (drMatch.Success)
         {
-            // A surname alone is a valid search, but candidates still come from the approved doctor service.
-            return match.Groups[1].Value.Split(' ')[0];
+            var extracted = drMatch.Groups[1].Value.Split(' ')[0];
+            // Try to resolve to a known doctor first name before returning raw text
+            var byFirstName = doctors.FirstOrDefault(d =>
+                d.Name.Replace("Dr. ", "", StringComparison.OrdinalIgnoreCase)
+                      .Split(' ')[0]
+                      .Equals(extracted, StringComparison.OrdinalIgnoreCase));
+            return byFirstName?.Name ?? extracted;
         }
+
+        // "book doctor neranjani" / "i want doctor perera" - extract the word after "doctor"
+        var doctorWordMatch = Regex.Match(text, @"\b(?:doctor|doc)\s+([\p{L}]+(?:\s+[\p{L}]+)?)", RegexOptions.IgnoreCase);
+        if (doctorWordMatch.Success)
+        {
+            var candidate = doctorWordMatch.Groups[1].Value.Trim();
+            // Match against first name (ignoring "Dr." prefix) of any known doctor
+            var byFirstName = doctors.FirstOrDefault(d =>
+                d.Name.Replace("Dr. ", "", StringComparison.OrdinalIgnoreCase)
+                      .Split(' ')[0]
+                      .Equals(candidate.Split(' ')[0], StringComparison.OrdinalIgnoreCase));
+            if (byFirstName != null) return byFirstName.Name;
+            // No exact first-name match — return the candidate as a free-text search term
+            if (candidate.Length >= 3) return candidate;
+        }
+
         foreach (var specialty in doctors.Select(d => d.Specialty).Distinct().OrderByDescending(x => x.Length))
             if (text.Contains(specialty, StringComparison.OrdinalIgnoreCase)) return specialty;
         (string Pattern, string Query)[] aliases = [

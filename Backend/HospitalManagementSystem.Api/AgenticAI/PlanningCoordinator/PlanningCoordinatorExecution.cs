@@ -617,9 +617,12 @@ public sealed partial class PlanningCoordinatorAgent
         }
         var guidance = workflow.Guidance;
         var parts = new List<string> { workflow.PatientMessage };
-        if (!string.IsNullOrWhiteSpace(guidance?.Summary)) parts.Add(guidance.Summary);
-        parts.AddRange(guidance?.Actions ?? []);
-        parts.AddRange(guidance?.SeekHelpIf ?? []);
+        if (state.Questions.Count == 0)
+        {
+            if (!string.IsNullOrWhiteSpace(guidance?.Summary)) parts.Add(guidance.Summary);
+            parts.AddRange(guidance?.Actions ?? []);
+            parts.AddRange(guidance?.SeekHelpIf ?? []);
+        }
         if (state.Awaiting == "clinical-review") parts.Add("Clinical review is pending. You can refresh this conversation to check its status.");
         Reply(state, string.Join("\n\n", parts.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct()),
             state.Questions.Count > 0 ? "GATHERING_INFORMATION" : state.SafetyBlocked || state.Awaiting == "clinical-review" ? "WAITING_FOR_HUMAN_APPROVAL" : "COMPLETED",

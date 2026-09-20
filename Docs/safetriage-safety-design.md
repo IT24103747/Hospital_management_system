@@ -5,13 +5,11 @@ SafeTriage is a prototype clinical decision-support workflow. It is not clinical
 ## Workflow
 
 1. Authenticate the patient and obtain their profile only from the API.
-2. `TriageWorkflowCoordinator` creates a persisted, bounded seven-step plan.
-3. `IntakeValidationAgent` validates symptoms and optional patient-reported vitals through `ValidateVitalsTool`.
-4. `SafetyRedFlagAgent` applies versioned deterministic emergency, urgent, and serious/high-risk-context rules through `EvaluateRedFlagsTool` before any generative component.
-5. Only when no configured escalation or mandatory-review rule matches, `ClinicalInformationExtractionAgent` uses the read-only `GeminiStructuredExtractionTool` to produce schema-validated, non-diagnostic facts. Every fact used for policy must include an exact evidence span from the patient text.
-6. `StructuredSafetyAssessmentAgent` applies deterministic policy to the grounded facts, including normalized concepts, duration, activity, warning-sign negation, and risk context.
-7. `AdaptiveQuestionPlanningAgent` selects one question by its stable requirement identifier. Only Missing requirements are eligible; the backend filters all planner output to one eligible question.
-8. `CareRoutingAgent` proposes an allow-listed route and `SafetyValidationAgent` applies final deterministic validation.
+2. `TriageWorkflowCoordinator` creates a persisted, bounded four-stage plan.
+3. `IntakeAndInitialSafetyAgent` validates symptoms and optional patient-reported vitals, then applies versioned deterministic emergency, urgent, and high-risk-context rules before any generative component.
+4. Only when no configured escalation or mandatory-review rule matches, `ClinicalUnderstandingAgent` uses the read-only `GeminiStructuredExtractionTool` to produce schema-validated, non-diagnostic facts. Every fact used for policy must include an exact evidence span from the patient text.
+5. `SafetyRoutingAgent` applies deterministic policy to grounded facts, selects at most one eligible follow-up question, and proposes an allow-listed route.
+6. `GuidanceValidationAgent` applies final deterministic validation before any Gemini-generated patient-facing wording is returned.
 9. Persist the objective, structured facts, evidence, decision basis, plan, agent/tool trace, validation state, timing, retry count, safety outcome, and audit events.
 10. Pause a proposed emergency, urgent, or serious-context route for authorised Doctor review (Admin access is read-only); the patient is still instructed not to delay urgent or emergency care.
 11. Return a safe fallback when information is insufficient, conflicting, invalid, or outside scope.
@@ -23,7 +21,7 @@ SafeTriage is a prototype clinical decision-support workflow. It is not clinical
 ## Safety controls
 
 - The backend, not an LLM, enforces authorization, data validation, triage enums, emergency escalation, approval, and audit logging.
-- The coordinator has a hard seven-step cap per turn and a persisted follow-up question ceiling. The Gemini extraction tool has a timeout and at most one bounded retry; a failed tool call becomes a recorded fallback rather than an unhandled exception.
+- The coordinator has a hard four-stage cap per turn and a persisted follow-up question ceiling. The Gemini extraction tool has a timeout and at most one bounded retry; a failed tool call becomes a recorded fallback rather than an unhandled exception.
 - Every agent has a typed input/output contract and one declared tool permission. The local model has no database, routing, booking, prescription, or approval capability.
 - Rules are identified by `safetriage-rules-v3` and orchestration by `safetriage-workflow-v2`. A valid LLM response never establishes clinical safety. Unknown complaints remain explicitly limited-information and receive controlled clarification; serious conditions and high-risk contexts require clinical review.
 - Current serious-context rules include cancer/cancer treatment, pregnancy/postpartum, immunosuppression/transplant, and recent surgery. Cancer-treatment warning symptoms receive urgent routing, while independently matched emergency signs always take precedence.

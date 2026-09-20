@@ -30,7 +30,7 @@ public class TriageWorkflowServiceTests
         Assert.Equal(TriageApprovalStatuses.Pending, result.ApprovalStatus);
         Assert.True(result.RequiresHumanReview);
         Assert.NotEmpty(result.RedFlags);
-        Assert.Equal(4, await db.TriageWorkflowEvents.CountAsync());
+        Assert.Equal(3, await db.TriageWorkflowEvents.CountAsync());
     }
 
     [Theory]
@@ -114,7 +114,8 @@ public class TriageWorkflowServiceTests
     {
         await using var db = CreateDb();
         var extraction = new CountingExtractionAgent();
-        var service = new TriageWorkflowService(db, NullLogger<TriageWorkflowService>.Instance, extraction);
+        var testAgents = new TestSafeTriageAgents();
+        var service = new TriageWorkflowService(db, NullLogger<TriageWorkflowService>.Instance, extraction, testAgents, testAgents);
 
         var result = await service.StartForPatientAsync(1, new StartTriageWorkflowDto { Symptoms = "I have cancer." });
 
@@ -242,12 +243,12 @@ public class TriageWorkflowServiceTests
         var events = await service.GetAuditEventsAsync(workflow.WorkflowId);
 
         Assert.NotNull(events);
-        Assert.Equal(4, events.Count);
-        Assert.Equal("IntakeValidationAgent", events[0].Stage);
-        Assert.Equal("ValidateVitalsTool", events[0].Tool);
+        Assert.Equal(3, events.Count);
+        Assert.Equal("IntakeAndInitialSafetyAgent", events[0].Stage);
+        Assert.Equal("ValidateInputAndEvaluateRedFlagsTool", events[0].Tool);
         Assert.True(events[0].ValidationPassed);
-        Assert.Equal("SafetyRedFlagAgent", events[1].Stage);
-        Assert.Equal("EvaluateRedFlagsTool", events[1].Tool);
+        Assert.Equal("SafetyRoutingAgent", events[1].Stage);
+        Assert.Equal("EvaluateFactsPlanQuestionAndRouteTool", events[1].Tool);
         Assert.DoesNotContain(events, item => item.EventType.Contains("Severe chest pain", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -325,10 +326,10 @@ public class TriageWorkflowServiceTests
 
         Assert.NotNull(trace);
         Assert.Equal(
-            ["IntakeValidationAgent", "SafetyRedFlagAgent", "ClinicalInformationExtractionAgent", "StructuredSafetyAssessmentAgent", "AdaptiveQuestionPlanningAgent", "CareRoutingAgent", "SafetyValidationAgent"],
+            ["IntakeAndInitialSafetyAgent", "ClinicalUnderstandingAgent", "SafetyRoutingAgent", "GuidanceValidationAgent"],
             trace.Select(item => item.Stage));
         Assert.Equal(
-            ["ValidateVitalsTool", "EvaluateRedFlagsTool", "GeminiStructuredExtractionTool", "EvaluateGroundedClinicalFactsTool", "RankMissingInformationTool", "CreateEscalationProposalTool", "ValidateWorkflowOutcomeTool"],
+            ["ValidateInputAndEvaluateRedFlagsTool", "GeminiStructuredExtractionTool", "EvaluateFactsPlanQuestionAndRouteTool", "ValidateOutcomeBeforeGuidanceTool"],
             trace.Select(item => item.Tool));
         Assert.All(trace, item => Assert.True(item.ValidationPassed));
         Assert.Equal(trace.Select(item => item.Stage), result.Plan.Select(item => item.Agent));
@@ -340,19 +341,25 @@ public class TriageWorkflowServiceTests
     {
         await using var db = CreateDb();
         var extraction = new FailingExtractionAgent();
-        var service = new TriageWorkflowService(db, NullLogger<TriageWorkflowService>.Instance, extraction);
+        var testAgents = new TestSafeTriageAgents();
+        var service = new TriageWorkflowService(db, NullLogger<TriageWorkflowService>.Instance, extraction, testAgents, testAgents);
 
         var result = await service.StartForPatientAsync(1, new StartTriageWorkflowDto { Symptoms = "I have a mild cough." });
         var trace = await service.GetAuditEventsAsync(result.WorkflowId);
-        var extractionEvent = Assert.Single(trace!, item => item.Stage == "ClinicalInformationExtractionAgent");
+        var extractionEvent = Assert.Single(trace!, item => item.Stage == "ClinicalUnderstandingAgent");
 
         Assert.Equal(2, extraction.Calls);
         Assert.Equal("FailedSafely", extractionEvent.EventType);
         Assert.Equal("GeminiStructuredExtractionTool", extractionEvent.Tool);
         Assert.Equal(1, extractionEvent.RetryCount);
         Assert.Equal("ExtractionUnavailable", extractionEvent.ErrorCode);
-        Assert.True(result.RequiresHumanReview);
-        Assert.Equal(TriageLevels.ClinicalReview, result.TriageLevel);
+        Assert.False(result.RequiresHumanReview);
+        Assert.Equal(TriageWorkflowStatuses.Completed, result.Status);
+        Assert.Equal(TriageLevels.NonUrgent, result.TriageLevel);
+        Assert.NotNull(result.Guidance);
+        Assert.Contains("temporarily unavailable", result.Guidance!.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(result.Guidance.Actions);
+        Assert.NotEmpty(result.Guidance.SeekHelpIf);
     }
 
     [Fact]
@@ -591,6 +598,23 @@ public class TriageWorkflowServiceTests
         Assert.Equal("onset", Assert.Single(plan.Questions).Id);
     }
 
+    [Fact]
+    public async Task GeminiExtractionAcceptsDocumentedModelsPrefixWithoutDuplicatingIt()
+    {
+        var handler = new GeminiHandler(JsonSerializer.Serialize(new {
+            symptoms = new[] { "cough" }, concepts = new[] { "cough" },
+            missingInformation = Array.Empty<string>(), requirements = Array.Empty<object>()
+        }));
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://example.test/v1beta/") };
+        var settings = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+            ["Gemini:ApiKey"] = "test-key", ["Gemini:Model"] = "models/gemini-3.1-flash-lite"
+        }).Build();
+
+        var agent = new GeminiSafeTriageSemanticExtractionAgent(http, settings, NullLogger<GeminiSafeTriageSemanticExtractionAgent>.Instance);
+        Assert.Equal("Completed", (await agent.ExtractAsync("I have a cough", false)).Status);
+        Assert.Equal("/v1beta/models/gemini-3.1-flash-lite:generateContent", handler.LastRequestUri!.AbsolutePath);
+    }
+
     [Theory]
     [InlineData("It hasn't really changed.")]
     [InlineData("It is staying the same.")]
@@ -648,10 +672,14 @@ public class TriageWorkflowServiceTests
     private sealed class GeminiHandler(params string[] outputs) : HttpMessageHandler
     {
         private int index;
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new {
+        public Uri? LastRequestUri { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            LastRequestUri = request.RequestUri;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new {
                 candidates = new[] { new { content = new { parts = new[] { new { text = outputs[Math.Min(index++, outputs.Length - 1)] } } } } }
             })) });
+        }
     }
 
     private static async Task<TriageWorkflowDto> Answer(TriageWorkflowService service, TriageWorkflowDto current, string answer) =>
@@ -671,22 +699,22 @@ public class TriageWorkflowServiceTests
     private static TriageWorkflowService CreateService(ApplicationDbContext db) =>
         CreateService(db, new TestSafeTriageAgents());
 
-    private sealed class FailingExtractionAgent : IClinicalInformationExtractionAgent
+    private sealed class FailingExtractionAgent : ISafeTriageSemanticExtractionAgent
     {
         public int Calls { get; private set; }
 
-        public Task<ClinicalExtractionResult> ExtractAsync(string patientReportedSymptoms, bool includeFollowUpQuestions = true, CancellationToken cancellationToken = default)
+        public Task<ClinicalExtractionResult> ExtractAsync(string patientReportedSymptoms, bool isFollowUp, CancellationToken cancellationToken = default)
         {
             Calls++;
             return Task.FromResult(new ClinicalExtractionResult([], ["Structured symptom extraction is unavailable; clinical assessment is required."], null, "FailedSafely", "ExtractionUnavailable"));
         }
     }
 
-    private sealed class CountingExtractionAgent : IClinicalInformationExtractionAgent
+    private sealed class CountingExtractionAgent : ISafeTriageSemanticExtractionAgent
     {
         public int Calls { get; private set; }
 
-        public Task<ClinicalExtractionResult> ExtractAsync(string patientReportedSymptoms, bool includeFollowUpQuestions = true, CancellationToken cancellationToken = default)
+        public Task<ClinicalExtractionResult> ExtractAsync(string patientReportedSymptoms, bool isFollowUp, CancellationToken cancellationToken = default)
         {
             Calls++;
             return Task.FromResult(new ClinicalExtractionResult([patientReportedSymptoms], [], new PatientGuidance("Reported information.", [], [], []), "Completed"));

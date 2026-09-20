@@ -30,12 +30,6 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         _options = options ?? new SafeTriageOptions();
     }
 
-    // Retained only for existing isolated tests that explicitly provide the shared extractor.
-    public TriageWorkflowService(ApplicationDbContext db, ILogger<TriageWorkflowService> logger, IClinicalInformationExtractionAgent? extractionAgent = null)
-        : this(db, logger,
-            new LegacySafeTriageSemanticExtractionAgent(extractionAgent ?? new SafeFallbackClinicalInformationExtractionAgent()),
-            new LegacySafeTriageQuestionPlanningAgent(), new LegacySafeTriageResponseGenerationAgent()) { }
-
     private async Task<AgenticAI.PlanningCoordinator.PlanningWorkflowRecord?> LoadExecutionAsync(string workflowId, int patientId, bool resetForFollowUp = false)
     {
         var store = new AgenticAI.PlanningCoordinator.PlanningCoordinatorStore(_db);
@@ -159,6 +153,8 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
             workflow.RequiresHumanReview = false;
             guidance = await CreateGuidanceAsync(extraction, request.Symptoms, workflow.Status, workflow.TriageLevel, false, run.Context.PlannedQuestions);
+            if (guidance is null && extraction.Status == "FailedSafely" && run.Context.IsWithinValidatedRoutineScope)
+                guidance = CreateRoutineFallbackGuidance();
             var hasValidatedGuidance = guidance is not null;
             if (hasValidatedGuidance)
             {
@@ -195,16 +191,30 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
 
         if (workflow.Status == TriageWorkflowStatuses.PendingPatientInput && (guidance is null || guidance.FollowUpItems.Count == 0))
         {
-            if (redFlags.Count == 0 && urgentFlags.Count == 0 && clinicalReviewFlags.Count == 0 &&
-                SafeTriageRules.IsWithinValidatedRoutineScope(request.Symptoms))
+            if (redFlags.Count == 0 && urgentFlags.Count == 0 && clinicalReviewFlags.Count == 0)
             {
-                workflow.Status = TriageWorkflowStatuses.Completed;
-                workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
-                workflow.TriageLevel = TriageLevels.NonUrgent;
-                workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
-                workflow.RequiresHumanReview = false;
-                workflow.ErrorCode ??= "RoutineGuidanceUnavailable";
-                workflow.FinalOutcome = "No configured urgent or high-risk warning sign was detected. General guidance is temporarily unavailable; seek medical advice if symptoms become severe or worsen.";
+                if (SafeTriageRules.IsWithinValidatedRoutineScope(request.Symptoms) || run.Context.Extraction?.Symptoms.Count == 0)
+                {
+                    workflow.Status = TriageWorkflowStatuses.Completed;
+                    workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+                    workflow.TriageLevel = TriageLevels.NonUrgent;
+                    workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
+                    workflow.RequiresHumanReview = false;
+                    workflow.ErrorCode ??= "RoutineGuidanceUnavailable";
+                    workflow.FinalOutcome = run.Context.Extraction?.Symptoms.Count == 0
+                        ? "I couldn't identify any clinical symptoms in your message. Please describe your symptoms if you need medical triage, or ask another question."
+                        : "No configured urgent or high-risk warning sign was detected. General guidance is temporarily unavailable; seek medical advice if symptoms become severe or worsen.";
+                }
+                else
+                {
+                    workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
+                    workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
+                    workflow.TriageLevel = TriageLevels.ClinicalReview;
+                    workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
+                    workflow.RequiresHumanReview = true;
+                    workflow.ErrorCode ??= "QuestionOrResponseGenerationUnavailable";
+                    workflow.FinalOutcome = "The system could not safely generate the required follow-up guidance. A qualified clinician must review this assessment.";
+                }
             }
             else
             {
@@ -481,13 +491,10 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
 
     private static IReadOnlyList<TriagePlanStepDto> CreatePlan() =>
     [
-        new() { Agent = "IntakeValidationAgent", Status = "Planned", Purpose = "Validate patient-reported inputs and vital-sign integrity." },
-        new() { Agent = "SafetyRedFlagAgent", Status = "Planned", Purpose = "Apply versioned deterministic emergency rules." },
-        new() { Agent = "ClinicalInformationExtractionAgent", Status = "Planned", Purpose = "Structure patient-reported information without inventing facts." },
-        new() { Agent = "StructuredSafetyAssessmentAgent", Status = "Planned", Purpose = "Apply deterministic policy to grounded facts and their patient-text evidence." },
-        new() { Agent = "AdaptiveQuestionPlanningAgent", Status = "Planned", Purpose = "Select one eligible missing information requirement." },
-        new() { Agent = "CareRoutingAgent", Status = "Planned", Purpose = "Propose an approved care path; never book or prescribe." },
-        new() { Agent = "SafetyValidationAgent", Status = "Planned", Purpose = "Validate output and enforce escalation/approval rules." },
+        new() { Agent = "IntakeAndInitialSafetyAgent", Status = "Planned", Purpose = "Validate inputs and apply immediate deterministic emergency, urgent, and high-risk checks." },
+        new() { Agent = "ClinicalUnderstandingAgent", Status = "Planned", Purpose = "Use Gemini only to extract non-diagnostic facts from non-escalated patient text." },
+        new() { Agent = "SafetyRoutingAgent", Status = "Planned", Purpose = "Apply grounded deterministic safety policy, plan one follow-up question when safe, and select the controlled route." },
+        new() { Agent = "GuidanceValidationAgent", Status = "Planned", Purpose = "Validate the route before any patient-facing Gemini guidance is generated." },
     ];
 
     private static IReadOnlyList<TriagePlanStepDto> CreateCompletedPlan(string workflowStatus, IReadOnlyList<SafeTriageAgentExecution> trace) =>
@@ -540,6 +547,24 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         }
         return guidance;
     }
+
+    private static TriageGuidanceDto CreateRoutineFallbackGuidance() => new()
+    {
+        Heading = "General guidance while the symptom assistant is unavailable",
+        Summary = "No configured emergency, urgent, or high-risk warning sign was detected in the information you provided. The AI symptom analysis is temporarily unavailable, so this is general guidance only.",
+        Actions =
+        [
+            "Rest, stay hydrated, and monitor how your symptoms change.",
+            "Contact a healthcare professional if the symptom persists, worsens, or concerns you."
+        ],
+        SeekHelpIf =
+        [
+            "Seek urgent help for severe or rapidly worsening symptoms, trouble breathing, chest pain, fainting, confusion, or severe bleeding."
+        ],
+        FollowUpItems = [],
+        FollowUpQuestions = [],
+        EvidenceSource = "Deterministic safety screening only; AI-generated symptom analysis was unavailable. This is not a diagnosis."
+    };
 
     private static string ValidateAndFormatFreeTextAnswers(TriageWorkflow workflow, IReadOnlyList<TriageAnswerDto> answers, List<SafeTriageRequirement> requirements)
     {
@@ -622,6 +647,18 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
                 guidance.FollowUpItems = [next];
                 guidance.FollowUpQuestions = [next.Prompt];
                 context.FollowUpCount++;
+            }
+            else if (extractionFailed && context.IsWithinValidatedRoutineScope && guidance is not null)
+            {
+                // A model outage must not send every ordinary symptom report to the clinical-review queue.
+                // Deterministic red-flag and high-risk checks have already run before this branch.
+                workflow.Status = TriageWorkflowStatuses.Completed;
+                workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+                workflow.RequiresHumanReview = false;
+                workflow.TriageLevel = TriageLevels.NonUrgent;
+                workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
+                workflow.ErrorCode = context.Extraction?.ErrorCode ?? "ExtractionUnavailable";
+                workflow.FinalOutcome = "No configured urgent or high-risk warning sign was detected. The AI symptom analysis is temporarily unavailable, so general safety-net guidance is shown instead.";
             }
             else if (extractionFailed || context.Requirements.Any(r => r.State is SafeTriageRequirementState.Missing or SafeTriageRequirementState.Declined or SafeTriageRequirementState.Unknown))
             {

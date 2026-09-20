@@ -3,7 +3,6 @@ using HospitalManagementSystem.Api.AgenticAI.PatientCare.Shared;
 
 namespace HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 
-
 public interface IHospitalAppointmentProposalAgent
 {
     Task<HospitalAppointmentProposal> CreateAsync(AppointmentProposalRequest request, CancellationToken cancellationToken = default);
@@ -28,9 +27,19 @@ public sealed record HospitalAppointmentProposal(
     IReadOnlyList<string> SuggestedActions,
     int? ProposalId = null);
 
-public sealed class HospitalAppointmentProposalAgent(IAppointmentSearchTools tools, IAppointmentProposalStore store) : IHospitalAppointmentProposalAgent
+/// <summary>
+/// Proposes appointment options for a patient.
+/// When a <see cref="IGeminiAppointmentIntelligenceClient"/> is available, Gemini drives
+/// the tool-calling loop and ranks results intelligently.  If Gemini is unavailable or fails,
+/// the agent falls back to the original deterministic search-and-filter logic.
+/// </summary>
+public sealed class HospitalAppointmentProposalAgent(
+    IAppointmentSearchTools tools,
+    IAppointmentProposalStore store,
+    IGeminiAppointmentIntelligenceClient? gemini = null) : IHospitalAppointmentProposalAgent
 {
-    public async Task<HospitalAppointmentProposal> CreateAsync(AppointmentProposalRequest request, CancellationToken cancellationToken = default)
+    public async Task<HospitalAppointmentProposal> CreateAsync(
+        AppointmentProposalRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (request.PatientId <= 0) throw new ArgumentException("A valid patient is required.");
@@ -47,11 +56,55 @@ public sealed class HospitalAppointmentProposalAgent(IAppointmentSearchTools too
                 "The clinical safety result requires urgent care guidance instead of a normal appointment proposal.",
                 ["Seek the urgent care guidance shown above.", "Do not wait for a normal appointment."]);
 
+        // ── Gemini-powered path ──────────────────────────────────────────────────
+        if (gemini != null)
+        {
+            var suggestion = await gemini.SuggestAsync(request, tools, cancellationToken);
+            if (suggestion != null)
+                return await BuildFromGeminiSuggestionAsync(request, suggestion, cancellationToken);
+        }
+
+        // ── Deterministic fallback ───────────────────────────────────────────────
+        return await DeterministicCreateAsync(request, cancellationToken);
+    }
+
+    private async Task<HospitalAppointmentProposal> BuildFromGeminiSuggestionAsync(
+        AppointmentProposalRequest request, GeminiAppointmentSuggestion suggestion,
+        CancellationToken cancellationToken)
+    {
+        var trace = new List<AgentToolExecution>
+        {
+            new("GeminiAppointmentIntelligenceTool",
+                suggestion.Slots.Count == 0 ? "NoMatches" : "Completed",
+                suggestion.Slots.Count > 0,
+                "Gemini reasoned over live hospital data using find_doctors and find_slots tools.")
+        };
+
+        if (suggestion.Slots.Count == 0)
+            return new("NoOptions", request.PatientId, suggestion.Doctors, [], trace,
+                suggestion.Message, suggestion.SuggestedActions);
+
+        var proposalId = await store.CreateAsync(
+            request.PatientId,
+            request.ClinicalAssessment?.TriageLevel ?? "NotAssessed",
+            suggestion.Slots,
+            cancellationToken);
+
+        return new("PendingPatientConfirmation", request.PatientId,
+            suggestion.Doctors, suggestion.Slots, trace,
+            suggestion.Message, suggestion.SuggestedActions, proposalId);
+    }
+
+    private async Task<HospitalAppointmentProposal> DeterministicCreateAsync(
+        AppointmentProposalRequest request, CancellationToken cancellationToken = default)
+    {
         var trace = new List<AgentToolExecution>();
         var doctors = await tools.FindDoctorsAsync(request.Specialty.Trim());
-        trace.Add(new("FindEligibleDoctorsTool", doctors.Count == 0 ? "NoMatches" : "Completed", doctors.Count > 0, "Approved doctors were retrieved from the hospital service."));
+        trace.Add(new("FindEligibleDoctorsTool", doctors.Count == 0 ? "NoMatches" : "Completed",
+            doctors.Count > 0, "Approved doctors were retrieved from the hospital service."));
         if (doctors.Count == 0)
-            return new("NoOptions", request.PatientId, [], [], trace, "No approved doctors matched the requested specialty.",
+            return new("NoOptions", request.PatientId, [], [], trace,
+                "No approved doctors matched the requested specialty.",
                 ["Choose another specialty.", "Contact the hospital directly if you need help choosing a service."]);
 
         var slots = new List<AgentSlot>();
@@ -68,24 +121,41 @@ public sealed class HospitalAppointmentProposalAgent(IAppointmentSearchTools too
             }
             else slots.AddRange(await tools.FindSlotsAsync(doctor, request.PreferredDate));
         }
+
         var verified = slots.Where(slot =>
-                (!request.ThroughDate.HasValue || (DateOnly.FromDateTime(slot.StartAt.DateTime) >= request.PreferredDate && DateOnly.FromDateTime(slot.StartAt.DateTime) <= request.ThroughDate)) &&
+                (!request.ThroughDate.HasValue ||
+                    (DateOnly.FromDateTime(slot.StartAt.DateTime) >= request.PreferredDate &&
+                     DateOnly.FromDateTime(slot.StartAt.DateTime) <= request.ThroughDate)) &&
                 !(request.ExcludedDoctorTimeSlotIds?.Contains(slot.DoctorTimeSlotId) ?? false) &&
                 (request.Period == null || request.Period switch {
-                    "morning" => slot.StartAt.Hour < 12,
+                    "morning"   => slot.StartAt.Hour < 12,
                     "afternoon" => slot.StartAt.Hour >= 12 && slot.StartAt.Hour < 17,
-                    "evening" => slot.StartAt.Hour >= 17,
-                    _ => false
+                    "evening"   => slot.StartAt.Hour >= 17,
+                    _           => false
                 }))
-            .DistinctBy(slot => slot.DoctorTimeSlotId).OrderBy(slot => slot.StartAt).Take(5).ToArray();
-        trace.Add(new("FindAvailableSlotsTool", verified.Length == 0 ? "NoMatches" : "Completed", verified.Length > 0, "Only current, available hospital slots were returned."));
-        // Appointment actions require the patient's explicit confirmation. Clinical
-        // review belongs to SafeTriage and is never an extra appointment approval.
-        var proposalId = verified.Length == 0 ? (int?)null : await store.CreateAsync(request.PatientId, request.ClinicalAssessment?.TriageLevel ?? "NotAssessed", verified, cancellationToken);
-        return new(verified.Length == 0 ? "NoOptions" : "PendingPatientConfirmation", request.PatientId, doctors.Take(5).ToArray(), verified,
-            trace, verified.Length == 0 ? "No available future appointments matched your preferences." : "Select one verified option and explicitly confirm it before any booking is created.",
+            .DistinctBy(slot => slot.DoctorTimeSlotId)
+            .OrderBy(slot => slot.StartAt)
+            .Take(5).ToArray();
+
+        trace.Add(new("FindAvailableSlotsTool", verified.Length == 0 ? "NoMatches" : "Completed",
+            verified.Length > 0, "Only current, available hospital slots were returned."));
+
+        var proposalId = verified.Length == 0
+            ? (int?)null
+            : await store.CreateAsync(
+                request.PatientId,
+                request.ClinicalAssessment?.TriageLevel ?? "NotAssessed",
+                verified, cancellationToken);
+
+        return new(
+            verified.Length == 0 ? "NoOptions" : "PendingPatientConfirmation",
+            request.PatientId, doctors.Take(5).ToArray(), verified, trace,
+            verified.Length == 0
+                ? "No available future appointments matched your preferences."
+                : "Select one verified option and explicitly confirm it before any booking is created.",
             verified.Length == 0
                 ? ["Try another date.", "Choose another specialty.", "Check again later."]
-                : ["Select one appointment option.", "Confirm your selection before booking."], proposalId);
+                : ["Select one appointment option.", "Confirm your selection before booking."],
+            proposalId);
     }
 }
