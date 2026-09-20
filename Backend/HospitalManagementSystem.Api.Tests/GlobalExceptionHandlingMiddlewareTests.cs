@@ -5,11 +5,34 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using Npgsql;
 
 namespace HospitalManagementSystem.Api.Tests;
 
 public class GlobalExceptionHandlingMiddlewareTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InvokeAsync_WhenDatabaseConnectionTimesOut_ReturnsServiceUnavailable(bool wrapped)
+    {
+        var context = CreateHttpContext("/api/appointment");
+        Exception failure = new NpgsqlException("Connection failed.", new TimeoutException("Connection timed out."));
+        if (wrapped)
+            failure = new InvalidOperationException("A transient failure occurred.", failure);
+        var middleware = new GlobalExceptionHandlingMiddleware(
+            _ => throw failure,
+            NullLogger<GlobalExceptionHandlingMiddleware>.Instance,
+            new TestHostEnvironment { EnvironmentName = Environments.Production });
+
+        await middleware.InvokeAsync(context);
+
+        using var json = JsonDocument.Parse(await ReadResponseBodyAsync(context));
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
+        Assert.Equal("Database temporarily unavailable. Please try again shortly.", json.RootElement.GetProperty("title").GetString());
+        Assert.DoesNotContain("Connection failed", json.RootElement.GetProperty("detail").GetString());
+    }
+
     [Fact]
     public async Task InvokeAsync_WhenUnhandledInvalidOperationException_ReturnsConflictProblemDetails()
     {

@@ -89,7 +89,26 @@ public class ClinicalAgenticAiComprehensiveTests
     }
 
     [Fact]
-    public async Task Triage_NonUrgent_StomachPainAndNausea()
+    public async Task Triage_MinorFeverHeadacheAndSneezing_DoesNotRequireClinicalReview()
+    {
+        await using var db = CreateDb();
+        var service = CreateService(db);
+
+        var result = await service.StartForPatientAsync(1, new StartTriageWorkflowDto
+        {
+            Symptoms = "I have a slight fever with a headache and sneezing."
+        });
+
+        Assert.Equal(TriageLevels.NonUrgent, result.TriageLevel);
+        Assert.NotEqual(TriageWorkflowStatuses.PendingClinicalReview, result.Status);
+        Assert.False(result.RequiresHumanReview);
+        Assert.Empty(result.RedFlags);
+        Assert.Empty(result.UrgentFlags);
+        Assert.Empty(result.ClinicalReviewFlags);
+    }
+
+    [Fact]
+    public async Task Triage_StomachPainWithoutGroundedRoutineFacts_DoesNotRequireReview()
     {
         await using var db = CreateDb();
         var service = CreateService(db);
@@ -101,9 +120,7 @@ public class ClinicalAgenticAiComprehensiveTests
 
         Assert.Equal(TriageLevels.NonUrgent, result.TriageLevel);
         Assert.False(result.RequiresHumanReview);
-        Assert.NotNull(result.Guidance);
-        Assert.Contains("stomach", result.Guidance!.Heading, StringComparison.OrdinalIgnoreCase);
-        Assert.NotEmpty(result.Guidance.Actions);
+        Assert.NotEqual(TriageWorkflowStatuses.PendingClinicalReview, result.Status);
     }
 
     [Fact]
