@@ -27,24 +27,6 @@ public interface ISafeTriageResponseGenerationAgent
 public sealed record SafeTriageQuestionPlan(IReadOnlyList<TriageFollowUpQuestionDto> Questions, string Status, string? ErrorCode = null);
 public sealed record SafeTriageResponseContext(string PatientText, ClinicalExtractionResult Extraction, string WorkflowStatus, string TriageLevel, bool RequiresClinicalReview);
 
-/// <summary>Compatibility adapter for isolated unit tests that supply the legacy shared extractor explicitly.</summary>
-internal sealed class LegacySafeTriageSemanticExtractionAgent(IClinicalInformationExtractionAgent extractor) : ISafeTriageSemanticExtractionAgent
-{
-    public Task<ClinicalExtractionResult> ExtractAsync(string patientText, bool isFollowUp, CancellationToken cancellationToken = default) => extractor.ExtractAsync(patientText, !isFollowUp, cancellationToken);
-}
-
-internal sealed class LegacySafeTriageQuestionPlanningAgent : ISafeTriageQuestionPlanningAgent
-{
-    public Task<SafeTriageQuestionPlan> PlanAsync(ClinicalExtractionResult extraction, IReadOnlyList<string> alreadyAsked, CancellationToken cancellationToken = default) =>
-        Task.FromResult(new SafeTriageQuestionPlan([], "Completed"));
-}
-
-internal sealed class LegacySafeTriageResponseGenerationAgent : ISafeTriageResponseGenerationAgent
-{
-    public Task<PatientGuidance?> GenerateAsync(SafeTriageResponseContext context, CancellationToken cancellationToken = default) =>
-        Task.FromResult(context.Extraction.Guidance);
-}
-
 public sealed class GeminiSafeTriageSemanticExtractionAgent(HttpClient http, IConfiguration configuration, ILogger<GeminiSafeTriageSemanticExtractionAgent> logger) : ISafeTriageSemanticExtractionAgent
 {
     private const string Prompt = """
@@ -69,14 +51,15 @@ Each requirement represents ONE field. Keep onset and progression separate even 
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue<int?>("Gemini:TimeoutSeconds") ?? 45, 10, 90)));
-            if (string.IsNullOrWhiteSpace(configuration["Gemini:ApiKey"])) throw new InvalidOperationException("Gemini:ApiKey is not configured.");
-            var response = await http.PostAsJsonAsync($"models/{Uri.EscapeDataString(configuration["Gemini:Model"] ?? "gemini-2.5-flash")}:generateContent", new
+            if (string.IsNullOrWhiteSpace(configuration["Gemini:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY"))) throw new InvalidOperationException("Gemini:ApiKey is not configured.");
+            var model = GeminiRequest.Model(configuration);
+            var response = await http.PostAsJsonAsync(GeminiRequest.GenerateContentPath(model), new
             {
                 systemInstruction = new { parts = new[] { new { text = Prompt } } },
                 contents = new[] { new { role = "user", parts = new[] { new { text = JsonSerializer.Serialize(new { patientText, requirements }) } } } },
                 generationConfig = new { temperature = 0, maxOutputTokens = 2400, responseMimeType = "application/json" }
             }, timeout.Token);
-            response.EnsureSuccessStatusCode();
+            await GeminiRequest.EnsureSuccessAsync(response, model, timeout.Token);
             using var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
             var json = GeminiJson.ReadText(root.RootElement);
             using var result = JsonDocument.Parse(json);
@@ -103,10 +86,11 @@ Ask only for that ONE field; never combine onset with progression or another req
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue<int?>("Gemini:TimeoutSeconds") ?? 45, 10, 90)));
-            if (string.IsNullOrWhiteSpace(configuration["Gemini:ApiKey"])) throw new InvalidOperationException("Gemini:ApiKey is not configured.");
+            if (string.IsNullOrWhiteSpace(configuration["Gemini:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY"))) throw new InvalidOperationException("Gemini:ApiKey is not configured.");
             var input = JsonSerializer.Serialize(new { extraction.Symptoms, extraction.Concepts, extraction.MissingInformation, extraction.Facts, extraction.Requirements, alreadyAsked });
-            var response = await http.PostAsJsonAsync($"models/{Uri.EscapeDataString(configuration["Gemini:Model"] ?? "gemini-2.5-flash")}:generateContent", new { systemInstruction = new { parts = new[] { new { text = Prompt } } }, contents = new[] { new { role = "user", parts = new[] { new { text = input } } } }, generationConfig = new { temperature = 0, maxOutputTokens = 360, responseMimeType = "application/json" } }, timeout.Token);
-            response.EnsureSuccessStatusCode();
+            var model = GeminiRequest.Model(configuration);
+            var response = await http.PostAsJsonAsync(GeminiRequest.GenerateContentPath(model), new { systemInstruction = new { parts = new[] { new { text = Prompt } } }, contents = new[] { new { role = "user", parts = new[] { new { text = input } } } }, generationConfig = new { temperature = 0, maxOutputTokens = 360, responseMimeType = "application/json" } }, timeout.Token);
+            await GeminiRequest.EnsureSuccessAsync(response, model, timeout.Token);
             using var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
             using var result = JsonDocument.Parse(GeminiJson.ReadText(root.RootElement));
             var questions = GeminiJson.ReadQuestions(result.RootElement, alreadyAsked);
@@ -132,9 +116,10 @@ You write patient-facing SafeTriage wording from supplied validated context. Do 
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue<int?>("Gemini:TimeoutSeconds") ?? 45, 10, 90)));
-            if (string.IsNullOrWhiteSpace(configuration["Gemini:ApiKey"])) throw new InvalidOperationException("Gemini:ApiKey is not configured.");
-            var response = await http.PostAsJsonAsync($"models/{Uri.EscapeDataString(configuration["Gemini:Model"] ?? "gemini-2.5-flash")}:generateContent", new { systemInstruction = new { parts = new[] { new { text = Prompt } } }, contents = new[] { new { role = "user", parts = new[] { new { text = JsonSerializer.Serialize(context) } } } }, generationConfig = new { temperature = 0, maxOutputTokens = 360, responseMimeType = "application/json" } }, timeout.Token);
-            response.EnsureSuccessStatusCode();
+            if (string.IsNullOrWhiteSpace(configuration["Gemini:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY"))) throw new InvalidOperationException("Gemini:ApiKey is not configured.");
+            var model = GeminiRequest.Model(configuration);
+            var response = await http.PostAsJsonAsync(GeminiRequest.GenerateContentPath(model), new { systemInstruction = new { parts = new[] { new { text = Prompt } } }, contents = new[] { new { role = "user", parts = new[] { new { text = JsonSerializer.Serialize(context) } } } }, generationConfig = new { temperature = 0, maxOutputTokens = 360, responseMimeType = "application/json" } }, timeout.Token);
+            await GeminiRequest.EnsureSuccessAsync(response, model, timeout.Token);
             using var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
             using var result = JsonDocument.Parse(GeminiJson.ReadText(root.RootElement));
             return GeminiJson.ReadGuidance(result.RootElement);
@@ -144,12 +129,40 @@ You write patient-facing SafeTriage wording from supplied validated context. Do 
     }
 }
 
+internal static class GeminiRequest
+{
+    private const string DefaultModel = "gemini-3.1-flash-lite";
+
+    public static string Model(IConfiguration configuration)
+    {
+        var configured = configuration["Gemini:Model"]?.Trim();
+        var model = string.IsNullOrWhiteSpace(configured) ? DefaultModel : configured;
+        if (model.StartsWith("models/", StringComparison.OrdinalIgnoreCase)) model = model["models/".Length..];
+        if (model.Contains('/') || model.Contains(':') || model.Any(char.IsWhiteSpace))
+            throw new InvalidOperationException("Gemini:Model must be a model ID such as 'gemini-3.1-flash-lite'.");
+        return model;
+    }
+
+    public static string GenerateContentPath(string model) => $"models/{Uri.EscapeDataString(model)}:generateContent";
+
+    public static async Task EnsureSuccessAsync(HttpResponseMessage response, string model, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var details = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (details.Length > 1_000) details = details[..1_000];
+        throw new HttpRequestException(
+            $"Gemini generateContent failed for model '{model}' with HTTP {(int)response.StatusCode} ({response.ReasonPhrase}). Response: {details}",
+            null,
+            response.StatusCode);
+    }
+}
+
 internal static class GeminiJson
 {
     public static string ReadText(JsonElement root) => root.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString() ?? throw new InvalidOperationException("Gemini returned no text.");
     public static ClinicalExtractionResult ReadExtraction(JsonElement root, string patientText)
     {
-        var symptoms = Strings(root, "symptoms", 12); if (symptoms.Count == 0) throw new InvalidOperationException("No symptoms in semantic output.");
+        var symptoms = Strings(root, "symptoms", 12);
         var facts = root.TryGetProperty("facts", out var f) && f.ValueKind == JsonValueKind.Object ? Facts(f, patientText) : null;
         var requirements = new List<SafeTriageRequirement>();
         if (!root.TryGetProperty("requirements", out var states) || states.ValueKind != JsonValueKind.Array)

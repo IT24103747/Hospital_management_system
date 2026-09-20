@@ -45,10 +45,8 @@ public sealed partial class PlanningCoordinatorAgent
             var item = new ExecutionPlanStep { StepType = step, Input = "Validated patient objective and persisted workflow context",
                 AssignedAgent = step switch {
                     "SafetyCheck" or "SymptomExtraction" or "TriageAssessment" => "Clinical SafeTriage",
-                    PlanningWorkflowSteps.IntakeValidationAgent or PlanningWorkflowSteps.SafetyRedFlagAgent or
-                    PlanningWorkflowSteps.ClinicalInformationExtractionAgent or PlanningWorkflowSteps.StructuredSafetyAssessmentAgent or
-                    PlanningWorkflowSteps.AdaptiveQuestionPlanningAgent or PlanningWorkflowSteps.CareRoutingAgent or
-                    PlanningWorkflowSteps.SafetyValidationAgent => step,
+                    PlanningWorkflowSteps.IntakeAndInitialSafetyAgent or PlanningWorkflowSteps.ClinicalUnderstandingAgent or
+                    PlanningWorkflowSteps.SafetyRoutingAgent or PlanningWorkflowSteps.GuidanceValidationAgent => step,
                     "DoctorLookup" or "SlotSearch" or "AppointmentProposal" => "Appointment Proposal",
                     "PatientConfirmation" => "Safety Validation & Approval", _ => "Planning & Coordination" } };
             if (record.Steps.LastOrDefault() is { } prior) item.Dependencies.Add(prior.StepId);

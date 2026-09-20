@@ -20,13 +20,10 @@ public enum PlanningWorkflowType
 /// </summary>
 public static class PlanningWorkflowSteps
 {
-    public const string IntakeValidationAgent = "IntakeValidationAgent";
-    public const string SafetyRedFlagAgent = "SafetyRedFlagAgent";
-    public const string ClinicalInformationExtractionAgent = "ClinicalInformationExtractionAgent";
-    public const string StructuredSafetyAssessmentAgent = "StructuredSafetyAssessmentAgent";
-    public const string AdaptiveQuestionPlanningAgent = "AdaptiveQuestionPlanningAgent";
-    public const string CareRoutingAgent = "CareRoutingAgent";
-    public const string SafetyValidationAgent = "SafetyValidationAgent";
+    public const string IntakeAndInitialSafetyAgent = "IntakeAndInitialSafetyAgent";
+    public const string ClinicalUnderstandingAgent = "ClinicalUnderstandingAgent";
+    public const string SafetyRoutingAgent = "SafetyRoutingAgent";
+    public const string GuidanceValidationAgent = "GuidanceValidationAgent";
     public const string SafetyCheck = "SafetyCheck";
     public const string SymptomExtraction = "SymptomExtraction";
     public const string TriageAssessment = "TriageAssessment";
@@ -80,14 +77,12 @@ public static class PlanningWorkflowSteps
         AppointmentLookup,
         StatusNotification,
         SafeControlledResponse
-        , IntakeValidationAgent, SafetyRedFlagAgent, ClinicalInformationExtractionAgent,
-        StructuredSafetyAssessmentAgent, AdaptiveQuestionPlanningAgent, CareRoutingAgent,
-        SafetyValidationAgent
+        , IntakeAndInitialSafetyAgent, ClinicalUnderstandingAgent, SafetyRoutingAgent,
+        GuidanceValidationAgent
     ];
 
     public static bool IsSafeTriageAgent(string name) => name is
-        IntakeValidationAgent or SafetyRedFlagAgent or ClinicalInformationExtractionAgent or
-        StructuredSafetyAssessmentAgent or AdaptiveQuestionPlanningAgent or CareRoutingAgent or SafetyValidationAgent;
+        IntakeAndInitialSafetyAgent or ClinicalUnderstandingAgent or SafetyRoutingAgent or GuidanceValidationAgent;
 }
 
 /// <summary>
@@ -198,7 +193,7 @@ public sealed class PlanningAgentOptions
 {
     public const string SectionName = "PlanningAgent";
     public string GeminiApiKey { get; set; } = string.Empty;
-    public string Model { get; set; } = "gemini-1.5-flash";
+    public string Model { get; set; } = "gemini-3.1-flash-lite";
     public int TimeoutSeconds { get; set; } = 45;
 }
 

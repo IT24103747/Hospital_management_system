@@ -13,7 +13,6 @@ using System.Text;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.ClinicalSafety;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.SafetyApproval;
-using HospitalManagementSystem.Api.AgenticAI.PatientCare.Shared;
 using HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator;
 using HospitalManagementSystem.Api.AgenticAI.SafeTriage;
 
@@ -116,12 +115,19 @@ builder.Services.AddHttpClient<HospitalManagementSystem.Api.AgenticAI.HospitalAs
 {
     client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
 });
-// Legacy ClinicalSafetyTriageAgent is no longer a runtime clinical path.
-builder.Services.AddScoped<IPatientCareAssessmentStore, PatientCareAssessmentStore>();
 // Reusable controlled tools for the Member 3 proposal and Member 4 confirmation agents.
 builder.Services.AddScoped<IAppointmentAgentTools, AppointmentAgentTools>();
 builder.Services.AddScoped<IAppointmentSearchTools>(sp => sp.GetRequiredService<IAppointmentAgentTools>());
-builder.Services.AddScoped<IHospitalAppointmentProposalAgent, HospitalAppointmentProposalAgent>();
+builder.Services.AddScoped<IHospitalAppointmentProposalAgent>(sp => new HospitalAppointmentProposalAgent(
+    sp.GetRequiredService<IAppointmentSearchTools>(),
+    sp.GetRequiredService<IAppointmentProposalStore>(),
+    sp.GetService<IGeminiAppointmentIntelligenceClient>()));
+builder.Services.AddHttpClient<IGeminiAppointmentIntelligenceClient, GeminiAppointmentIntelligenceClient>((provider, client) =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
+    if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
+});
 builder.Services.AddScoped<IAppointmentProposalStore, AppointmentProposalStore>();
 builder.Services.AddScoped<ISafetyApprovalTools, SafetyApprovalTools>();
 builder.Services.AddScoped<ISafetyValidationApprovalAgent, SafetyValidationApprovalAgent>();
@@ -132,32 +138,26 @@ builder.Services.AddScoped<IPlanningCoordinatorAgent>(sp => new PlanningCoordina
 builder.Services.AddHttpClient<IPlanningModelClient, GeminiPlanningModelClient>((provider, client) =>
 {
     client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
-    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
-    if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
-});
-builder.Services.AddHttpClient<IClinicalInformationExtractionAgent, GeminiClinicalInformationExtractionAgent>((provider, client) =>
-{
-    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
-    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
     if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
 });
 // SafeTriage owns separate Gemini stages so the shared PatientCare extractor remains behaviorally unchanged.
 builder.Services.AddHttpClient<ISafeTriageSemanticExtractionAgent, GeminiSafeTriageSemanticExtractionAgent>((provider, client) =>
 {
     client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
-    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
     if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
 });
 builder.Services.AddHttpClient<ISafeTriageQuestionPlanningAgent, GeminiSafeTriageQuestionPlanningAgent>((provider, client) =>
 {
     client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
-    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
     if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
 });
 builder.Services.AddHttpClient<ISafeTriageResponseGenerationAgent, GeminiSafeTriageResponseGenerationAgent>((provider, client) =>
 {
     client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
-    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
     if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
 });
 builder.Services.AddHttpClient<HospitalManagementSystem.Api.AgenticAI.MedicalReports.IMedicalRecordIntelligenceAgent, HospitalManagementSystem.Api.AgenticAI.MedicalReports.GeminiMedicalRecordClient>((provider, client) =>

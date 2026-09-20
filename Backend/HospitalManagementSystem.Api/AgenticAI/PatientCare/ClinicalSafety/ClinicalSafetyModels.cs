@@ -3,7 +3,6 @@ using HospitalManagementSystem.Api.Services;
 
 namespace HospitalManagementSystem.Api.AgenticAI.PatientCare.ClinicalSafety;
 
-public sealed record ClinicalSafetyTriageRequest(string Symptoms, TriageVitalsDto? Vitals = null, bool IsFollowUp = false);
 public sealed record ClinicalSafetyAssessment(string TriageLevel, string ProposedRoute, bool RequiresClinicalReview, bool FailedSafely,
     IReadOnlyList<string> ValidationProblems, IReadOnlyList<string> EmergencyFlags, IReadOnlyList<string> UrgentFlags,
     IReadOnlyList<string> ClinicalReviewFlags, ClinicalExtractionResult? ExtractedFacts, IReadOnlyList<string> MissingInformation,

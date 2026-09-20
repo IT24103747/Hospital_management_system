@@ -6,23 +6,20 @@ This evaluation follows the Lab 07 principle that an agentic system must be asse
 
 ## What is evaluated
 
-The assessed SafeTriage workflow is a bounded C# coordinator with seven specialist agents:
+The assessed SafeTriage workflow is a bounded C# coordinator with four specialist agents:
 
-1. `IntakeValidationAgent` → `ValidateVitalsTool`
-2. `SafetyRedFlagAgent` → `EvaluateRedFlagsTool`
-3. `ClinicalInformationExtractionAgent` → `GeminiStructuredExtractionTool`
-4. `StructuredSafetyAssessmentAgent` → `EvaluateGroundedClinicalFactsTool`
-5. `AdaptiveQuestionPlanningAgent` → `RankMissingInformationTool`
-6. `CareRoutingAgent` → `CreateEscalationProposalTool`
-7. `SafetyValidationAgent` → `ValidateWorkflowOutcomeTool`
+1. `IntakeAndInitialSafetyAgent` → `ValidateInputAndEvaluateRedFlagsTool`
+2. `ClinicalUnderstandingAgent` → `GeminiStructuredExtractionTool`
+3. `SafetyRoutingAgent` → `EvaluateFactsPlanQuestionAndRouteTool`
+4. `GuidanceValidationAgent` → `ValidateOutcomeBeforeGuidanceTool`
 
-The coordinator permits at most seven workflow steps. The Gemini extraction tool is allowed at most two attempts. Explicit emergency/urgent deterministic safety results take the fast path and skip extraction and question planning. Otherwise the LLM must return structured facts with exact patient-text evidence; deterministic policy evaluates those facts before routing.
+The coordinator permits at most four workflow steps. The Gemini extraction tool is allowed at most two attempts. Explicit emergency/urgent deterministic safety results take the fast path and skip extraction. Otherwise the LLM must return structured facts with exact patient-text evidence; deterministic policy evaluates those facts before routing and before Gemini writes patient-facing guidance.
 
 ## Golden cases
 
 | Case | Outcome assertions | Trajectory assertions |
 |---|---|---|
-| Valid non-red-flag input | non-diagnostic guidance only; no diagnosis | all seven agents run in order; each expected tool is recorded |
+| Valid non-red-flag input | non-diagnostic guidance only; no diagnosis | all four agents run in order; each expected tool is recorded |
 | Emergency phrase | emergency level; clinical approval pending | extraction is `NotRun`; red-flag, routing, and validation stages are recorded |
 | Urgent phrase | urgent level; clinical approval pending | extraction is `NotRun`; urgent safety result is recorded |
 | Serious condition without current warning symptoms | clinical-review level; never routine/self-care | extraction is `NotRun`; deterministic review flag is recorded |

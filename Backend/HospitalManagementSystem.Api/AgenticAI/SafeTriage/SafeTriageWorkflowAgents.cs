@@ -326,21 +326,83 @@ public sealed class SafetyValidationAgent : ISafeTriageAgent
     }
 }
 
+/// <summary>Four-stage runtime wrapper for validation and immediate deterministic safety screening.</summary>
+public sealed class IntakeAndInitialSafetyAgent : ISafeTriageAgent
+{
+    private readonly IntakeValidationAgent intake = new();
+    private readonly SafetyRedFlagAgent redFlags = new();
+    public string Name => nameof(IntakeAndInitialSafetyAgent);
+    public string ToolName => "ValidateInputAndEvaluateRedFlagsTool";
+
+    public async Task<SafeTriageAgentExecution> ExecuteAsync(SafeTriageAgentContext context, CancellationToken cancellationToken = default)
+    {
+        var validation = await intake.ExecuteAsync(context, cancellationToken);
+        if (context.FailedSafely) return validation with { Agent = Name, Tool = ToolName };
+        var safety = await redFlags.ExecuteAsync(context, cancellationToken);
+        return safety with { Agent = Name, Tool = ToolName, Outcome = $"{validation.Outcome} {safety.Outcome}", DurationMs = validation.DurationMs + safety.DurationMs };
+    }
+}
+
+/// <summary>Four-stage runtime wrapper for Gemini fact extraction.</summary>
+public sealed class ClinicalUnderstandingAgent(ISafeTriageSemanticExtractionAgent extractionTool) : ISafeTriageAgent
+{
+    private readonly ClinicalInformationExtractionWorkflowAgent extraction = new(extractionTool);
+    public string Name => nameof(ClinicalUnderstandingAgent);
+    public string ToolName => "GeminiStructuredExtractionTool";
+    public async Task<SafeTriageAgentExecution> ExecuteAsync(SafeTriageAgentContext context, CancellationToken cancellationToken = default) =>
+        (await extraction.ExecuteAsync(context, cancellationToken)) with { Agent = Name, Tool = ToolName };
+}
+
+/// <summary>Four-stage runtime wrapper for grounded safety assessment, one follow-up question, and routing.</summary>
+public sealed class SafetyRoutingAgent(ISafeTriageQuestionPlanningAgent planner) : ISafeTriageAgent
+{
+    private readonly StructuredSafetyAssessmentAgent structuredSafety = new();
+    private readonly AdaptiveQuestionPlanningAgent questionPlanning = new(planner);
+    private readonly CareRoutingAgent routing = new();
+    public string Name => nameof(SafetyRoutingAgent);
+    public string ToolName => "EvaluateFactsPlanQuestionAndRouteTool";
+
+    public async Task<SafeTriageAgentExecution> ExecuteAsync(SafeTriageAgentContext context, CancellationToken cancellationToken = default)
+    {
+        var assessment = await structuredSafety.ExecuteAsync(context, cancellationToken);
+        SafeTriageAgentExecution? questions = null;
+        if (!context.RequiresClinicalApproval) questions = await questionPlanning.ExecuteAsync(context, cancellationToken);
+        var route = await routing.ExecuteAsync(context, cancellationToken);
+        return route with
+        {
+            Agent = Name,
+            Tool = ToolName,
+            ValidationPassed = assessment.ValidationPassed && (questions?.ValidationPassed ?? true) && route.ValidationPassed,
+            Outcome = questions is null ? $"{assessment.Outcome} {route.Outcome}" : $"{assessment.Outcome} {questions.Outcome} {route.Outcome}",
+            DurationMs = assessment.DurationMs + (questions?.DurationMs ?? 0) + route.DurationMs,
+            RetryCount = Math.Max(assessment.RetryCount, Math.Max(questions?.RetryCount ?? 0, route.RetryCount)),
+            ErrorCode = assessment.ErrorCode ?? questions?.ErrorCode ?? route.ErrorCode
+        };
+    }
+}
+
+/// <summary>Final deterministic validation. Patient-facing wording is generated only after this stage accepts the route.</summary>
+public sealed class GuidanceValidationAgent : ISafeTriageAgent
+{
+    private readonly SafetyValidationAgent validation = new();
+    public string Name => nameof(GuidanceValidationAgent);
+    public string ToolName => "ValidateOutcomeBeforeGuidanceTool";
+    public async Task<SafeTriageAgentExecution> ExecuteAsync(SafeTriageAgentContext context, CancellationToken cancellationToken = default) =>
+        (await validation.ExecuteAsync(context, cancellationToken)) with { Agent = Name, Tool = ToolName };
+}
+
 public sealed class SafeTriageWorkflowCoordinator
 {
-    private const int MaxSteps = 7;
-    private readonly IntakeValidationAgent _intake = new();
-    private readonly SafetyRedFlagAgent _redFlags = new();
-    private readonly ClinicalInformationExtractionWorkflowAgent _extraction;
-    private readonly StructuredSafetyAssessmentAgent _structuredSafety = new();
-    private readonly AdaptiveQuestionPlanningAgent _questionPlanning;
-    private readonly CareRoutingAgent _routing = new();
-    private readonly SafetyValidationAgent _validation = new();
+    private const int MaxSteps = 4;
+    private readonly IntakeAndInitialSafetyAgent _intakeSafety = new();
+    private readonly ClinicalUnderstandingAgent _clinicalUnderstanding;
+    private readonly SafetyRoutingAgent _safetyRouting;
+    private readonly GuidanceValidationAgent _guidanceValidation = new();
 
     public SafeTriageWorkflowCoordinator(ISafeTriageSemanticExtractionAgent extractionTool, ISafeTriageQuestionPlanningAgent questionPlanner)
     {
-        _extraction = new(extractionTool);
-        _questionPlanning = new(questionPlanner);
+        _clinicalUnderstanding = new(extractionTool);
+        _safetyRouting = new(questionPlanner);
     }
 
     public async Task<(SafeTriageAgentContext Context, IReadOnlyList<SafeTriageAgentExecution> Trace)> RunAsync(StartTriageWorkflowDto request, CancellationToken cancellationToken = default,
@@ -368,14 +430,9 @@ public sealed class SafeTriageWorkflowCoordinator
 
         if (execution is null)
         {
-            await Run(_intake); if (context.FailedSafely) return (context, trace);
-            await Run(_redFlags);
-            if (!context.RequiresClinicalApproval)
-            {
-                await Run(_extraction); await Run(_structuredSafety);
-                if (!context.RequiresClinicalApproval) await Run(_questionPlanning);
-            }
-            await Run(_routing); await Run(_validation);
+            await Run(_intakeSafety); if (context.FailedSafely) return (context, trace);
+            if (!context.RequiresClinicalApproval) await Run(_clinicalUnderstanding);
+            await Run(_safetyRouting); await Run(_guidanceValidation);
             return (context, trace);
         }
 
@@ -391,19 +448,15 @@ public sealed class SafeTriageWorkflowCoordinator
             switch (step.StepType)
             {
                 case PlanningWorkflowSteps.SafetyCheck:
-                    await Run(_intake);
-                    if (!context.FailedSafely) await Run(_redFlags);
+                    await Run(_intakeSafety);
                     break;
                 case PlanningWorkflowSteps.SymptomExtraction:
-                    if (!context.RequiresClinicalApproval) { await Run(_extraction); await Run(_structuredSafety); }
+                    if (!context.RequiresClinicalApproval) await Run(_clinicalUnderstanding);
                     break;
                 case PlanningWorkflowSteps.TriageAssessment:
-                    if (!context.RequiresClinicalApproval)
-                    {
-                        if (!context.RequiresClinicalApproval) await Run(_questionPlanning);
-                    }
+                    await Run(_safetyRouting);
                     waitingForPatient = !context.RequiresClinicalApproval && context.PlannedQuestions.Count > 0;
-                    if (!waitingForPatient) { await Run(_routing); await Run(_validation); }
+                    if (!waitingForPatient) await Run(_guidanceValidation);
                     break;
                 default:
                     step.Status = "Failed"; step.ValidationStatus = "Failed"; step.Error = "UnapprovedStep";
@@ -415,8 +468,8 @@ public sealed class SafeTriageWorkflowCoordinator
             // the detecting step, without advancing any downstream plan dependency.
             if (context.RequiresClinicalApproval && !context.FailedSafely && step.StepType != PlanningWorkflowSteps.TriageAssessment)
             {
-                await Run(_routing);
-                await Run(_validation);
+                await Run(_safetyRouting);
+                await Run(_guidanceValidation);
             }
             var completed = trace.Skip(before).ToArray();
             var valid = completed.All(item => item.ValidationPassed);

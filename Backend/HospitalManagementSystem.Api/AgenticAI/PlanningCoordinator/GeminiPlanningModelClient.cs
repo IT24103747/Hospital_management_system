@@ -81,13 +81,13 @@ public sealed class GeminiPlanningModelClient : IPlanningModelClient
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
 
-        var apiKey = _configuration["Gemini:ApiKey"];
+        var apiKey = _configuration["Gemini:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new InvalidOperationException("Gemini:ApiKey is not configured.");
         }
 
-        var model = _configuration["Gemini:Model"] ?? "gemini-1.5-flash";
+        var model = _configuration["Gemini:Model"] ?? "gemini-3.1-flash-lite";
         using var schemaDoc = JsonDocument.Parse(PlanningDecisionSchema);
 
         var requestBody = new

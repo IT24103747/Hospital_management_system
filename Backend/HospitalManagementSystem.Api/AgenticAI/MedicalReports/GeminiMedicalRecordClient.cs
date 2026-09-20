@@ -49,7 +49,7 @@ public sealed class GeminiMedicalRecordClient : IMedicalRecordIntelligenceAgent
 
         try
         {
-            var model = _configuration["Gemini:Model"] ?? "gemini-3.6-flash";
+            var model = _configuration["Gemini:Model"] ?? "gemini-3.1-flash-lite";
             var timeoutSeconds = Math.Clamp(_configuration.GetValue<int?>("Gemini:TimeoutSeconds") ?? 45, 10, 90);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
