@@ -8,6 +8,7 @@ namespace HospitalManagementSystem.Api.Data
         public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
             : base(options) { }
 
+        public DbSet<HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator.AgenticExecution> AgenticExecutions => Set<HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator.AgenticExecution>();
         public DbSet<User> Users => Set<User>();
         public DbSet<Patient> Patients => Set<Patient>();
         public DbSet<DoctorTimeSlot> DoctorTimeSlots => Set<DoctorTimeSlot>();
@@ -26,6 +27,12 @@ namespace HospitalManagementSystem.Api.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            modelBuilder.Entity<HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator.AgenticExecution>(entity =>
+            {
+                entity.HasKey(x => x.WorkflowId);
+                entity.HasIndex(x => x.PatientId);
+                entity.Property(x => x.RecordJson).HasColumnType("jsonb");
+            });
             modelBuilder.Entity<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.AssistantConversation>(entity =>
             {
                 entity.HasKey(x => x.AssistantConversationId);

@@ -657,6 +657,8 @@ class ApiService {
     String? conversationId,
     required String message,
     required String requestId,
+    String? requirementId,
+    String? requirementState,
   }) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/hospital-assistant/messages'),
@@ -664,6 +666,8 @@ class ApiService {
       body: jsonEncode({
         if (conversationId != null) 'conversationId': conversationId,
         'message': message,
+        if (requirementId != null) 'requirementId': requirementId,
+        if (requirementState != null) 'requirementState': requirementState,
         'requestId': requestId,
       }),
     ).timeout(const Duration(seconds: 180));

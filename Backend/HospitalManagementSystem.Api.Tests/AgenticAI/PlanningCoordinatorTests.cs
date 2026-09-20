@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -6,6 +7,10 @@ namespace HospitalManagementSystem.Api.Tests.AgenticAI;
 
 public class PlanningCoordinatorTests
 {
+    private static PlanningCoordinatorStore CreateStore() => new(new HospitalManagementSystem.Api.Data.ApplicationDbContext(
+        new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<HospitalManagementSystem.Api.Data.ApplicationDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options));
+
     [Fact]
     public async Task ValidPlan_TriageThenAppointmentProposal_CreatesAllowListedPlanAndEnforcesSafety()
     {
@@ -22,7 +27,7 @@ public class PlanningCoordinatorTests
             SafeResponse = "Your symptoms will be evaluated through our clinical safety triage protocol."
         });
 
-        var store = new PlanningCoordinatorStore();
+        var store = CreateStore();
         var agent = new PlanningCoordinatorAgent(stubClient, store, NullLogger<PlanningCoordinatorAgent>.Instance);
 
         var request = new PlanningRequestDto
@@ -36,7 +41,7 @@ public class PlanningCoordinatorTests
 
         Assert.NotNull(response);
         Assert.Equal("Planned", response.Status);
-        Assert.Equal(PlanningWorkflowType.TriageThenAppointmentProposal.ToString(), response.Plan.WorkflowType);
+        Assert.Equal(PlanningWorkflowType.SafeTriage.ToString(), response.Plan.WorkflowType);
         Assert.False(response.Plan.AppointmentRequested); // No explicit consent to book in symptom objective
         Assert.True(response.Plan.PatientConfirmationRequired);
         Assert.Equal("2026-09-15", response.Plan.PreferredDate);
@@ -68,7 +73,7 @@ public class PlanningCoordinatorTests
             SafeResponse = "We will search for available cardiology appointment slots."
         });
 
-        var store = new PlanningCoordinatorStore();
+        var store = CreateStore();
         var agent = new PlanningCoordinatorAgent(stubClient, store, NullLogger<PlanningCoordinatorAgent>.Instance);
 
         var request = new PlanningRequestDto
@@ -100,7 +105,7 @@ public class PlanningCoordinatorTests
             SafeResponse = "Safety triage in progress."
         });
 
-        var store = new PlanningCoordinatorStore();
+        var store = CreateStore();
         var agent = new PlanningCoordinatorAgent(stubClient, store, NullLogger<PlanningCoordinatorAgent>.Instance);
 
         var request = new PlanningRequestDto
@@ -130,7 +135,7 @@ public class PlanningCoordinatorTests
             SafeResponse = "I can only assist with hospital triage assessments, finding doctors, and appointment inquiries. Please let me know how I can help with your care."
         });
 
-        var store = new PlanningCoordinatorStore();
+        var store = CreateStore();
         var agent = new PlanningCoordinatorAgent(stubClient, store, NullLogger<PlanningCoordinatorAgent>.Instance);
 
         var request = new PlanningRequestDto
@@ -153,7 +158,7 @@ public class PlanningCoordinatorTests
     {
         var failingClient = new ThrowingPlanningModelClient(new System.Text.Json.JsonException("Unexpected character encountered while parsing value."));
 
-        var store = new PlanningCoordinatorStore();
+        var store = CreateStore();
         var agent = new PlanningCoordinatorAgent(failingClient, store, NullLogger<PlanningCoordinatorAgent>.Instance);
 
         var request = new PlanningRequestDto
@@ -166,10 +171,12 @@ public class PlanningCoordinatorTests
 
         Assert.NotNull(response);
         Assert.Equal("Planned", response.Status);
-        Assert.Equal(PlanningWorkflowType.TriageThenAppointmentProposal.ToString(), response.Plan.WorkflowType);
+        Assert.Equal(PlanningWorkflowType.SafeTriage.ToString(), response.Plan.WorkflowType);
         Assert.False(response.Plan.AppointmentRequested);
         Assert.NotEmpty(response.Errors);
         Assert.Contains(response.AuditEvents, a => a.EventType == "ModelPlanningFailed");
+        Assert.Equal(1, (await store.GetAsync(response.WorkflowId))!.RetryCount);
+        Assert.DoesNotContain(response.Errors, error => error.Contains("Unexpected character"));
     }
 
     [Fact]
@@ -182,7 +189,7 @@ public class PlanningCoordinatorTests
             PatientConfirmationRequired = false
         });
 
-        var store = new PlanningCoordinatorStore();
+        var store = CreateStore();
         var agent = new PlanningCoordinatorAgent(stubClient, store, NullLogger<PlanningCoordinatorAgent>.Instance);
 
         var request = new PlanningRequestDto
@@ -222,7 +229,7 @@ public class PlanningCoordinatorTests
             SafeResponse = "Please answer these questions."
         });
 
-        var store = new PlanningCoordinatorStore();
+        var store = CreateStore();
         var agent = new PlanningCoordinatorAgent(stubClient, store, NullLogger<PlanningCoordinatorAgent>.Instance);
 
         var request = new PlanningRequestDto

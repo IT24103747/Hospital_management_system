@@ -11,7 +11,8 @@ public enum PlanningWorkflowType
     TriageThenAppointmentProposal,
     AppointmentProposal,
     AppointmentStatus,
-    Unsupported
+    Unsupported,
+    SafeTriage
 }
 
 /// <summary>
@@ -19,6 +20,13 @@ public enum PlanningWorkflowType
 /// </summary>
 public static class PlanningWorkflowSteps
 {
+    public const string IntakeValidationAgent = "IntakeValidationAgent";
+    public const string SafetyRedFlagAgent = "SafetyRedFlagAgent";
+    public const string ClinicalInformationExtractionAgent = "ClinicalInformationExtractionAgent";
+    public const string StructuredSafetyAssessmentAgent = "StructuredSafetyAssessmentAgent";
+    public const string AdaptiveQuestionPlanningAgent = "AdaptiveQuestionPlanningAgent";
+    public const string CareRoutingAgent = "CareRoutingAgent";
+    public const string SafetyValidationAgent = "SafetyValidationAgent";
     public const string SafetyCheck = "SafetyCheck";
     public const string SymptomExtraction = "SymptomExtraction";
     public const string TriageAssessment = "TriageAssessment";
@@ -53,6 +61,7 @@ public static class PlanningWorkflowSteps
                 AppointmentLookup,
                 StatusNotification
             ],
+            [PlanningWorkflowType.SafeTriage] = [SafetyCheck, SymptomExtraction, TriageAssessment],
             [PlanningWorkflowType.Unsupported] =
             [
                 SafeControlledResponse
@@ -71,7 +80,14 @@ public static class PlanningWorkflowSteps
         AppointmentLookup,
         StatusNotification,
         SafeControlledResponse
+        , IntakeValidationAgent, SafetyRedFlagAgent, ClinicalInformationExtractionAgent,
+        StructuredSafetyAssessmentAgent, AdaptiveQuestionPlanningAgent, CareRoutingAgent,
+        SafetyValidationAgent
     ];
+
+    public static bool IsSafeTriageAgent(string name) => name is
+        IntakeValidationAgent or SafetyRedFlagAgent or ClinicalInformationExtractionAgent or
+        StructuredSafetyAssessmentAgent or AdaptiveQuestionPlanningAgent or CareRoutingAgent or SafetyValidationAgent;
 }
 
 /// <summary>
@@ -79,6 +95,7 @@ public static class PlanningWorkflowSteps
 /// </summary>
 public sealed class PlanningRequestDto
 {
+    [JsonIgnore] public string? ExistingWorkflowId { get; set; }
     [Required, StringLength(4000, MinimumLength = 2)]
     public string Objective { get; set; } = string.Empty;
 
@@ -150,6 +167,22 @@ public sealed class PlanningWorkflowRecord
     public int? PatientId { get; set; }
     public string Objective { get; set; } = string.Empty;
     public PlanningPlanDto Plan { get; set; } = new();
+    public string WorkflowType => Plan.WorkflowType;
+    public IReadOnlyList<string> CompletedSteps => CompletedStages;
+    public List<PlanningPlanDto> PreviousPlans { get; set; } = [];
+    public List<ExecutionPlanStep> Steps { get; set; } = [];
+    public string? CurrentStep { get; set; }
+    public string? CurrentAgent { get; set; }
+    public List<string> ToolResultsSummary { get; set; } = [];
+    public List<string> ValidationResults { get; set; } = [];
+    public int RetryCount { get; set; }
+    public string ApprovalStatus { get; set; } = "NotRequired";
+    public string? FinalOutcome { get; set; }
+    public string? ErrorCode { get; set; }
+    public string? ErrorSummary { get; set; }
+    public string? FailedStep { get; set; }
+    public DateTimeOffset? FailedAt { get; set; }
+    public int Revision { get; set; }
     public string Status { get; set; } = "Created"; // Created, Planned, InProgress, Completed, Failed, Unsupported
     public List<string> CompletedStages { get; set; } = [];
     public List<string> Errors { get; set; } = [];
@@ -200,4 +233,28 @@ public sealed class GeminiPlanningDecision
 
     [JsonPropertyName("safeResponse")]
     public string SafeResponse { get; set; } = string.Empty;
+}
+
+public sealed class ExecutionPlanStep
+{
+    public string StepId { get; set; } = Guid.NewGuid().ToString("N");
+    public string StepType { get; set; } = "";
+    public string AssignedAgent { get; set; } = "";
+    public string Status { get; set; } = "Pending";
+    public List<string> Dependencies { get; set; } = [];
+    public string Input { get; set; } = "";
+    public string? OutputSummary { get; set; }
+    public string ValidationStatus { get; set; } = "Pending";
+    public string? Error { get; set; }
+    public DateTimeOffset? StartedAt { get; set; }
+    public DateTimeOffset? EndedAt { get; set; }
+}
+
+// Indexed ownership envelope; the versioned document contains only explicit inputs and execution summaries.
+public sealed class AgenticExecution
+{
+    public string WorkflowId { get; set; } = "";
+    public int? PatientId { get; set; }
+    public string RecordJson { get; set; } = "{}";
+    public DateTimeOffset UpdatedAt { get; set; }
 }

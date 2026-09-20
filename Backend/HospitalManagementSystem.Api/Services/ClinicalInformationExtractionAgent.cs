@@ -16,7 +16,8 @@ public sealed record ClinicalExtractionResult(
     string Status,
     string? ErrorCode = null,
     IReadOnlyList<string>? Concepts = null,
-    ClinicalFactSet? Facts = null);
+    ClinicalFactSet? Facts = null,
+    IReadOnlyList<HospitalManagementSystem.Api.AgenticAI.SafeTriage.SafeTriageRequirement>? Requirements = null);
 
 public sealed class ClinicalFactSet
 {

@@ -25,9 +25,8 @@ public sealed class AppointmentProposalConfirmationController(ISafetyValidationA
         if (db.Database.IsNpgsql())
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(1396916552, {patient.PatientId})", cancellationToken);
         var history = await workflows.GetHistoryForPatientAsync(patient.PatientId);
-        // ClinicalReview is deliberately allowed here: the proposal agent records it
-        // as PendingClinicalApproval after the patient explicitly selects a slot.
-        // Urgent/emergency and incomplete assessments still block normal booking.
+        // Clinical review belongs to SafeTriage. Urgent/emergency and incomplete
+        // assessments must be resolved there before a normal booking can proceed.
         if (history.Any(w =>
             (w.TriageLevel is TriageLevels.Emergency or TriageLevels.Urgent &&
              w.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested) ||

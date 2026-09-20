@@ -28,6 +28,8 @@ class AssistantMessage {
   final List<AssistantJson> doctors;
   final AssistantAction? proposedAction;
   final bool availabilityChecked;
+  final AssistantJson? followUpQuestion;
+  final String? followUpState;
 
   AssistantMessage.fromJson(AssistantJson json)
       : id = json['id'].toString(),
@@ -39,7 +41,10 @@ class AssistantMessage {
         doctors = assistantObjects(json['doctors']),
         proposedAction = json['proposedAction'] is Map
             ? AssistantAction.fromJson(Map<String, dynamic>.from(json['proposedAction'])) : null,
-        availabilityChecked = json['availabilityChecked'] as bool? ?? false;
+        availabilityChecked = json['availabilityChecked'] as bool? ?? false,
+        followUpQuestion = json['followUpQuestion'] is Map
+            ? Map<String, dynamic>.from(json['followUpQuestion']) : null,
+        followUpState = json['followUpState'] as String?;
 }
 
 class AssistantAction {

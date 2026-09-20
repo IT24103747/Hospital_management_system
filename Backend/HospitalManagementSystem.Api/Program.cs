@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using HospitalManagementSystem.Api.Data;
 using HospitalManagementSystem.Api.Middleware;
 using HospitalManagementSystem.Api.Repositories;
@@ -14,6 +15,7 @@ using HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.SafetyApproval;
 using HospitalManagementSystem.Api.AgenticAI.PatientCare.Shared;
 using HospitalManagementSystem.Api.AgenticAI.PlanningCoordinator;
+using HospitalManagementSystem.Api.AgenticAI.SafeTriage;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
@@ -76,6 +78,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 // PostgreSQL + EF Core
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    var databaseConnection = new NpgsqlConnectionStringBuilder(connectionString);
+    // Allow remote database connections more time to establish; preserve explicit configuration.
+    if (!databaseConnection.ContainsKey("Timeout"))
+        databaseConnection.Timeout = 30;
+    connectionString = databaseConnection.ConnectionString;
+}
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
@@ -91,7 +101,13 @@ builder.Services.AddScoped<IDoctorService, DoctorService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IDoctorScheduleService, DoctorScheduleService>();
-builder.Services.AddScoped<ITriageWorkflowService, TriageWorkflowService>();
+builder.Services.AddScoped<ITriageWorkflowService>(provider => new TriageWorkflowService(
+    provider.GetRequiredService<ApplicationDbContext>(),
+    provider.GetRequiredService<ILogger<TriageWorkflowService>>(),
+    provider.GetRequiredService<ISafeTriageSemanticExtractionAgent>(),
+    provider.GetRequiredService<ISafeTriageQuestionPlanningAgent>(),
+    provider.GetRequiredService<ISafeTriageResponseGenerationAgent>(),
+    builder.Configuration.GetSection("SafeTriage").Get<SafeTriageOptions>() ?? new SafeTriageOptions()));
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.AssistantAgentRegistry>();
 builder.Services.AddScoped<HospitalManagementSystem.Api.AgenticAI.HospitalAssistant.HospitalAssistantService>();
@@ -100,18 +116,19 @@ builder.Services.AddHttpClient<HospitalManagementSystem.Api.AgenticAI.HospitalAs
 {
     client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
 });
-builder.Services.AddScoped<IClinicalSafetyTriageAgent, ClinicalSafetyTriageAgent>();
+// Legacy ClinicalSafetyTriageAgent is no longer a runtime clinical path.
 builder.Services.AddScoped<IPatientCareAssessmentStore, PatientCareAssessmentStore>();
 // Reusable controlled tools for the Member 3 proposal and Member 4 confirmation agents.
 builder.Services.AddScoped<IAppointmentAgentTools, AppointmentAgentTools>();
+builder.Services.AddScoped<IAppointmentSearchTools>(sp => sp.GetRequiredService<IAppointmentAgentTools>());
 builder.Services.AddScoped<IHospitalAppointmentProposalAgent, HospitalAppointmentProposalAgent>();
 builder.Services.AddScoped<IAppointmentProposalStore, AppointmentProposalStore>();
 builder.Services.AddScoped<ISafetyApprovalTools, SafetyApprovalTools>();
 builder.Services.AddScoped<ISafetyValidationApprovalAgent, SafetyValidationApprovalAgent>();
 builder.Services.AddScoped<IMedicalRecordRepository, MedicalRecordRepository>();
 builder.Services.AddScoped<IMedicalRecordService, MedicalRecordService>();
-builder.Services.AddSingleton<IPlanningCoordinatorStore, PlanningCoordinatorStore>();
-builder.Services.AddScoped<IPlanningCoordinatorAgent, PlanningCoordinatorAgent>();
+builder.Services.AddScoped<IPlanningCoordinatorStore, PlanningCoordinatorStore>();
+builder.Services.AddScoped<IPlanningCoordinatorAgent>(sp => new PlanningCoordinatorAgent(sp.GetRequiredService<IPlanningModelClient>(), sp.GetRequiredService<IPlanningCoordinatorStore>(), sp.GetRequiredService<ILogger<PlanningCoordinatorAgent>>()));
 builder.Services.AddHttpClient<IPlanningModelClient, GeminiPlanningModelClient>((provider, client) =>
 {
     client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
@@ -119,6 +136,25 @@ builder.Services.AddHttpClient<IPlanningModelClient, GeminiPlanningModelClient>(
     if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
 });
 builder.Services.AddHttpClient<IClinicalInformationExtractionAgent, GeminiClinicalInformationExtractionAgent>((provider, client) =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
+});
+// SafeTriage owns separate Gemini stages so the shared PatientCare extractor remains behaviorally unchanged.
+builder.Services.AddHttpClient<ISafeTriageSemanticExtractionAgent, GeminiSafeTriageSemanticExtractionAgent>((provider, client) =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
+});
+builder.Services.AddHttpClient<ISafeTriageQuestionPlanningAgent, GeminiSafeTriageQuestionPlanningAgent>((provider, client) =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
+    var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];
+    if (!string.IsNullOrWhiteSpace(key)) client.DefaultRequestHeaders.Add("x-goog-api-key", key);
+});
+builder.Services.AddHttpClient<ISafeTriageResponseGenerationAgent, GeminiSafeTriageResponseGenerationAgent>((provider, client) =>
 {
     client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
     var key = provider.GetRequiredService<IConfiguration>()["Gemini:ApiKey"];

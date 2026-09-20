@@ -4,8 +4,8 @@ namespace HospitalManagementSystem.Api.Services;
 
 public interface ITriageWorkflowService
 {
-    Task<TriageWorkflowDto> StartForPatientAsync(int patientId, StartTriageWorkflowDto request);
-    Task<TriageWorkflowDto?> ContinueForPatientAsync(int workflowId, int patientId, ContinueTriageWorkflowDto request);
+    Task<TriageWorkflowDto> StartForPatientAsync(int patientId, StartTriageWorkflowDto request, string? executionWorkflowId = null);
+    Task<TriageWorkflowDto?> ContinueForPatientAsync(int workflowId, int patientId, ContinueTriageWorkflowDto request, string? executionWorkflowId = null);
     Task<TriageWorkflowDto?> GetForPatientAsync(int workflowId, int patientId);
     Task<IReadOnlyList<TriageWorkflowDto>> GetHistoryForPatientAsync(int patientId);
     Task<TriageWorkflowDto?> GetForClinicalReviewerAsync(int workflowId);

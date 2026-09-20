@@ -3,7 +3,7 @@
 The active patient experience is the shared Hospital AI Assistant in Flutter.
 See [the implementation and verification guide](../../../../Docs/hospital-ai-assistant.md).
 
-The active backend coordinator is `HospitalAssistantService`. It reuses the
+The active backend coordinator is `PlanningCoordinatorAgent`; `HospitalAssistantService` is its compatibility facade. It reuses the
 persisted SafeTriage workflow, `HospitalAppointmentProposalAgent`, the controlled
 appointment tools, and `SafetyValidationApprovalAgent`. Appointment numbers are
 assigned by the existing appointment service when a confirmed booking is saved.

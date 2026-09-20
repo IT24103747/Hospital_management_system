@@ -8,7 +8,7 @@ namespace HospitalManagementSystem.Api.Controllers;
 
 [ApiController]
 [Route("api/planning-coordinator")]
-[Authorize]
+[Authorize(Roles = "Patient,Doctor,Admin")]
 public sealed class PlanningCoordinatorController : ControllerBase
 {
     private readonly IPlanningCoordinatorAgent _agent;
@@ -26,16 +26,15 @@ public sealed class PlanningCoordinatorController : ControllerBase
     }
 
     [HttpPost("plan")]
+    [Authorize(Roles = "Patient")]
     public async Task<IActionResult> CreatePlan([FromBody] PlanningRequestDto request, CancellationToken cancellationToken)
     {
         if (User.IsInRole("Patient"))
         {
             var email = User.FindFirstValue(ClaimTypes.Email);
             var patient = string.IsNullOrWhiteSpace(email) ? null : await _patients.GetPatientByEmailAsync(email);
-            if (patient is not null)
-            {
-                request.PatientId = patient.PatientId;
-            }
+            if (patient is null) return NotFound();
+            request.PatientId = patient.PatientId;
         }
 
         var response = await _agent.PlanAsync(request, cancellationToken);
@@ -52,11 +51,25 @@ public sealed class PlanningCoordinatorController : ControllerBase
         {
             var email = User.FindFirstValue(ClaimTypes.Email);
             var patient = string.IsNullOrWhiteSpace(email) ? null : await _patients.GetPatientByEmailAsync(email);
-            // If the patient is checking a record, verify ownership if PatientId is set
-            // The response itself is safe to return
+            var owned = await _store.GetAsync(workflowId, cancellationToken);
+            if (patient is null || owned?.PatientId != patient.PatientId) return NotFound();
         }
 
         return Ok(workflow);
+    }
+
+    [HttpGet("workflows/{workflowId}/execution")]
+    public async Task<IActionResult> GetExecution(string workflowId, CancellationToken token)
+    {
+        var record = await _store.GetAsync(workflowId, token);
+        if (record == null) return NotFound();
+        if (User.IsInRole("Patient"))
+        {
+            var email = User.FindFirstValue(ClaimTypes.Email);
+            var patient = string.IsNullOrWhiteSpace(email) ? null : await _patients.GetPatientByEmailAsync(email);
+            if (patient?.PatientId != record.PatientId || patient == null) return NotFound();
+        }
+        return Ok(record);
     }
 
     [HttpGet("workflows")]

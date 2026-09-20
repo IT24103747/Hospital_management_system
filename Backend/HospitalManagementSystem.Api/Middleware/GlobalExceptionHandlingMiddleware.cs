@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Npgsql;
 
 namespace HospitalManagementSystem.Api.Middleware;
 
@@ -44,6 +45,7 @@ public sealed class GlobalExceptionHandlingMiddleware
     {
         var statusCode = exception switch
         {
+            _ when IsTransientDatabaseFailure(exception) => StatusCodes.Status503ServiceUnavailable,
             ArgumentException => StatusCodes.Status400BadRequest,
             InvalidOperationException => StatusCodes.Status409Conflict,
             UnauthorizedAccessException => StatusCodes.Status403Forbidden,
@@ -52,6 +54,7 @@ public sealed class GlobalExceptionHandlingMiddleware
 
         var title = statusCode switch
         {
+            StatusCodes.Status503ServiceUnavailable => "Database temporarily unavailable. Please try again shortly.",
             StatusCodes.Status400BadRequest => "Invalid request.",
             StatusCodes.Status403Forbidden => "Access denied.",
             StatusCodes.Status409Conflict => "Request could not be completed.",
@@ -108,5 +111,16 @@ public sealed class GlobalExceptionHandlingMiddleware
         return innermost == exception
             ? exception.Message
             : $"{exception.Message} Inner database error: {innermost.Message}";
+    }
+
+    private static bool IsTransientDatabaseFailure(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is NpgsqlException { IsTransient: true })
+                return true;
+        }
+
+        return false;
     }
 }

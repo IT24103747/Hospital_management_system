@@ -5,12 +5,18 @@ using HospitalManagementSystem.Api.Services;
 
 namespace HospitalManagementSystem.Api.AgenticAI.PatientCare.AppointmentProposal;
 
-public interface IAppointmentAgentTools
+public interface IAppointmentSearchTools
 {
     Task<IReadOnlyList<AgentDoctor>> FindDoctorsAsync(string query);
     Task<IReadOnlyList<AgentSlot>> FindSlotsAsync(AgentDoctor doctor, DateOnly? date);
+}
+
+public interface IAppointmentBookingTools
+{
     Task<AgentBooking> BookAsync(AgentSlot observedSlot, PatientDto patient);
 }
+
+public interface IAppointmentAgentTools : IAppointmentSearchTools, IAppointmentBookingTools { }
 
 // No repositories or DbContext: Doctor Management owns doctor eligibility, and
 // AppointmentService owns available numbers, session times, and booking rules.

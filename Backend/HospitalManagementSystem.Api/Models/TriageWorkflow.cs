@@ -6,6 +6,7 @@ namespace HospitalManagementSystem.Api.Models;
 public class TriageWorkflow
 {
     public int TriageWorkflowId { get; set; }
+    public string? ExecutionWorkflowId { get; set; }
     public int PatientId { get; set; }
     public Patient? Patient { get; set; }
     public string Status { get; set; } = TriageWorkflowStatuses.InProgress;
@@ -16,6 +17,7 @@ public class TriageWorkflow
     public string Symptoms { get; set; } = string.Empty;
     public string? VitalsJson { get; set; }
     public string PlanJson { get; set; } = "[]";
+    [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
     public string ResultJson { get; set; } = "{}";
     public string? ErrorCode { get; set; }
     public string? FinalOutcome { get; set; }

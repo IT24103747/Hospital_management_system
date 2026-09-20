@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using HospitalManagementSystem.Api.AgenticAI.SafeTriage;
 
 namespace HospitalManagementSystem.Api.DTOs;
 
@@ -24,6 +25,7 @@ public class ReviewTriageWorkflowDto
 {
     [Required] public string Decision { get; set; } = string.Empty;
     [MaxLength(1000)] public string? Note { get; set; }
+    [MaxLength(4000)] public string? FinalResponse { get; set; }
 }
 
 public class ContinueTriageWorkflowDto
@@ -34,7 +36,8 @@ public class ContinueTriageWorkflowDto
 public class TriageAnswerDto
 {
     [Required, MaxLength(80)] public string QuestionId { get; set; } = string.Empty;
-    [Required, MaxLength(500)] public string Value { get; set; } = string.Empty;
+    [MaxLength(500)] public string Value { get; set; } = string.Empty;
+    public SafeTriageRequirementState? State { get; set; }
     [MaxLength(30)] public string? Unit { get; set; }
 }
 
@@ -47,6 +50,11 @@ public class TriageWorkflowDto
     public string UncertaintyState { get; set; } = string.Empty;
     public bool RequiresHumanReview { get; set; }
     public string PatientMessage { get; set; } = string.Empty;
+    public string OriginalComplaint { get; set; } = string.Empty;
+    public IReadOnlyList<SafeTriageRequirement> Requirements { get; set; } = [];
+    public int FollowUpCount { get; set; }
+    public string? SafeTriageSuggestion { get; set; }
+    public string? ReviewedResponse { get; set; }
     /// <summary>The patient's original report and any recorded follow-up responses.</summary>
     public string PatientReportedSymptoms { get; set; } = string.Empty;
     public TriageGuidanceDto? Guidance { get; set; }

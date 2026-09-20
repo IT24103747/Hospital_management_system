@@ -5,6 +5,7 @@ namespace HospitalManagementSystem.Api.AgenticAI.AppointmentScheduling;
 
 public static class AppointmentAgentRegistration
 {
+    [Obsolete("Legacy test-only agent. Runtime booking uses SafetyValidationApprovalAgent.")]
     public static IServiceCollection AddAppointmentAgent(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<AppointmentAgentOptions>().Bind(configuration.GetSection(AppointmentAgentOptions.SectionName))

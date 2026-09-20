@@ -13,6 +13,7 @@ public interface IClinicalSafetyTriageAgent
 }
 
 
+[Obsolete("Runtime clinical execution uses the existing SafeTriage pipeline through PlanningCoordinatorAgent.")]
 public sealed class ClinicalSafetyTriageAgent(IClinicalInformationExtractionAgent extraction) : IClinicalSafetyTriageAgent
 {
     public async Task<ClinicalSafetyAssessment> AssessAsync(ClinicalSafetyTriageRequest request, CancellationToken cancellationToken = default)

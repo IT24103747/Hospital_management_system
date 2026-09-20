@@ -28,7 +28,7 @@ public sealed record HospitalAppointmentProposal(
     IReadOnlyList<string> SuggestedActions,
     int? ProposalId = null);
 
-public sealed class HospitalAppointmentProposalAgent(IAppointmentAgentTools tools, IAppointmentProposalStore store) : IHospitalAppointmentProposalAgent
+public sealed class HospitalAppointmentProposalAgent(IAppointmentSearchTools tools, IAppointmentProposalStore store) : IHospitalAppointmentProposalAgent
 {
     public async Task<HospitalAppointmentProposal> CreateAsync(AppointmentProposalRequest request, CancellationToken cancellationToken = default)
     {
@@ -79,7 +79,9 @@ public sealed class HospitalAppointmentProposalAgent(IAppointmentAgentTools tool
                 }))
             .DistinctBy(slot => slot.DoctorTimeSlotId).OrderBy(slot => slot.StartAt).Take(5).ToArray();
         trace.Add(new("FindAvailableSlotsTool", verified.Length == 0 ? "NoMatches" : "Completed", verified.Length > 0, "Only current, available hospital slots were returned."));
-        var proposalId = verified.Length == 0 ? (int?)null : await store.CreateAsync(request.PatientId, request.ClinicalAssessment?.TriageLevel ?? "NotAssessed", request.ClinicalAssessment?.RequiresClinicalReview ?? false, verified, cancellationToken);
+        // Appointment actions require the patient's explicit confirmation. Clinical
+        // review belongs to SafeTriage and is never an extra appointment approval.
+        var proposalId = verified.Length == 0 ? (int?)null : await store.CreateAsync(request.PatientId, request.ClinicalAssessment?.TriageLevel ?? "NotAssessed", verified, cancellationToken);
         return new(verified.Length == 0 ? "NoOptions" : "PendingPatientConfirmation", request.PatientId, doctors.Take(5).ToArray(), verified,
             trace, verified.Length == 0 ? "No available future appointments matched your preferences." : "Select one verified option and explicitly confirm it before any booking is created.",
             verified.Length == 0
