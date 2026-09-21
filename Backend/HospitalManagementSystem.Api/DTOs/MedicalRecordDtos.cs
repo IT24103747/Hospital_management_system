@@ -72,11 +72,11 @@ namespace HospitalManagementSystem.Api.DTOs
         [Required, MaxLength(500)]
         public string Diagnosis { get; set; } = string.Empty;
 
-        [Required, MaxLength(2000)]
-        public string Symptoms { get; set; } = string.Empty;
+        [MaxLength(2000)]
+        public string? Symptoms { get; set; }
 
-        [Required, MaxLength(2000)]
-        public string TreatmentPlan { get; set; } = string.Empty;
+        [MaxLength(2000)]
+        public string? TreatmentPlan { get; set; }
 
         [MaxLength(2000)]
         public string? PrescriptionNotes { get; set; }
@@ -100,11 +100,11 @@ namespace HospitalManagementSystem.Api.DTOs
         [Required, MaxLength(500)]
         public string Diagnosis { get; set; } = string.Empty;
 
-        [Required, MaxLength(2000)]
-        public string Symptoms { get; set; } = string.Empty;
+        [MaxLength(2000)]
+        public string? Symptoms { get; set; }
 
-        [Required, MaxLength(2000)]
-        public string TreatmentPlan { get; set; } = string.Empty;
+        [MaxLength(2000)]
+        public string? TreatmentPlan { get; set; }
 
         [MaxLength(2000)]
         public string? PrescriptionNotes { get; set; }

@@ -34,12 +34,22 @@ import './MedicalRecordsPage.css'
 export default function MedicalRecordsPage() {
   const { user } = useAuth()
   const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
   const [recordType, setRecordType] = useState('')
   const [status, setStatus] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [page, setPage] = useState(1)
   const pageSize = 10
+
+  // Debounce search input to prevent rapid successive API requests
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput)
+      setPage(1)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
 
   const [patients, setPatients] = useState([])
   const [selectedRecord, setSelectedRecord] = useState(null)
@@ -60,6 +70,7 @@ export default function MedicalRecordsPage() {
     updateRecord,
     deleteRecord,
     addAttachment,
+    uploadAttachment,
     deleteAttachment,
   } = useMedicalRecords({
     search,
@@ -84,7 +95,11 @@ export default function MedicalRecordsPage() {
         // Upload any newly attached files
         const newAttachments = (formData.attachments || []).filter((a) => !a.attachmentId)
         for (const att of newAttachments) {
-          await addAttachment(editingRecord.medicalRecordId, att)
+          if (att.rawFile) {
+            await uploadAttachment(editingRecord.medicalRecordId, att.rawFile)
+          } else {
+            await addAttachment(editingRecord.medicalRecordId, att)
+          }
         }
 
         // Delete any attachments that were removed during edit
@@ -104,8 +119,29 @@ export default function MedicalRecordsPage() {
         alert(res.error)
       }
     } else {
-      const res = await createRecord(formData)
-      if (res.success) {
+      // Create new record: upload physical files after record is created so binary bytes are stored on disk
+      const rawFilesToUpload = (formData.attachments || [])
+        .map((a) => a.rawFile)
+        .filter(Boolean)
+
+      // Only pass non-rawFile attachments in create payload to prevent storing dead URLs
+      const createPayload = {
+        ...formData,
+        attachments: (formData.attachments || []).filter((a) => !a.rawFile),
+      }
+
+      const res = await createRecord(createPayload)
+      if (res.success && res.data) {
+        const createdId = res.data.medicalRecordId
+        for (const file of rawFilesToUpload) {
+          try {
+            await uploadAttachment(createdId, file)
+          } catch (err) {
+            console.error('Failed to upload attachment file:', err)
+          }
+        }
+        setIsFormOpen(false)
+      } else if (res.success) {
         setIsFormOpen(false)
       } else {
         alert(res.error)
@@ -133,6 +169,7 @@ export default function MedicalRecordsPage() {
   }
 
   const handleResetFilters = () => {
+    setSearchInput('')
     setSearch('')
     setRecordType('')
     setStatus('')
@@ -168,7 +205,7 @@ export default function MedicalRecordsPage() {
     return res
   }
 
-  const hasActiveFilters = Boolean(search || recordType || status || fromDate || toDate)
+  const hasActiveFilters = Boolean(searchInput || recordType || status || fromDate || toDate)
 
   const getTypeVariant = (type) => {
     switch (type) {
@@ -392,11 +429,8 @@ export default function MedicalRecordsPage() {
             type="search"
             className="mr-search-input"
             placeholder="Search by diagnosis, symptoms, patient or NIC..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value)
-              setPage(1)
-            }}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
         </div>
 
@@ -476,6 +510,7 @@ export default function MedicalRecordsPage() {
           columns={columns}
           data={records}
           loading={loading}
+          rowKey={(r) => r.medicalRecordId}
           emptyText="No medical records found matching your filters."
         />
 

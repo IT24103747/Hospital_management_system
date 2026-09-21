@@ -7,7 +7,7 @@ namespace HospitalManagementSystem.Api.Controllers;
 
 [ApiController]
 [Route("api/patient/doctors")]
-[Authorize(Roles = "Patient")]
+[Authorize(Roles = "Patient,Admin,Doctor")]
 public sealed class PatientDoctorController : ControllerBase
 {
     private readonly IDoctorService _doctorService;

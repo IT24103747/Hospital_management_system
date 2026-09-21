@@ -9,6 +9,11 @@ public class AppointmentCompletionService(IServiceScopeFactory scopes, ILogger<A
     {
         var now = DateTime.UtcNow;
         var due = db.Appointments.Where(a => a.Status == "Confirmed" && a.DoctorTimeSlot != null && a.DoctorTimeSlot.EndAt <= now);
+
+        // Fast check avoids unnecessary database writes when no appointments are due
+        if (!await due.AnyAsync(cancellationToken))
+            return;
+
         if (db.Database.IsRelational())
         {
             // Conditional database update avoids overwriting a concurrent cancellation or reschedule.
@@ -28,7 +33,7 @@ public class AppointmentCompletionService(IServiceScopeFactory scopes, ILogger<A
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(60));
         do
         {
             try

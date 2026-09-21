@@ -62,11 +62,16 @@ namespace HospitalManagementSystem.Api.Services
             if (patient == null)
                 return null;
 
-            // Role scope verification: Patients can only access their own history
-            if (string.Equals(userRole, "Patient", StringComparison.OrdinalIgnoreCase))
+            // Role scope verification: Non-Admin, non-Doctor users can only access their own history
+            if (!string.Equals(userRole, "Admin", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(userRole, "Doctor", StringComparison.OrdinalIgnoreCase))
             {
-                if (!string.Equals(patient.Email, userEmail, StringComparison.OrdinalIgnoreCase))
+                if (string.IsNullOrWhiteSpace(userEmail) ||
+                    string.IsNullOrWhiteSpace(patient.Email) ||
+                    !string.Equals(patient.Email.Trim(), userEmail.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
                     throw new UnauthorizedAccessException("You are not authorized to view another patient's medical history.");
+                }
             }
 
             var records = await _repo.GetByPatientIdAsync(patientId);
@@ -75,12 +80,24 @@ namespace HospitalManagementSystem.Api.Services
 
         public async Task<IEnumerable<MedicalRecordDto>?> GetMyMedicalRecordsAsync(string patientEmail)
         {
-            var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Email == patientEmail);
+            var normalized = patientEmail?.Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(normalized)) return null;
+
+            var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Email != null && p.Email.ToLower() == normalized);
             if (patient == null)
                 return null;
 
             var records = await _repo.GetByPatientIdAsync(patient.PatientId);
             return records.Select(MapToDto);
+        }
+
+        public async Task<int?> GetPatientIdByEmailAsync(string email)
+        {
+            var normalized = email?.Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(normalized)) return null;
+
+            var patient = await _db.Patients.FirstOrDefaultAsync(p => p.Email != null && p.Email.ToLower() == normalized);
+            return patient?.PatientId;
         }
 
         public async Task<MedicalRecordSummaryDto> GetSummaryAsync()
@@ -90,30 +107,56 @@ namespace HospitalManagementSystem.Api.Services
 
         public async Task<MedicalRecordDto> CreateRecordAsync(CreateMedicalRecordDto dto, string? userEmail, string? userRole)
         {
-            var patient = await _db.Patients.FindAsync(dto.PatientId);
-            if (patient == null)
-                throw new KeyNotFoundException($"Patient with ID {dto.PatientId} was not found.");
+            Patient? patient;
+
+            // Role scope: If user is not Admin or Doctor, resolve their own patient record from their logged-in email
+            if (!string.Equals(userRole, "Admin", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(userRole, "Doctor", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(userEmail))
+                    throw new UnauthorizedAccessException("Token missing user email claim.");
+
+                var normalized = userEmail.Trim().ToLowerInvariant();
+                patient = await _db.Patients.FirstOrDefaultAsync(p => p.Email != null && p.Email.ToLower() == normalized);
+                if (patient == null)
+                    throw new KeyNotFoundException($"No patient profile was found associated with your account ({userEmail}).");
+            }
+            else
+            {
+                patient = await _db.Patients.FindAsync(dto.PatientId);
+                if (patient == null)
+                    throw new KeyNotFoundException($"Patient with ID {dto.PatientId} was not found.");
+            }
 
             int? doctorId = dto.DoctorId;
 
             // If user is Doctor and doctorId wasn't explicitly supplied, resolve their DoctorId from their user account
             if (!doctorId.HasValue && string.Equals(userRole, "Doctor", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(userEmail))
             {
-                var doctor = await _db.Doctors.FirstOrDefaultAsync(d => d.User.Email == userEmail);
+                var docEmail = userEmail.Trim().ToLowerInvariant();
+                var doctor = await _db.Doctors.FirstOrDefaultAsync(d => d.User.Email != null && d.User.Email.ToLower() == docEmail);
                 if (doctor != null)
                     doctorId = doctor.DoctorId;
             }
 
+            var symptoms = !string.IsNullOrWhiteSpace(dto.Symptoms)
+                ? dto.Symptoms.Trim()
+                : (!string.IsNullOrWhiteSpace(dto.LabNotes) ? dto.LabNotes.Trim() : (!string.IsNullOrWhiteSpace(dto.PrescriptionNotes) ? dto.PrescriptionNotes.Trim() : "Clinical record"));
+
+            var treatmentPlan = !string.IsNullOrWhiteSpace(dto.TreatmentPlan)
+                ? dto.TreatmentPlan.Trim()
+                : (!string.IsNullOrWhiteSpace(dto.PrescriptionNotes) ? dto.PrescriptionNotes.Trim() : "Follow general medical advice.");
+
             var record = new MedicalRecord
             {
-                PatientId = dto.PatientId,
+                PatientId = patient.PatientId,
                 DoctorId = doctorId,
                 AppointmentId = dto.AppointmentId,
                 RecordDate = dto.RecordDate ?? DateTime.UtcNow,
                 RecordType = string.IsNullOrWhiteSpace(dto.RecordType) ? MedicalRecordTypes.Consultation : dto.RecordType,
                 Diagnosis = dto.Diagnosis.Trim(),
-                Symptoms = dto.Symptoms.Trim(),
-                TreatmentPlan = dto.TreatmentPlan.Trim(),
+                Symptoms = symptoms,
+                TreatmentPlan = treatmentPlan,
                 PrescriptionNotes = dto.PrescriptionNotes?.Trim(),
                 LabNotes = dto.LabNotes?.Trim(),
                 FollowUpDate = dto.FollowUpDate,
@@ -150,8 +193,10 @@ namespace HospitalManagementSystem.Api.Services
 
             record.RecordType = dto.RecordType;
             record.Diagnosis = dto.Diagnosis.Trim();
-            record.Symptoms = dto.Symptoms.Trim();
-            record.TreatmentPlan = dto.TreatmentPlan.Trim();
+            if (!string.IsNullOrWhiteSpace(dto.Symptoms))
+                record.Symptoms = dto.Symptoms.Trim();
+            if (!string.IsNullOrWhiteSpace(dto.TreatmentPlan))
+                record.TreatmentPlan = dto.TreatmentPlan.Trim();
             record.PrescriptionNotes = dto.PrescriptionNotes?.Trim();
             record.LabNotes = dto.LabNotes?.Trim();
             record.FollowUpDate = dto.FollowUpDate;

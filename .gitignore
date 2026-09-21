@@ -50,3 +50,4 @@ Thumbs.db
 
 # Isolated verification output
 .test-output/
+**/uploads/

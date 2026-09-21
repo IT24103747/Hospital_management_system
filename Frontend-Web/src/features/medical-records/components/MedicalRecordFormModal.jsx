@@ -15,6 +15,10 @@ import {
   Image as ImageIcon,
   CheckCircle2,
   Trash2,
+  Search,
+  FlaskConical,
+  ChevronDown,
+  Info,
 } from 'lucide-react'
 import Modal from '../../../components/Modal'
 import Button from '../../../components/Button'
@@ -33,6 +37,7 @@ export default function MedicalRecordFormModal({
 }) {
   const isModalOpen = open ?? isOpen ?? false
   const fileInputRef = useRef(null)
+  const patientDropdownRef = useRef(null)
 
   const [formData, setFormData] = useState({
     patientId: '',
@@ -50,6 +55,8 @@ export default function MedicalRecordFormModal({
     attachments: [],
   })
 
+  const [patientSearch, setPatientSearch] = useState('')
+  const [isPatientDropdownOpen, setIsPatientDropdownOpen] = useState(false)
   const [validationError, setValidationError] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
 
@@ -70,9 +77,10 @@ export default function MedicalRecordFormModal({
         status: initialData.status || 'Finalized',
         attachments: initialData.attachments ? [...initialData.attachments] : [],
       })
+      setPatientSearch(initialData.patientName || '')
     } else {
       setFormData({
-        patientId: patients.length > 0 ? patients[0].patientId : '',
+        patientId: '',
         doctorId: '',
         appointmentId: '',
         recordDate: new Date().toISOString().split('T')[0],
@@ -86,9 +94,44 @@ export default function MedicalRecordFormModal({
         status: 'Finalized',
         attachments: [],
       })
+      setPatientSearch('')
     }
     setValidationError(null)
+    setIsPatientDropdownOpen(false)
   }, [initialData, isModalOpen, patients])
+
+  // Close patient dropdown when clicked outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (patientDropdownRef.current && !patientDropdownRef.current.contains(event.target)) {
+        setIsPatientDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const selectedPatient = patients.find(
+    (p) => String(p.patientId) === String(formData.patientId)
+  )
+
+  const filteredPatients = patients.filter((p) => {
+    if (!patientSearch.trim()) return true
+    const q = patientSearch.toLowerCase()
+    const name = `${p.fullName || ''} ${p.firstName || ''} ${p.lastName || ''}`.toLowerCase()
+    const nic = (p.nic || '').toLowerCase()
+    const phone = (p.phoneNumber || '').toLowerCase()
+    const email = (p.email || '').toLowerCase()
+    const id = String(p.patientId)
+    return name.includes(q) || nic.includes(q) || phone.includes(q) || email.includes(q) || id.includes(q)
+  })
+
+  const handleSelectPatient = (patient) => {
+    setFormData((prev) => ({ ...prev, patientId: patient.patientId }))
+    setPatientSearch(patient.fullName || `${patient.firstName} ${patient.lastName}`)
+    setIsPatientDropdownOpen(false)
+    setValidationError(null)
+  }
 
   const handleFileChange = async (e) => {
     const files = e.target.files
@@ -101,7 +144,7 @@ export default function MedicalRecordFormModal({
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i]
       const fileType = file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream')
-      
+
       const fileDataUrl = await new Promise((resolve) => {
         const reader = new FileReader()
         reader.onload = () => resolve(reader.result)
@@ -109,7 +152,17 @@ export default function MedicalRecordFormModal({
         reader.readAsDataURL(file)
       })
 
+      // Cache file preview in sessionStorage for immediate viewing in-session
+      try {
+        if (typeof window !== 'undefined' && fileDataUrl && fileDataUrl.length < 5 * 1024 * 1024) {
+          sessionStorage.setItem(`med_preview_${file.name}`, fileDataUrl)
+        }
+      } catch {
+        // Ignore quota limits
+      }
+
       newItems.push({
+        rawFile: file,
         fileName: file.name,
         fileType: fileType,
         fileUrl: fileDataUrl,
@@ -142,23 +195,100 @@ export default function MedicalRecordFormModal({
     }))
   }
 
+  const isConsultation = formData.recordType === 'Consultation'
+  const isLabReport = formData.recordType === 'LabReport'
+  const isPrescription = formData.recordType === 'Prescription'
+  const isDischargeSummary = formData.recordType === 'DischargeSummary'
+  const isGeneralNote = formData.recordType === 'GeneralNote'
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!formData.patientId) {
       setValidationError('Please select a patient.')
       return
     }
-    if (!formData.diagnosis.trim()) {
-      setValidationError('Primary diagnosis is required.')
-      return
+
+    // Dynamic field validation per record type
+    if (isLabReport) {
+      if (!formData.diagnosis.trim()) {
+        setValidationError('Laboratory investigation / test name is required.')
+        return
+      }
+      if (!formData.labNotes.trim()) {
+        setValidationError('Lab observations & test measurements are required.')
+        return
+      }
+      if (!formData.treatmentPlan.trim()) {
+        setValidationError('Diagnostic impression & clinical interpretation is required.')
+        return
+      }
+    } else if (isPrescription) {
+      if (!formData.diagnosis.trim()) {
+        setValidationError('Medical condition / clinical indication is required.')
+        return
+      }
+      if (!formData.prescriptionNotes.trim()) {
+        setValidationError('Prescription details & medication dosages are required.')
+        return
+      }
+      if (!formData.treatmentPlan.trim()) {
+        setValidationError('Patient administration instructions & directions are required.')
+        return
+      }
+    } else if (isDischargeSummary) {
+      if (!formData.diagnosis.trim()) {
+        setValidationError('Final discharge diagnosis is required.')
+        return
+      }
+      if (!formData.symptoms.trim()) {
+        setValidationError('Admission reason & hospital stay summary is required.')
+        return
+      }
+      if (!formData.treatmentPlan.trim()) {
+        setValidationError('Post-discharge instructions & care plan is required.')
+        return
+      }
+    } else if (isGeneralNote) {
+      if (!formData.diagnosis.trim()) {
+        setValidationError('Note subject / heading is required.')
+        return
+      }
+      if (!formData.symptoms.trim()) {
+        setValidationError('Clinical progress observations are required.')
+        return
+      }
+      if (!formData.treatmentPlan.trim()) {
+        setValidationError('Recommendations and plan are required.')
+        return
+      }
+    } else {
+      // Standard Consultation
+      if (!formData.diagnosis.trim()) {
+        setValidationError('Primary diagnosis is required.')
+        return
+      }
+      if (!formData.symptoms.trim()) {
+        setValidationError('Symptoms & clinical findings are required.')
+        return
+      }
+      if (!formData.treatmentPlan.trim()) {
+        setValidationError('Treatment plan is required.')
+        return
+      }
     }
-    if (!formData.symptoms.trim()) {
-      setValidationError('Symptoms & clinical findings are required.')
-      return
+
+    // Provide safe defaults for backend database non-null columns
+    let finalSymptoms = formData.symptoms.trim()
+    if (!finalSymptoms) {
+      if (isLabReport) finalSymptoms = formData.labNotes.trim() || 'Laboratory diagnostic test findings'
+      else if (isPrescription) finalSymptoms = `Prescription issued for ${formData.diagnosis.trim()}`
+      else finalSymptoms = 'Clinical documentation'
     }
-    if (!formData.treatmentPlan.trim()) {
-      setValidationError('Treatment plan is required.')
-      return
+
+    let finalTreatmentPlan = formData.treatmentPlan.trim()
+    if (!finalTreatmentPlan) {
+      if (isPrescription) finalTreatmentPlan = formData.prescriptionNotes.trim() || 'Follow prescribed regimen'
+      else finalTreatmentPlan = 'Follow clinical advice'
     }
 
     const payload = {
@@ -168,12 +298,28 @@ export default function MedicalRecordFormModal({
       appointmentId: formData.appointmentId ? parseInt(formData.appointmentId, 10) : null,
       followUpDate: formData.followUpDate ? new Date(formData.followUpDate).toISOString() : null,
       recordDate: formData.recordDate ? new Date(formData.recordDate).toISOString() : new Date().toISOString(),
-      attachments: formData.attachments.map((a) => ({
-        fileName: a.fileName,
-        fileType: a.fileType,
-        fileUrl: a.fileUrl.startsWith('blob:') ? `/uploads/medical-records/${a.fileName}` : a.fileUrl,
-        fileSize: a.fileSize,
-      })),
+      diagnosis: formData.diagnosis.trim(),
+      symptoms: finalSymptoms,
+      treatmentPlan: finalTreatmentPlan,
+      prescriptionNotes: formData.prescriptionNotes?.trim() || null,
+      labNotes: formData.labNotes?.trim() || null,
+      attachments: formData.attachments.map((a) => {
+        const isDataOrBlob =
+          !a.fileUrl ||
+          a.fileUrl.startsWith('data:') ||
+          a.fileUrl.startsWith('blob:') ||
+          a.fileUrl.length > 1000
+        return {
+          rawFile: a.rawFile,
+          attachmentId: a.attachmentId,
+          fileName: (a.fileName || 'attachment.pdf').slice(0, 250),
+          fileType: (a.fileType || 'application/pdf').slice(0, 100),
+          fileUrl: isDataOrBlob
+            ? `/uploads/medical-records/${encodeURIComponent(a.fileName || 'attachment.pdf')}`
+            : a.fileUrl,
+          fileSize: Math.max(1, Math.min(a.fileSize || 1024 * 50, 50 * 1024 * 1024)),
+        }
+      }),
     }
     await onSubmit(payload)
   }
@@ -195,7 +341,7 @@ export default function MedicalRecordFormModal({
       subtitle={
         isEdit
           ? `Updating Record #${initialData?.medicalRecordId} for ${initialData?.patientName}`
-          : 'Record patient consultation, clinical diagnosis, prescriptions, and lab findings'
+          : 'Record patient consultation, diagnostic report, prescription, or clinical note'
       }
       size="lg"
       id="medical-record-form-modal"
@@ -213,8 +359,11 @@ export default function MedicalRecordFormModal({
             <User size={15} /> Patient & Record Information
           </h5>
           <div className="form-grid form-grid--2">
-            <div className="field">
-              <label className="field__label">Patient <span className="field__required">*</span></label>
+            {/* Searchable Patient Selector */}
+            <div className="field" ref={patientDropdownRef} style={{ position: 'relative' }}>
+              <label className="field__label">
+                Patient <span className="field__required">*</span>
+              </label>
               {isEdit ? (
                 <input
                   type="text"
@@ -223,24 +372,128 @@ export default function MedicalRecordFormModal({
                   disabled
                 />
               ) : (
-                <select
-                  className="field__input field__select"
-                  value={formData.patientId}
-                  onChange={(e) => setFormData({ ...formData, patientId: e.target.value })}
-                  required
-                >
-                  <option value="">Select Patient</option>
-                  {patients.map((p) => (
-                    <option key={p.patientId} value={p.patientId}>
-                      {p.fullName || `${p.firstName} ${p.lastName}`} (NIC: {p.nic || '—'})
-                    </option>
-                  ))}
-                </select>
+                <div style={{ position: 'relative' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
+                    <Search
+                      size={16}
+                      style={{
+                        position: 'absolute',
+                        left: '12px',
+                        color: 'var(--text-muted)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                    <input
+                      type="text"
+                      className="field__input"
+                      style={{ paddingLeft: '36px', paddingRight: '32px' }}
+                      placeholder="Search patient by name, NIC, phone, ID..."
+                      value={patientSearch}
+                      onChange={(e) => {
+                        setPatientSearch(e.target.value)
+                        setIsPatientDropdownOpen(true)
+                      }}
+                      onFocus={() => setIsPatientDropdownOpen(true)}
+                      required={!formData.patientId}
+                    />
+                    <ChevronDown
+                      size={16}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        color: 'var(--text-muted)',
+                        pointerEvents: 'none',
+                        transform: isPatientDropdownOpen ? 'rotate(180deg)' : 'none',
+                        transition: 'transform 0.2s ease',
+                      }}
+                    />
+                  </div>
+
+                  {/* Dropdown list */}
+                  {isPatientDropdownOpen && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        maxHeight: '220px',
+                        overflowY: 'auto',
+                        background: 'var(--bg-surface)',
+                        border: '1px solid var(--border-default)',
+                        borderRadius: '10px',
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+                        zIndex: 50,
+                      }}
+                    >
+                      {filteredPatients.length > 0 ? (
+                        filteredPatients.map((p) => {
+                          const isSelected = String(p.patientId) === String(formData.patientId)
+                          const pName = p.fullName || `${p.firstName} ${p.lastName}`
+                          return (
+                            <div
+                              key={p.patientId}
+                              data-testid={`patient-option-${p.patientId}`}
+                              onClick={() => handleSelectPatient(p)}
+                              style={{
+                                padding: '10px 14px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                background: isSelected ? 'rgba(14, 165, 233, 0.1)' : 'transparent',
+                                borderBottom: '1px solid var(--border-default)',
+                                transition: 'background 0.15s ease',
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!isSelected) e.currentTarget.style.background = 'var(--bg-base)'
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!isSelected) e.currentTarget.style.background = 'transparent'
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-primary)' }}>
+                                  {pName}
+                                </div>
+                                <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                  NIC: {p.nic || 'N/A'} • Phone: {p.phoneNumber || 'N/A'} • ID: #{p.patientId}
+                                </div>
+                              </div>
+                              {isSelected && <CheckCircle2 size={16} color="var(--clr-primary)" />}
+                            </div>
+                          )
+                        })
+                      ) : (
+                        <div style={{ padding: '16px', textAlign: 'center', fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                          No patients found matching "{patientSearch}"
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Hidden accessibility select */}
+                  <select
+                    style={{ display: 'none' }}
+                    value={formData.patientId}
+                    onChange={(e) => setFormData({ ...formData, patientId: e.target.value })}
+                  >
+                    <option value="">Select Patient</option>
+                    {patients.map((p) => (
+                      <option key={p.patientId} value={p.patientId}>
+                        {p.fullName || `${p.firstName} ${p.lastName}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               )}
             </div>
 
             <div className="field">
-              <label className="field__label">Record Type <span className="field__required">*</span></label>
+              <label className="field__label">
+                Record Type <span className="field__required">*</span>
+              </label>
               <select
                 className="field__input field__select"
                 value={formData.recordType}
@@ -248,13 +501,21 @@ export default function MedicalRecordFormModal({
                 required
               >
                 {RECORD_TYPES.map((type) => (
-                  <option key={type} value={type}>{type}</option>
+                  <option key={type} value={type}>
+                    {type === 'Consultation' && 'Consultation (Full Visit)'}
+                    {type === 'LabReport' && 'Lab Report / Test Result'}
+                    {type === 'Prescription' && 'Prescription Order'}
+                    {type === 'DischargeSummary' && 'Discharge Summary'}
+                    {type === 'GeneralNote' && 'General Progress Note'}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div className="field">
-              <label className="field__label">Record Date <span className="field__required">*</span></label>
+              <label className="field__label">
+                Record Date <span className="field__required">*</span>
+              </label>
               <input
                 type="date"
                 className="field__input"
@@ -265,7 +526,9 @@ export default function MedicalRecordFormModal({
             </div>
 
             <div className="field">
-              <label className="field__label">Workflow Status <span className="field__required">*</span></label>
+              <label className="field__label">
+                Workflow Status <span className="field__required">*</span>
+              </label>
               <select
                 className="field__input field__select"
                 value={formData.status}
@@ -273,111 +536,383 @@ export default function MedicalRecordFormModal({
                 required
               >
                 {STATUSES.map((st) => (
-                  <option key={st} value={st}>{st}</option>
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
         </div>
 
-        {/* Section 2: Clinical Findings & Diagnosis */}
-        <div className="form-section">
-          <h5 className="form-section__title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Activity size={15} /> Clinical Evaluation & Diagnosis
-          </h5>
-          <div className="form-grid">
-            <div className="field">
-              <label className="field__label">Primary Diagnosis <span className="field__required">*</span></label>
-              <input
-                type="text"
-                className="field__input"
-                placeholder="e.g. Type 2 Diabetes, Acute Bronchitis"
-                value={formData.diagnosis}
-                onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
-                maxLength={500}
-                required
-              />
-            </div>
+        {/* Dynamic Section: Lab Report Focus */}
+        {isLabReport && (
+          <div className="form-section">
+            <h5 className="form-section__title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <FlaskConical size={15} /> Laboratory Investigation & Metrics
+            </h5>
+            <div className="form-grid">
+              <div className="field">
+                <label className="field__label">
+                  Investigation / Test Name <span className="field__required">*</span>
+                </label>
+                <input
+                  type="text"
+                  className="field__input"
+                  placeholder="e.g. Full Blood Count (FBC), Fasting Blood Sugar, Lipid Profile, Chest X-Ray..."
+                  value={formData.diagnosis}
+                  onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
+                  maxLength={500}
+                  required
+                />
+              </div>
 
-            <div className="field">
-              <label className="field__label">Symptoms & Clinical Presentation <span className="field__required">*</span></label>
-              <textarea
-                className="field__input"
-                placeholder="Enter patient symptoms and complaints..."
-                rows={3}
-                value={formData.symptoms}
-                onChange={(e) => setFormData({ ...formData, symptoms: e.target.value })}
-                maxLength={2000}
-                required
-                style={{ resize: 'vertical' }}
-              />
-            </div>
+              <div className="field">
+                <label className="field__label">
+                  Lab Observations, Quantitative Values & Measurements <span className="field__required">*</span>
+                </label>
+                <textarea
+                  className="field__input"
+                  placeholder="e.g. Hemoglobin: 14.2 g/dL, WBC: 7.2 x10^3/uL, Platelets: 240,000/uL, Fasting Glucose: 98 mg/dL..."
+                  rows={4}
+                  value={formData.labNotes}
+                  onChange={(e) => setFormData({ ...formData, labNotes: e.target.value })}
+                  maxLength={4000}
+                  required
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: '0.84rem', resize: 'vertical' }}
+                />
+              </div>
 
-            <div className="field">
-              <label className="field__label">Treatment Plan & Medical Advice <span className="field__required">*</span></label>
-              <textarea
-                className="field__input"
-                placeholder="Enter treatment plan and doctor advice..."
-                rows={3}
-                value={formData.treatmentPlan}
-                onChange={(e) => setFormData({ ...formData, treatmentPlan: e.target.value })}
-                maxLength={2000}
-                required
-                style={{ resize: 'vertical' }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Section 3: Prescriptions & Lab Notes */}
-        <div className="form-section">
-          <h5 className="form-section__title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Pill size={15} /> Prescriptions & Diagnostics
-          </h5>
-          <div className="form-grid form-grid--2">
-            <div className="field">
-              <label className="field__label">Prescription Notes & Dosage</label>
-              <textarea
-                className="field__input"
-                placeholder="e.g. Paracetamol 500mg TDS x 3 days"
-                rows={3}
-                value={formData.prescriptionNotes}
-                onChange={(e) => setFormData({ ...formData, prescriptionNotes: e.target.value })}
-                maxLength={2000}
-                style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', resize: 'vertical' }}
-              />
-            </div>
-
-            <div className="field">
-              <label className="field__label">Lab Observations & Test Findings</label>
-              <textarea
-                className="field__input"
-                placeholder="e.g. Blood Sugar: 110 mg/dL, Normal ECG"
-                rows={3}
-                value={formData.labNotes}
-                onChange={(e) => setFormData({ ...formData, labNotes: e.target.value })}
-                maxLength={4000}
-                style={{ resize: 'vertical' }}
-              />
-            </div>
-
-            <div className="field form-grid__span-2">
-              <label className="field__label">Follow-up Date (Optional)</label>
-              <input
-                type="date"
-                className="field__input"
-                value={formData.followUpDate}
-                onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })}
-              />
+              <div className="field">
+                <label className="field__label">
+                  Diagnostic Impression & Clinical Recommendations <span className="field__required">*</span>
+                </label>
+                <textarea
+                  className="field__input"
+                  placeholder="e.g. Hematological markers within normal biological reference intervals. No intervention required."
+                  rows={3}
+                  value={formData.treatmentPlan}
+                  onChange={(e) => setFormData({ ...formData, treatmentPlan: e.target.value })}
+                  maxLength={2000}
+                  required
+                  style={{ resize: 'vertical' }}
+                />
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Section 4: Attachments (File Browser / Local Drag & Drop) */}
+        {/* Dynamic Section: Prescription Focus */}
+        {isPrescription && (
+          <div className="form-section">
+            <h5 className="form-section__title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Pill size={15} /> Prescription Details & Regimen
+            </h5>
+            <div className="form-grid">
+              <div className="field">
+                <label className="field__label">
+                  Medical Indication / Condition <span className="field__required">*</span>
+                </label>
+                <input
+                  type="text"
+                  className="field__input"
+                  placeholder="e.g. Acute Bacterial Sinusitis, Essential Hypertension, Pain Relief..."
+                  value={formData.diagnosis}
+                  onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
+                  maxLength={500}
+                  required
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label">
+                  Prescribed Medications, Dosages & Frequency <span className="field__required">*</span>
+                </label>
+                <textarea
+                  className="field__input"
+                  placeholder="e.g. Amoxicillin/Clavulanate 625mg PO BD x 7 days&#10;Paracetamol 500mg PO TDS PRN for pain x 3 days..."
+                  rows={4}
+                  value={formData.prescriptionNotes}
+                  onChange={(e) => setFormData({ ...formData, prescriptionNotes: e.target.value })}
+                  maxLength={2000}
+                  required
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: '0.84rem', resize: 'vertical' }}
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label">
+                  Administration Directions & Patient Guidance <span className="field__required">*</span>
+                </label>
+                <textarea
+                  className="field__input"
+                  placeholder="e.g. Take immediately after meals with plenty of water. Complete the entire course. Avoid alcohol."
+                  rows={3}
+                  value={formData.treatmentPlan}
+                  onChange={(e) => setFormData({ ...formData, treatmentPlan: e.target.value })}
+                  maxLength={2000}
+                  required
+                  style={{ resize: 'vertical' }}
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label">Next Medication Review Date (Optional)</label>
+                <input
+                  type="date"
+                  className="field__input"
+                  value={formData.followUpDate}
+                  onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Dynamic Section: Discharge Summary Focus */}
+        {isDischargeSummary && (
+          <div className="form-section">
+            <h5 className="form-section__title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <FileText size={15} /> Inpatient Discharge Summary
+            </h5>
+            <div className="form-grid">
+              <div className="field">
+                <label className="field__label">
+                  Final Discharge Diagnosis <span className="field__required">*</span>
+                </label>
+                <input
+                  type="text"
+                  className="field__input"
+                  placeholder="e.g. Acute Appendicitis - Status Post Laparoscopic Appendectomy"
+                  value={formData.diagnosis}
+                  onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
+                  maxLength={500}
+                  required
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label">
+                  Admission Reason & Hospital Stay Summary <span className="field__required">*</span>
+                </label>
+                <textarea
+                  className="field__input"
+                  placeholder="Summarize initial clinical presentation, hospital course, interventions performed, and clinical recovery..."
+                  rows={3}
+                  value={formData.symptoms}
+                  onChange={(e) => setFormData({ ...formData, symptoms: e.target.value })}
+                  maxLength={2000}
+                  required
+                  style={{ resize: 'vertical' }}
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label">
+                  Post-Discharge Care & Activity Instructions <span className="field__required">*</span>
+                </label>
+                <textarea
+                  className="field__input"
+                  placeholder="e.g. Suture line care, wound check in 7 days. Avoid heavy lifting and vigorous exercise for 2 weeks."
+                  rows={3}
+                  value={formData.treatmentPlan}
+                  onChange={(e) => setFormData({ ...formData, treatmentPlan: e.target.value })}
+                  maxLength={2000}
+                  required
+                  style={{ resize: 'vertical' }}
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label">Discharge Medications & Regimen (Optional)</label>
+                <textarea
+                  className="field__input"
+                  placeholder="e.g. Cefuroxime 500mg BD x 5 days, Paracetamol 1g TDS PRN"
+                  rows={2}
+                  value={formData.prescriptionNotes}
+                  onChange={(e) => setFormData({ ...formData, prescriptionNotes: e.target.value })}
+                  maxLength={2000}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', resize: 'vertical' }}
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label">Outpatient Follow-up Clinic Date (Optional)</label>
+                <input
+                  type="date"
+                  className="field__input"
+                  value={formData.followUpDate}
+                  onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Dynamic Section: General Note Focus */}
+        {isGeneralNote && (
+          <div className="form-section">
+            <h5 className="form-section__title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Activity size={15} /> Clinical Progress Note
+            </h5>
+            <div className="form-grid">
+              <div className="field">
+                <label className="field__label">
+                  Note Subject / Heading <span className="field__required">*</span>
+                </label>
+                <input
+                  type="text"
+                  className="field__input"
+                  placeholder="e.g. Routine Progress Review, Vitals Follow-up Note, Dietician Advice..."
+                  value={formData.diagnosis}
+                  onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
+                  maxLength={500}
+                  required
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label">
+                  Clinical Observations & Observations <span className="field__required">*</span>
+                </label>
+                <textarea
+                  className="field__input"
+                  placeholder="Record current observations, patient condition, and clinical progress..."
+                  rows={3}
+                  value={formData.symptoms}
+                  onChange={(e) => setFormData({ ...formData, symptoms: e.target.value })}
+                  maxLength={2000}
+                  required
+                  style={{ resize: 'vertical' }}
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label">
+                  Recommendations & Next Steps <span className="field__required">*</span>
+                </label>
+                <textarea
+                  className="field__input"
+                  placeholder="Enter clinical recommendations, follow-up plan, or lifestyle advice..."
+                  rows={3}
+                  value={formData.treatmentPlan}
+                  onChange={(e) => setFormData({ ...formData, treatmentPlan: e.target.value })}
+                  maxLength={2000}
+                  required
+                  style={{ resize: 'vertical' }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Dynamic Section: Standard Consultation Focus */}
+        {isConsultation && (
+          <>
+            <div className="form-section">
+              <h5 className="form-section__title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Activity size={15} /> Clinical Evaluation & Diagnosis
+              </h5>
+              <div className="form-grid">
+                <div className="field">
+                  <label className="field__label">
+                    Primary Diagnosis <span className="field__required">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="field__input"
+                    placeholder="e.g. Type 2 Diabetes, Acute Bronchitis"
+                    value={formData.diagnosis}
+                    onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
+                    maxLength={500}
+                    required
+                  />
+                </div>
+
+                <div className="field">
+                  <label className="field__label">
+                    Symptoms & Clinical Presentation <span className="field__required">*</span>
+                  </label>
+                  <textarea
+                    className="field__input"
+                    placeholder="Enter patient symptoms and complaints..."
+                    rows={3}
+                    value={formData.symptoms}
+                    onChange={(e) => setFormData({ ...formData, symptoms: e.target.value })}
+                    maxLength={2000}
+                    required
+                    style={{ resize: 'vertical' }}
+                  />
+                </div>
+
+                <div className="field">
+                  <label className="field__label">
+                    Treatment Plan & Medical Advice <span className="field__required">*</span>
+                  </label>
+                  <textarea
+                    className="field__input"
+                    placeholder="Enter treatment plan and doctor advice..."
+                    rows={3}
+                    value={formData.treatmentPlan}
+                    onChange={(e) => setFormData({ ...formData, treatmentPlan: e.target.value })}
+                    maxLength={2000}
+                    required
+                    style={{ resize: 'vertical' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="form-section">
+              <h5 className="form-section__title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Pill size={15} /> Prescriptions & Diagnostics (Optional)
+              </h5>
+              <div className="form-grid form-grid--2">
+                <div className="field">
+                  <label className="field__label">Prescription Notes & Dosage</label>
+                  <textarea
+                    className="field__input"
+                    placeholder="e.g. Paracetamol 500mg TDS x 3 days"
+                    rows={3}
+                    value={formData.prescriptionNotes}
+                    onChange={(e) => setFormData({ ...formData, prescriptionNotes: e.target.value })}
+                    maxLength={2000}
+                    style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', resize: 'vertical' }}
+                  />
+                </div>
+
+                <div className="field">
+                  <label className="field__label">Lab Observations & Test Findings</label>
+                  <textarea
+                    className="field__input"
+                    placeholder="e.g. Blood Sugar: 110 mg/dL, Normal ECG"
+                    rows={3}
+                    value={formData.labNotes}
+                    onChange={(e) => setFormData({ ...formData, labNotes: e.target.value })}
+                    maxLength={4000}
+                    style={{ resize: 'vertical' }}
+                  />
+                </div>
+
+                <div className="field form-grid__span-2">
+                  <label className="field__label">Follow-up Date (Optional)</label>
+                  <input
+                    type="date"
+                    className="field__input"
+                    value={formData.followUpDate}
+                    onChange={(e) => setFormData({ ...formData, followUpDate: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Section: Attachments (File Browser / Local Drag & Drop) */}
         <div className="form-section">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <h5 className="form-section__title" style={{ margin: 0, border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Paperclip size={15} /> Diagnostic Attachments ({formData.attachments.length})
+              <Paperclip size={15} /> {isLabReport ? 'Diagnostic Scans & Lab Documents' : 'Diagnostic Attachments'} ({formData.attachments.length})
             </h5>
             <Button
               type="button"
@@ -399,7 +934,7 @@ export default function MedicalRecordFormModal({
             onChange={handleFileChange}
           />
 
-          {/* Drag & Drop / Click to Browse Dropzone */}
+          {/* Drag & Drop Dropzone */}
           <div
             onDragOver={(e) => {
               e.preventDefault()

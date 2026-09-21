@@ -66,7 +66,7 @@ export default function PatientDetailPage() {
       setSavingRecord(true)
       await medicalRecordApi.createMedicalRecord(payload)
       const updated = await medicalRecordApi.getPatientMedicalRecords(patient.patientId)
-      setMedicalRecords(updated.data || [])
+      setMedicalRecords(Array.isArray(updated) ? updated : (updated?.data || []))
       setIsAddRecordOpen(false)
     } catch (err) {
       console.error('Failed to create medical record:', err)

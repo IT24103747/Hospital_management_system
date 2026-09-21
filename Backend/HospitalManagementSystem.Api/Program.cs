@@ -80,13 +80,29 @@ builder.Services.AddAuthorization();
 if (!string.IsNullOrWhiteSpace(connectionString))
 {
     var databaseConnection = new NpgsqlConnectionStringBuilder(connectionString);
-    // Allow remote database connections more time to establish; preserve explicit configuration.
-    if (!databaseConnection.ContainsKey("Timeout"))
-        databaseConnection.Timeout = 30;
+    // Allow remote database connections more time to establish (handles Neon serverless cold-starts)
+    if (!databaseConnection.ContainsKey("Timeout") || databaseConnection.Timeout < 45)
+        databaseConnection.Timeout = 45;
+
+    // Send TCP keepalive probes every 15 seconds to prevent cloud proxies / Neon from silently dropping idle connections
+    if (!databaseConnection.ContainsKey("KeepAlive"))
+        databaseConnection.KeepAlive = 15;
+
+    // Refresh idle connections before cloud idle-disconnects
+    if (!databaseConnection.ContainsKey("Connection Idle Lifetime"))
+        databaseConnection.ConnectionIdleLifetime = 60;
+
     connectionString = databaseConnection.ConnectionString;
 }
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString, npgsqlOptions =>
+    {
+        npgsqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(10),
+            errorCodesToAdd: null);
+        npgsqlOptions.CommandTimeout(60);
+    }));
 
 // Dependency Injection
 builder.Services.AddSmsNotifications(builder.Configuration);
@@ -213,6 +229,19 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
 app.UseCors("AppCors");
+
+var webRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+var uploadsDir = Path.Combine(webRoot, "uploads", "medical-records");
+var patientScansDir = Path.Combine(webRoot, "uploads", "patient-scans");
+Directory.CreateDirectory(uploadsDir);
+Directory.CreateDirectory(patientScansDir);
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(webRoot),
+    RequestPath = ""
+});
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
