@@ -12,4 +12,5 @@ public interface ITriageWorkflowService
     Task<IReadOnlyList<TriageWorkflowDto>> GetPendingClinicalReviewsAsync();
     Task<IReadOnlyList<TriageWorkflowEventDto>?> GetAuditEventsAsync(int workflowId);
     Task<TriageWorkflowDto?> ReviewAsync(int workflowId, int reviewerUserId, ReviewTriageWorkflowDto request);
+    Task<TriageWorkflowDto?> SetPatientClinicalReviewChoiceAsync(int workflowId, int patientId, bool requested);
 }

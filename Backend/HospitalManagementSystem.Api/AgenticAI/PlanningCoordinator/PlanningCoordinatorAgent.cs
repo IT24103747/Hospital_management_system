@@ -34,6 +34,8 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
         "make an appointment",
         "appointment with",
         "see a doctor",
+        "want to see",
+        "see an ",
         "consult a doctor",
         "need an appointment"
     ];
@@ -249,6 +251,31 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
         var hasExplicitBookingIntent = HasExplicitBookingIntent(objective);
         var hasSymptoms = HasSymptomKeywords(objective);
 
+        // A definition request is neither a patient symptom report nor a diagnosis
+        // request. Keep it out of the clinical workflow even if a model labels the
+        // named condition as a triage concept.
+        if (IsHealthInformationQuestion(objective))
+        {
+            workflowType = PlanningWorkflowType.Unsupported;
+            hasSymptoms = false;
+            record.AuditEvents.Add(new() { EventType = "InformationalIntentDetected", Description = "Condition-information question excluded from clinical triage.", Metadata = null });
+        }
+
+        // Routing is based on the patient's expressed purpose, not specialty/body-part words
+        // returned by a model. An appointment-only request never enters triage.
+        if (hasExplicitBookingIntent && !hasSymptoms)
+        {
+            if (workflowType != PlanningWorkflowType.AppointmentProposal)
+                record.AuditEvents.Add(new() { EventType = "IntentRouteCorrected", Description = "Appointment-only request routed to appointment workflow.", Metadata = "No symptoms detected" });
+            workflowType = PlanningWorkflowType.AppointmentProposal;
+        }
+        else if (hasSymptoms)
+        {
+            workflowType = hasExplicitBookingIntent
+                ? PlanningWorkflowType.TriageThenAppointmentProposal
+                : PlanningWorkflowType.SafeTriage;
+        }
+
         var appointmentRequested = decision.AppointmentRequested;
         if (hasSymptoms && !hasExplicitBookingIntent)
         {
@@ -353,6 +380,15 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
     {
         var lower = text.ToLowerInvariant();
         return SymptomKeywords.Any(k => lower.Contains(k, StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static bool IsHealthInformationQuestion(string text) =>
+        Regex.IsMatch(text.Trim(), @"^(?:what\s+is|what'?s|tell\s+me\s+about|explain|information\s+about)\s+.+[?!.]*$", RegexOptions.IgnoreCase) &&
+        !Regex.IsMatch(text, @"\b(i|my|me)\b.*\b(have|had|feel|felt|was|were|bitten|scratched|exposed|hurt)\b", RegexOptions.IgnoreCase);
+
+    internal static string HealthInformationReply(string text)
+    {
+        return "I could not generate the requested general health information right now. Please try again shortly. If this relates to symptoms, an injury, or a possible exposure affecting you, describe what happened and when so the safety-triage workflow can assess it.";
     }
 
     private static GeminiPlanningDecision DeterministicRuleBasedFallback(string objective, PlanningRequestDto request)

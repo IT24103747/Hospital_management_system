@@ -94,6 +94,17 @@ public sealed partial class PlanningCoordinatorAgent
                     ApplyWorkflow(state, workflow);
                     ClinicalReply(state, workflow);
                 }
+                else if (workflow != null && workflow.TriageLevel is not (TriageLevels.Emergency or TriageLevels.Urgent) &&
+                         workflow.Status != TriageWorkflowStatuses.FailedSafely)
+                {
+                    // Self-heal conversations that were corrupted by the old CheckPatientSafetyAsync
+                    // bug which overwrote state.WorkflowId with a ClinicalReview-level workflow from
+                    // a different conversation. A non-blocking pending review must not freeze the
+                    // conversation; clear the awaiting gate so the patient can continue.
+                    state.Awaiting = null;
+                    state.SafetyBlocked = false;
+                    Reply(state, "Your assessment is still being reviewed by the care team. You can continue using the assistant in the meantime.", "COMPLETED");
+                }
             }
             await SaveAsync(entity, state, token);
             return Response(entity, state);
@@ -263,12 +274,20 @@ public sealed partial class PlanningCoordinatorAgent
         state.State = "ROUTING";
         var rawSafety = ClinicalSafetyTools.EvaluateRedFlags(text);
         var planned = state.ExecutionWorkflowId == null ? null : await _store.GetAsync(state.ExecutionWorkflowId, token);
-        var plannedClinical = planned?.Objective == text && planned.Plan.WorkflowType is "SafeTriage" or "TriageThenAppointmentProposal";
-        var symptoms = plannedClinical || rawSafety.HasEscalation || ClinicalSafetyTools.IsRoutine(text, null) ||
-            Has(text, @"\b(symptom|symptoms|pain|bleeding|fever|cough|sick|unwell|dizzy|headache|nausea|vomiting|breathing|rash|swollen|feel ill|hurt|suffering|nosebleed|shortness|feeling)\b");
+        var informationQuestion = IsHealthInformationQuestion(text);
+        var plannedClinical = !informationQuestion && planned?.Objective == text && planned.Plan.WorkflowType is "SafeTriage" or "TriageThenAppointmentProposal";
+        // Compute appointmentIntent first so it can suppress soft symptom signals.
         var appointmentIntent = (planned?.Objective == text && planned.Plan.WorkflowType is ("AppointmentProposal" or "AppointmentStatus") &&
-            (planned.Plan.AppointmentRequested || planned.Plan.WorkflowType == "AppointmentStatus")) || Has(text, @"\b(appointment|appointments|book|booking|doctor|specialist|cardiologist|ophthalmologist|dermatologist|neurologist|consultation|cardiology|ophthalmology)\b") ||
+            (planned.Plan.AppointmentRequested || planned.Plan.WorkflowType == "AppointmentStatus")) ||
+            Has(text, @"\b(appointment|appointments|book|booking|doctor|surgeon|specialist|cardiologist|ophthalmologist|dermatologist|neurologist|consultation|cardiology|ophthalmology)\b") ||
             (state.SearchQuery != null && Has(text, @"\bproceed\b"));
+        // An explicit booking verb (book/schedule/reserve) suppresses the soft IsRoutine
+        // and generic keyword symptom signals. Real safety red-flags and pre-planned
+        // clinical workflows are always unconditional and are never suppressed.
+        var hasExplicitBookingVerb = Has(text, @"\b(book|booking|schedule|reserve)\b");
+        var symptoms = plannedClinical || rawSafety.HasEscalation ||
+            (!hasExplicitBookingVerb && (ClinicalSafetyTools.IsRoutine(text, null) ||
+            Has(text, @"\b(symptom|symptoms|pain|bleeding|fever|cough|sick|unwell|dizzy|headache|nausea|vomiting|breathing|rash|swollen|feel ill|hurt|suffering|nosebleed|shortness|feeling)\b")));
         var askingCancel = Has(text, @"\b(cancel|cancellation)\b") &&
             (appointmentIntent || Has(text, @"\b(my|next|current|existing|booking|reservation)\b"));
         var lookingForAlternative = appointmentIntent && Has(text, @"\b(another|alternative|cannot attend|can't attend)\b");
@@ -284,6 +303,14 @@ public sealed partial class PlanningCoordinatorAgent
             await InvalidateAsync(state, "Superseded", token);
             if (!startsBookingTask) ClearAppointmentTask(state);
             await StartClinicalAsync(patient, state, text, token);
+            return;
+        }
+        if (informationQuestion)
+        {
+            // Informational questions do not create or continue a triage workflow.
+            // Explicit red flags above retain priority over this branch.
+            var answer = await _modelClient.AnswerHealthInformationAsync(text, token);
+            Reply(state, answer ?? HealthInformationReply(text), "COMPLETED");
             return;
         }
         // A patient can explicitly return to an unfinished assessment after completing
@@ -329,8 +356,79 @@ public sealed partial class PlanningCoordinatorAgent
         }
         if (state.PendingAction != null && Has(text, @"^(yes|okay|ok|confirm( this appointment)?|select this|book it|that looks good|go ahead|do it)[.! ]*$"))
         { Reply(state, "Choose your appointment below, then use the confirmation button to finish.", "WAITING_FOR_HUMAN_APPROVAL"); return; }
-        // Independent reads remain available, but explicit dismissal owns its action first.
-        if (!symptoms && await TryReadAsync(patient, state, text, token)) return;
+        // --- FailedSafely Self-Retry ---
+        // If the patient is stuck on a FailedSafely block (technical failure, not a medical danger)
+        // and explicitly asks to start fresh, clear the stale workflow and let them try again.
+        var isFailedSafelyBlock = state.SafetyBlocked && state.Clinical?.FailedSafely == true
+            && state.Clinical?.TriageLevel is not ("Emergency" or "Urgent");
+        // A fresh symptom report or independent appointment request is itself a
+        // safe retry. Do not force the patient to know a reset command or keep
+        // replaying a stale technical-failure notice.
+        if (isFailedSafelyBlock && (symptoms || appointmentIntent))
+        {
+            await InvalidateAsync(state, "Superseded", token);
+            state.WorkflowId = null;
+            state.Clinical = null;
+            state.SafetyBlocked = false;
+            state.Awaiting = null;
+            state.ActiveTask = null;
+            state.Questions = [];
+            state.Answers = [];
+            isFailedSafelyBlock = false;
+        }
+        if (isFailedSafelyBlock && Has(text, @"\b(start new|start again|restart|try again|new assessment|reset|start over|begin again)\b"))
+        {
+            await InvalidateAsync(state, "Superseded", token);
+            state.WorkflowId = null;
+            state.Clinical = null;
+            state.SafetyBlocked = false;
+            state.Awaiting = null;
+            state.ActiveTask = null;
+            state.Questions = [];
+            state.Answers = [];
+            Reply(state, "Your previous session has been cleared. Please describe your symptoms or what you would like help with, and I will start a fresh assessment.", "GATHERING_INFORMATION");
+            return;
+        }
+        // For FailedSafely-blocked patients (non-urgent), allow read-only actions (view appointments)
+        // and cancellations. Only Emergency/Urgent blocks are fully impenetrable.
+        if (!symptoms && (!state.SafetyBlocked || isFailedSafelyBlock) && await TryReadAsync(patient, state, text, token)) return;
+        // Allow cancellation even when FailedSafely-blocked — the patient already has a confirmed slot
+        // and stopping that booking is safe and is never a clinical decision.
+        if (isFailedSafelyBlock && askingCancel)
+        {
+            await InvalidateAsync(state, "Superseded", token);
+            state.Awaiting = "cancellation-reason";
+            state.CancellationReason = null;
+            Reply(state, "What is your reason for cancelling? I will then show your appointments for explicit confirmation.", "GATHERING_INFORMATION");
+            return;
+        }
+        // For a FailedSafely block (technical failure), show the improved message with self-retry option.
+        if (isFailedSafelyBlock)
+        {
+            await ReplySafetyBlockedAsync(patient.PatientId, state);
+            return;
+        }
+        if (state.Awaiting == "clinical-review-choice" && state.WorkflowId.HasValue)
+        {
+            if (Has(text, @"^(yes|y|please|request (?:a )?clinical review)[.! ]*$"))
+            {
+                var workflow = await workflows.SetPatientClinicalReviewChoiceAsync(state.WorkflowId.Value, patient.PatientId, requested: true);
+                if (workflow is null) throw new InvalidOperationException("The optional clinical-review request is no longer available.");
+                ApplyWorkflow(state, workflow);
+                ClinicalReply(state, workflow);
+                return;
+            }
+            if (Has(text, @"^(no|n|no thanks|not now)[.! ]*$"))
+            {
+                var workflow = await workflows.SetPatientClinicalReviewChoiceAsync(state.WorkflowId.Value, patient.PatientId, requested: false);
+                if (workflow is null) throw new InvalidOperationException("The optional clinical-review choice is no longer available.");
+                state.Awaiting = null;
+                Reply(state, "No Clinical Review was requested. You can ask for it later if you change your mind. Seek urgent care if symptoms become severe or rapidly worsen.", "COMPLETED");
+                return;
+            }
+            Reply(state, "Would you like to request Clinical Review? Reply yes or no.", "GATHERING_INFORMATION");
+            return;
+        }
         if (state.Awaiting == "clinical-answer" && state.WorkflowId.HasValue && appointmentIntent)
         {
             // A routine, unfinished assessment remains persisted but does not own a
@@ -577,6 +675,7 @@ public sealed partial class PlanningCoordinatorAgent
         var unsafeResult = workflow.TriageLevel is "Emergency" or "Urgent" || workflow.Status == TriageWorkflowStatuses.FailedSafely;
         var needsReview = workflow.RequiresHumanReview &&
             workflow.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested;
+        var optionalReview = !workflow.RequiresHumanReview && workflow.TriageLevel == TriageLevels.ClinicalReview;
         // Emergency/urgent outcomes are never downgraded by a later conversational message.
         var finalizedCurrentReview = state.WorkflowId == workflow.WorkflowId &&
             workflow.Status == TriageWorkflowStatuses.Completed &&
@@ -600,7 +699,7 @@ public sealed partial class PlanningCoordinatorAgent
                 Type = q.Type, Options = q.Options, Hint = q.Hint, Unit = q.Unit,
                 Minimum = q.Minimum, Maximum = q.Maximum
             }).ToList() : [];
-        state.Awaiting = state.Questions.Count > 0 ? "clinical-answer" : needsReview ? "clinical-review" : null;
+        state.Awaiting = state.Questions.Count > 0 ? "clinical-answer" : needsReview ? "clinical-review" : optionalReview ? "clinical-review-choice" : null;
     }
 
     private static void ClinicalReply(AssistantState state, TriageWorkflowDto workflow)
@@ -613,6 +712,11 @@ public sealed partial class PlanningCoordinatorAgent
         if (state.Awaiting == "clinical-review")
         {
             Reply(state, workflow.PatientMessage, "WAITING_FOR_HUMAN_APPROVAL");
+            return;
+        }
+        if (state.Awaiting == "clinical-review-choice")
+        {
+            Reply(state, workflow.PatientMessage + "\n\nWould you like to request Clinical Review? Reply yes or no.", "GATHERING_INFORMATION");
             return;
         }
         var guidance = workflow.Guidance;
@@ -695,26 +799,39 @@ public sealed partial class PlanningCoordinatorAgent
     {
         // Opening a new conversation must not bypass an unresolved safety assessment.
         var history = await workflows.GetHistoryForPatientAsync(patientId);
-        // Only genuinely open review states lock a future conversation. A rejected
-        // review is finalized; it must show its care-team guidance, but it must not
-        // permanently prevent the patient from starting an unrelated conversation.
-        var unresolved = history.FirstOrDefault(w =>
-            w.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested ||
-            w.Status is TriageWorkflowStatuses.FailedSafely or TriageWorkflowStatuses.PendingPatientInput);
-        if (unresolved == null)
+        // Only emergency and urgent workflows are globally blocking. FailedSafely
+        // represents a technical recovery path, not a clinical restriction.
+        // ClinicalReview-level pending workflows are informational: the patient
+        // acknowledged the notice and the care team will respond independently.
+        // Overwriting state.WorkflowId with a different conversation's ClinicalReview
+        // workflow corrupts the current conversation's awaiting state and locks it
+        // permanently in WAITING_FOR_HUMAN_APPROVAL — that is the bug being fixed here.
+        var blocking = history.FirstOrDefault(w =>
+            (w.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested &&
+             w.TriageLevel is TriageLevels.Emergency or TriageLevels.Urgent));
+        if (blocking != null)
         {
-            // Refresh the actual assessment before trusting a cached block. Do
-            // not clear urgent/failed-safe context merely because history is empty.
-            if (state.WorkflowId.HasValue)
-            {
-                var current = await workflows.GetForPatientAsync(state.WorkflowId.Value, patientId);
-                if (current != null) ApplyWorkflow(state, current);
-            }
+            // A genuinely blocking workflow replaces the current workflow context so
+            // that the patient sees emergency/urgent guidance and cannot bypass it.
+            if (state.WorkflowId != blocking.WorkflowId) state.Answers = [];
+            state.WorkflowId = blocking.WorkflowId;
+            ApplyWorkflow(state, blocking);
             return;
         }
-        if (state.WorkflowId != unresolved.WorkflowId) state.Answers = [];
-        state.WorkflowId = unresolved.WorkflowId;
-        ApplyWorkflow(state, unresolved);
+        // No globally blocking workflow found. Refresh only the current conversation's
+        // workflow without inheriting a different conversation's clinical context.
+        // This preserves state.Awaiting, state.WorkflowId, and state.SafetyBlocked
+        // correctly for ClinicalReview-level or PendingPatientInput cases that belong
+        // to a different conversation.
+        if (state.WorkflowId.HasValue)
+        {
+            var current = await workflows.GetForPatientAsync(state.WorkflowId.Value, patientId);
+            if (current != null) ApplyWorkflow(state, current);
+        }
+        else
+        {
+            state.SafetyBlocked = false;
+        }
     }
 
     private async Task ReplySafetyBlockedAsync(int patientId, AssistantState state)
@@ -722,13 +839,31 @@ public sealed partial class PlanningCoordinatorAgent
         var workflow = state.WorkflowId.HasValue
             ? await workflows.GetForPatientAsync(state.WorkflowId.Value, patientId) : null;
         var urgent = state.Clinical?.TriageLevel is "Emergency" or "Urgent";
+        var failedSafely = state.Clinical?.FailedSafely == true && !urgent;
         var missingAnswers = !urgent && workflow?.Status == TriageWorkflowStatuses.PendingPatientInput;
-        var message = urgent
-            ? "Appointment booking is paused because your assessment identified urgent safety concerns. Follow the assessment guidance and do not delay urgent care."
-            : missingAnswers
-                ? "Appointment booking is paused because your assessment needs more information. Please answer the assessment questions to continue."
-                : "Appointment booking is paused because your safety assessment could not be completed safely. Contact the care team to review the assessment.";
-        if (workflow != null)
+        string message;
+        if (urgent)
+        {
+            message = "Appointment booking is paused because your assessment identified urgent safety concerns. Follow the assessment guidance and do not delay urgent care.";
+        }
+        else if (missingAnswers)
+        {
+            message = "Appointment booking is paused because your assessment needs more information. Please answer the assessment questions to continue.";
+        }
+        else if (failedSafely)
+        {
+            // Technical failure — give the patient a clear, actionable message
+            message = "Your previous assessment could not be completed automatically due to a technical issue — it was not caused by anything dangerous in your message.\n\n" +
+                      "**What you can still do:**\n" +
+                      "• View or cancel your existing appointments\n" +
+                      "• Say \"start new assessment\" to clear this and try again\n\n" +
+                      "If you need urgent help, please call the clinic directly or visit your nearest emergency department.";
+        }
+        else
+        {
+            message = "Appointment booking is paused because your safety assessment could not be completed safely. Contact the care team to review the assessment.";
+        }
+        if (!failedSafely && workflow != null)
         {
             var guidance = workflow.Guidance;
             var parts = new List<string> { message, workflow.PatientMessage, guidance?.Summary ?? "" };
