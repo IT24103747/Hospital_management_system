@@ -90,12 +90,12 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         if (run.Context.FailedSafely)
         {
             workflow.Status = TriageWorkflowStatuses.FailedSafely;
-            workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
+            workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
             workflow.TriageLevel = TriageLevels.InsufficientInformation;
             workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
-            workflow.RequiresHumanReview = true;
+            workflow.RequiresHumanReview = false;
             workflow.ErrorCode = run.Trace.LastOrDefault(e => e.ErrorCode != null)?.ErrorCode ?? "InvalidOrSuspiciousInput";
-            workflow.FinalOutcome = "The system cannot safely assess this situation with the available information. Please seek assessment from a qualified healthcare professional.";
+            workflow.FinalOutcome = "We could not complete this assessment safely. Please correct the information or try again shortly; seek urgent care if symptoms are severe or worsening.";
             missingInformation.AddRange(validationProblems);
         }
         else if (redFlags.Count > 0)
@@ -120,30 +120,25 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         }
         else if (clinicalReviewFlags.Count > 0)
         {
-            workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
-            workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
+            workflow.Status = TriageWorkflowStatuses.Completed;
+            workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
             workflow.TriageLevel = TriageLevels.ClinicalReview;
-            workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
-            workflow.RequiresHumanReview = true;
+            workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
+            workflow.RequiresHumanReview = false;
             riskFactors.AddRange(clinicalReviewFlags);
-            guidance = await CreateGuidanceAsync(run.Context.Extraction, request.Symptoms, workflow.Status, workflow.TriageLevel, true);
-            workflow.FinalOutcome = "A serious condition, treatment, or high-risk health context was reported. This does not by itself establish an emergency, but it must not be classified as routine self-care. Contact the relevant care team or a qualified healthcare professional for assessment.";
+            guidance = await CreateGuidanceAsync(run.Context.Extraction, request.Symptoms, workflow.Status, workflow.TriageLevel, false);
+            workflow.FinalOutcome = "A higher-risk health context was reported. This is not an emergency determination or diagnosis. You can ask for Clinical Review if you would like a clinician to review this assessment.";
         }
         else if (!run.Context.IsWithinValidatedRoutineScope)
         {
-            var extraction = run.Context.Extraction ?? new ClinicalExtractionResult([], ["The symptom could not be mapped to a validated pathway."], null, "FailedSafely", "OutsideValidatedScope");
-            workflow.Status = TriageWorkflowStatuses.PendingPatientInput;
+            workflow.Status = TriageWorkflowStatuses.Completed;
+            workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
             workflow.TriageLevel = TriageLevels.InsufficientInformation;
             workflow.UncertaintyState = TriageUncertaintyStates.OutsideValidatedScope;
             workflow.RequiresHumanReview = false;
-            guidance = await CreateGuidanceAsync(extraction, request.Symptoms, workflow.Status, workflow.TriageLevel, false, run.Context.PlannedQuestions);
-            run.Context.PlannedInformationNeeds.Clear();
-            if (guidance is not null)
-                run.Context.PlannedInformationNeeds.AddRange(guidance.FollowUpItems.Select(question => question.Prompt));
-            missingInformation.AddRange(extraction.MissingInformation);
+            missingInformation.Add("This condition or symptom report is outside the currently supported triage pathways.");
             missingInformation.Add("The initial report did not map to a validated symptom pathway.");
-            riskFactors.AddRange(extraction.Symptoms.Select(item => $"Patient-reported symptom extracted: {item}"));
-            workflow.FinalOutcome = "More information is required before an urgency result can be shown. Answer the follow-up questions; this decision-support workflow is not a diagnosis.";
+            workflow.FinalOutcome = "This condition is outside the currently supported triage scope, so no triage result was generated. Please contact a qualified healthcare professional or use the appointment service for an appropriate consultation. Seek emergency care immediately if severe symptoms develop.";
         }
         else
         {
@@ -207,24 +202,24 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
                 }
                 else
                 {
-                    workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
-                    workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
-                    workflow.TriageLevel = TriageLevels.ClinicalReview;
-                    workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
-                    workflow.RequiresHumanReview = true;
-                    workflow.ErrorCode ??= "QuestionOrResponseGenerationUnavailable";
-                    workflow.FinalOutcome = "The system could not safely generate the required follow-up guidance. A qualified clinician must review this assessment.";
+                    workflow.Status = TriageWorkflowStatuses.Completed;
+                    workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+                    workflow.TriageLevel = TriageLevels.InsufficientInformation;
+                    workflow.UncertaintyState = TriageUncertaintyStates.OutsideValidatedScope;
+                    workflow.RequiresHumanReview = false;
+                    workflow.ErrorCode ??= "OutsideValidatedScope";
+                    workflow.FinalOutcome = "This condition is outside the currently supported triage scope, so no triage result was generated. Please contact a qualified healthcare professional or use the appointment service for an appropriate consultation.";
                 }
             }
             else
             {
-                workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
-                workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
-                workflow.TriageLevel = TriageLevels.ClinicalReview;
-                workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
-                workflow.RequiresHumanReview = true;
+                workflow.Status = TriageWorkflowStatuses.FailedSafely;
+                workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+                workflow.TriageLevel = TriageLevels.InsufficientInformation;
+                workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
+                workflow.RequiresHumanReview = false;
                 workflow.ErrorCode ??= "QuestionOrResponseGenerationUnavailable";
-                workflow.FinalOutcome = "The system could not safely generate the required follow-up guidance. A qualified clinician must review this assessment.";
+                workflow.FinalOutcome = "We could not complete this assessment safely. Please try again shortly; seek urgent care if symptoms are severe or worsening.";
             }
         }
         ApplyRequirementDecision(workflow, run.Context, guidance);
@@ -274,13 +269,13 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         if (run.Context.FailedSafely)
         {
             workflow.Status = TriageWorkflowStatuses.FailedSafely;
-            workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
+            workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
             workflow.TriageLevel = TriageLevels.InsufficientInformation;
             workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
-            workflow.RequiresHumanReview = true;
+            workflow.RequiresHumanReview = false;
             workflow.ErrorCode = "InvalidOrSuspiciousInput";
             missing.AddRange(run.Context.ValidationProblems);
-            workflow.FinalOutcome = "The additional information could not be safely validated. Please seek assessment from a qualified healthcare professional.";
+            workflow.FinalOutcome = "We could not complete this assessment safely. Please correct the information or try again shortly; seek urgent care if symptoms are severe or worsening.";
         }
         else if (redFlags.Count > 0 || urgentFlags.Count > 0)
         {
@@ -295,26 +290,25 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         }
         else if (clinicalReviewFlags.Count > 0)
         {
-            workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
-            workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
+            workflow.Status = TriageWorkflowStatuses.Completed;
+            workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
             workflow.TriageLevel = TriageLevels.ClinicalReview;
-            workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
-            workflow.RequiresHumanReview = true;
+            workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
+            workflow.RequiresHumanReview = false;
             risks.AddRange(clinicalReviewFlags);
-            guidance = await CreateGuidanceAsync(run.Context.Extraction, combinedInput, workflow.Status, workflow.TriageLevel, true);
-            workflow.FinalOutcome = "The additional information reports a serious or high-risk health context that requires professional clinical review.";
+            guidance = await CreateGuidanceAsync(run.Context.Extraction, combinedInput, workflow.Status, workflow.TriageLevel, false);
+            workflow.FinalOutcome = "The additional information reports a higher-risk health context. You can ask for Clinical Review if you would like a clinician to review this assessment.";
         }
         else if (!run.Context.IsWithinValidatedRoutineScope)
         {
-            workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
-            workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
-            workflow.TriageLevel = TriageLevels.ClinicalReview;
+            workflow.Status = TriageWorkflowStatuses.Completed;
+            workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+            workflow.TriageLevel = TriageLevels.InsufficientInformation;
             workflow.UncertaintyState = TriageUncertaintyStates.OutsideValidatedScope;
-            workflow.RequiresHumanReview = true;
+            workflow.RequiresHumanReview = false;
             risks.Add("The report remained outside the validated symptom pathways after clarification.");
-            missing.Add("A qualified clinician must assess the unresolved symptom report.");
-            guidance = await CreateGuidanceAsync(run.Context.Extraction, combinedInput, workflow.Status, workflow.TriageLevel, true);
-            workflow.FinalOutcome = "The available information remains outside the validated pathways and requires professional clinical review.";
+            missing.Add("This condition or symptom report is outside the currently supported triage pathways.");
+            workflow.FinalOutcome = "This condition remains outside the currently supported triage scope, so no triage result was generated. Please contact a qualified healthcare professional or use the appointment service for an appropriate consultation.";
         }
         else
         {
@@ -335,13 +329,13 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         }
         if (workflow.Status == TriageWorkflowStatuses.Completed && guidance is null)
         {
-            workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
-            workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
-            workflow.TriageLevel = TriageLevels.ClinicalReview;
-            workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
-            workflow.RequiresHumanReview = true;
+            workflow.Status = TriageWorkflowStatuses.FailedSafely;
+            workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+            workflow.TriageLevel = TriageLevels.InsufficientInformation;
+            workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
+            workflow.RequiresHumanReview = false;
             workflow.ErrorCode ??= "ResponseGenerationUnavailable";
-            workflow.FinalOutcome = "The system could not safely generate a patient-facing response. A qualified clinician must review this assessment.";
+            workflow.FinalOutcome = "We could not complete this assessment safely. Please try again shortly; seek urgent care if symptoms are severe or worsening.";
         }
         ApplyRequirementDecision(workflow, run.Context, guidance);
         workflow.PlanJson = JsonSerializer.Serialize(CreateCompletedPlan(workflow.Status, run.Trace));
@@ -457,6 +451,24 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
                 await store.SaveAsync(execution);
             }
         }
+        await _db.SaveChangesAsync();
+        return Map(workflow);
+    }
+
+    public async Task<TriageWorkflowDto?> SetPatientClinicalReviewChoiceAsync(int workflowId, int patientId, bool requested)
+    {
+        var workflow = await _db.TriageWorkflows.SingleOrDefaultAsync(x => x.TriageWorkflowId == workflowId && x.PatientId == patientId);
+        if (workflow is null || workflow.TriageLevel != TriageLevels.ClinicalReview || workflow.RequiresHumanReview) return null;
+        if (requested)
+        {
+            workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
+            workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
+            workflow.RequiresHumanReview = true;
+            workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
+            workflow.FinalOutcome = "Your assessment has been sent for Clinical Review at your request.";
+        }
+        await AddEvent(workflow, "PatientClinicalReviewChoice", requested ? "Requested" : "Declined", new { patientId });
+        workflow.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         return Map(workflow);
     }
@@ -618,6 +630,10 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
 
     private void ApplyRequirementDecision(TriageWorkflow workflow, SafeTriageAgentContext context, TriageGuidanceDto? guidance)
     {
+        // Technical failure and a known unsupported pathway already have explicit,
+        // non-clinical outcomes. Missing model-generated requirements must not
+        // overwrite either with a clinical-review route.
+        if (context.FailedSafely || !context.IsWithinValidatedRoutineScope) return;
         if (!context.FailedSafely && context.RedFlags.Count == 0 && context.UrgentFlags.Count == 0 && context.ClinicalReviewFlags.Count == 0)
         {
             var extractionFailed = context.Extraction?.Status == "FailedSafely";
@@ -662,17 +678,17 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             }
             else if (extractionFailed || context.Requirements.Any(r => r.State is SafeTriageRequirementState.Missing or SafeTriageRequirementState.Declined or SafeTriageRequirementState.Unknown))
             {
-                // Do not turn an exhausted question budget, unavailable required
-                // information, or failed extraction into a routine completion.
-                workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
-                workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
-                workflow.RequiresHumanReview = true;
+                // The patient may opt into review when the safe question budget is
+                // exhausted; a technical extraction failure remains FailedSafely.
+                workflow.Status = extractionFailed ? TriageWorkflowStatuses.FailedSafely : TriageWorkflowStatuses.Completed;
+                workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
+                workflow.RequiresHumanReview = false;
                 workflow.TriageLevel = TriageLevels.ClinicalReview;
-                workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
+                workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
                 workflow.ErrorCode ??= extractionFailed ? context.Extraction?.ErrorCode ?? "ExtractionUnavailable" : "FollowUpInformationUnavailable";
                 workflow.FinalOutcome = extractionFailed
-                    ? "The system could not safely complete the information assessment. A qualified clinician must review this assessment."
-                    : "The assessment still needs required information, but no further SafeTriage question can be issued. A qualified clinician must review this assessment.";
+                    ? "We could not complete this assessment safely. Please try again shortly; seek urgent care if symptoms are severe or worsening."
+                    : "The assessment still needs information, but no further SafeTriage question can be issued. You can ask for Clinical Review if you would like a clinician to review this assessment.";
             }
             else
             {
@@ -809,10 +825,8 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             PatientReportedSymptoms = redactPatientText ? RedactUnneededIdentifiers(workflow.Symptoms) : workflow.Symptoms, Guidance = guidance, RiskFactors = risks, RedFlags = flags, UrgentFlags = urgentFlags, ClinicalReviewFlags = clinicalReviewFlags, MissingInformation = missing, ClinicalFacts = MapFacts(facts), DecisionBasis = decisionBasis, Plan = JsonSerializer.Deserialize<List<TriagePlanStepDto>>(workflow.PlanJson) ?? [], RuleSetVersion = workflow.RuleSetVersion, WorkflowVersion = workflow.WorkflowVersion, CreatedAt = workflow.CreatedAt, UpdatedAt = workflow.UpdatedAt };
     }
 
-    private static string RedactUnneededIdentifiers(string text) => System.Text.RegularExpressions.Regex
-        .Replace(System.Text.RegularExpressions.Regex.Replace(text,
-            @"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[redacted email]"),
-            @"\+?\d[\d\s().-]{7,}\d", "[redacted phone]");
+    private static string RedactUnneededIdentifiers(string text) => SafeTriageRules.RedactPhoneNumbers(
+        System.Text.RegularExpressions.Regex.Replace(text, @"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[redacted email]"));
 
     private static TriageClinicalFactsDto? MapFacts(ClinicalFactSet? facts) => facts is null ? null : new TriageClinicalFactsDto
     {

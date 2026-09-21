@@ -40,6 +40,7 @@ Use existing requirement identifiers for the same information. Identify missing 
 A later explicit answer can replace a previous unavailable state. Use the latest patient statement and its exact quote. Never infer an answer from absence of a statement. Answered values must be grounded in the quoted statement. Use severity_score and progression for severity and trend.
 Existing requirement state and field labels are context, not patient evidence. Do not decide assessment completion or urgency.
 Interpret free text semantically, not by exact phrase matching. Normalize progression to stable, improving, or worsening when the meaning is clear, with the original patient words as evidence. Extract unambiguous natural-language numbers and ranges without inventing a precise value from an uncertain range.
+For warningSigns, use only these normalized non-diagnostic concepts when explicitly supported by an exact evidence quote: breathing_difficulty, severe_chest_pain, fainting_or_loss_of_consciousness, new_confusion, stroke_like_symptoms, severe_bleeding, seizure, severe_allergic_reaction, blue_lips, coughing_or_vomiting_blood, persistent_vomiting, dehydration_signs, high_fever. For example, "struggling to catch my breath" may map to breathing_difficulty only when that exact wording is quoted in evidence. Do not infer a warning sign from a condition name alone.
 Each requirement represents ONE field. Keep onset and progression separate even if an earlier question asked both. A partial answer updates only the fields it actually supplies, regardless of the follow-up field label. Keep unanswered fields Missing and preserve existing answered values. Relative onset phrases such as a named weekday can remain patient-supplied text; do not invent a date or duration.
 """;
     public Task<ClinicalExtractionResult> ExtractAsync(string patientText, bool isFollowUp, CancellationToken cancellationToken = default)
@@ -204,9 +205,17 @@ internal static class GeminiJson
         var summary = String(root, "summary", 500); var actions = Strings(root, "generalActions", 3); var safety = Strings(root, "safetyNetting", 3);
         if (string.IsNullOrWhiteSpace(summary) || actions.Count == 0 || safety.Count == 0) throw new InvalidOperationException("Invalid response schema.");
         var content = string.Join(' ', actions.Concat(safety).Append(summary));
-        if (new[] { "diagnos", "prescri", "dosage", "you are safe" }.Any(x => content.Contains(x, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("Unsafe response.");
+        if (ContainsUnsafeGuidance(content)) throw new InvalidOperationException("Unsafe response.");
         return new PatientGuidance(summary, actions, safety, []);
     }
+
+    // Do not reject safe disclaimers such as "this is not a diagnosis" or
+    // "a clinician can prescribe treatment". Reject patient-specific claims and
+    // medication/dose instructions instead.
+    private static bool ContainsUnsafeGuidance(string content) =>
+        Regex.IsMatch(content, @"\b(?:you|the patient)\s+(?:have|has|are|is|were|appear to have|definitely have)\s+(?:a\s+)?(?:diagnos(?:is|ed)|[a-z][a-z -]{2,}(?:infection|disease|condition|syndrome))\b", RegexOptions.IgnoreCase) ||
+        Regex.IsMatch(content, @"\b(?:take|start|stop|use|increase|decrease)\s+(?:(?:\d+(?:\.\d+)?\s*(?:mg|ml|mcg|tablets?|pills?))|(?:an?|your)\s+(?:medication|medicine|antibiotic|antiviral|painkiller|tablet|pill))\b", RegexOptions.IgnoreCase) ||
+        Regex.IsMatch(content, @"\b(?:take|use)\s+\d+(?:\.\d+)?\s*(?:mg|ml|mcg)\b|\byou are safe\b", RegexOptions.IgnoreCase);
     public static List<TriageFollowUpQuestionDto> ReadQuestions(JsonElement root, IReadOnlyList<string> alreadyAsked)
     {
         if (!root.TryGetProperty("questions", out var value) || value.ValueKind != JsonValueKind.Array) return [];

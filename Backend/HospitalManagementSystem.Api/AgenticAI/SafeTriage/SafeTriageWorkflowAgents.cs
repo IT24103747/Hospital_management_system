@@ -206,6 +206,9 @@ public sealed class ClinicalInformationExtractionWorkflowAgent(ISafeTriageSemant
         } while (context.Extraction.Status != "Completed" && attempts < maxAttempts && !cancellationToken.IsCancellationRequested);
         watch.Stop();
         var completed = context.Extraction.Status == "Completed";
+        // Transport, timeout and schema failures are operational failures. They must
+        // stop this run through FailedSafely, not masquerade as clinical uncertainty.
+        if (!completed) context.FailedSafely = true;
         if (completed)
         {
             var updates = context.Extraction.Requirements ?? [];
@@ -488,7 +491,7 @@ public sealed class SafeTriageWorkflowCoordinator
     }
 }
 
-internal static class SafeTriageRules
+internal static partial class SafeTriageRules
 {
     private static readonly string[] EmergencyPhrases =
     [
@@ -527,7 +530,20 @@ internal static class SafeTriageRules
         "stomach", "abdominal", "nausea", "vomiting", "diarrhea", "diarrhoea", "indigestion", "heartburn", "cramps",
         "back pain", "joint pain", "muscle pain", "leg pain", "arm pain", "sprain",
         "rash", "itching", "hives", "skin", "burn", "bite",
-        "earache", "ear pain", "toothache", "eye", "red eye", "pink eye", "pain", "unwell", "sick", "feeling"
+        "earache", "ear pain", "toothache", "eye", "red eye", "pink eye", "pain", "unwell", "sick", "feeling",
+        // Supported symptom concepts only. Named diseases outside these pathways are
+        // handled as deterministic out-of-scope requests, never as a review queue fallback.
+        "covid", "corona", "influenza", "sinusitis", "gastroenteritis",
+        "urinary tract", "uti", "kidney infection", "bladder infection",
+        // Common chronic conditions patients reference
+        "diabetes", "diabetic", "hypertension", "blood pressure", "asthma", "allergy", "allergic",
+        "migraine", "anxiety", "infection", "inflammation", "swelling", "swollen",
+        // General illness/symptom words patients use
+        "ill", "ill health", "weakness", "weak", "tired", "lethargic", "losing appetite", "appetite loss",
+        "not eating", "loss of taste", "loss of smell", "dehydrated", "dehydration",
+        // Injury and wound terms
+        "wound", "cut", "bruise", "bleeding", "fracture", "broken", "twisted", "stiff",
+        "soreness", "aching", "ache", "discomfort", "tenderness"
     ];
 
     public static List<string> Validate(StartTriageWorkflowDto request)
@@ -540,7 +556,8 @@ internal static class SafeTriageRules
             errors.Add("The symptom description appears to be repeated characters. Please describe what you are feeling.");
         if (System.Text.RegularExpressions.Regex.IsMatch(symptoms, @"\b(ignore (all |previous )?instructions|system prompt|jailbreak)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
             errors.Add("Please enter symptom information only; instructions for the system cannot be processed.");
-        if (System.Text.RegularExpressions.Regex.IsMatch(symptoms, @"\b(password|passcode|cvv|card number|account number)\b|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\+?\d[\d\s().-]{7,}\d", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        if (System.Text.RegularExpressions.Regex.IsMatch(symptoms, @"\b(password|passcode|cvv|card number|account number)\b|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
+            ContainsPhoneNumber(symptoms))
             errors.Add("Remove contact details, account details, and passwords before submitting a symptom report.");
         var vitals = request.Vitals;
         if (vitals is null) return errors;
@@ -573,11 +590,26 @@ internal static class SafeTriageRules
         !string.IsNullOrWhiteSpace(symptoms) &&
         ValidatedRoutinePhrases.Any(phrase => symptoms.Contains(phrase, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Recognizes contact numbers without confusing common appointment/date formats for phones.</summary>
+    public static bool ContainsPhoneNumber(string text) => PhoneNumberPattern().IsMatch(DatePattern().Replace(text, ""));
+
+    public static string RedactPhoneNumbers(string text) => PhoneNumberPattern().Replace(text, "[redacted phone]");
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"(?<!\d)(?:\+94[\s().-]?|0094[\s().-]?|0)7\d(?:[\s().-]?\d){7}(?!\d)|(?<!\d)\+?[1-9]\d{7,14}(?!\d)", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex PhoneNumberPattern();
+
+    // Preserve all supported date forms before evaluating digit sequences as contact details.
+    [System.Text.RegularExpressions.GeneratedRegex(@"(?<!\d)(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4})(?!\d)", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex DatePattern();
+
     public static List<string> FindEmergencyFlags(ClinicalFactSet facts)
     {
         var flags = new List<string>();
         foreach (var warning in facts.WarningSigns.Where(warning => IsGrounded(facts, "warningSigns", warning)))
+        {
             flags.AddRange(FindEmergencyFlags(warning));
+            if (NormalizedEmergencyWarnings.TryGetValue(warning, out var normalized)) flags.Add(normalized);
+        }
 
         if (IsGrounded(facts, "primaryConcept", facts.PrimaryConcept) &&
             string.Equals(facts.PrimaryConcept, "nosebleed", StringComparison.OrdinalIgnoreCase) &&
@@ -595,6 +627,9 @@ internal static class SafeTriageRules
     {
         var flags = facts.WarningSigns.Where(warning => IsGrounded(facts, "warningSigns", warning))
             .SelectMany(FindUrgentFlags).ToList();
+        flags.AddRange(facts.WarningSigns.Where(warning => IsGrounded(facts, "warningSigns", warning))
+            .Where(warning => NormalizedUrgentWarnings.TryGetValue(warning, out _))
+            .Select(warning => NormalizedUrgentWarnings[warning]));
         if (facts.TemperatureCelsius >= 39.5m && IsGrounded(facts, "temperatureCelsius"))
             flags.Add("grounded measured temperature of at least 39.5°C");
         return flags.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -614,6 +649,29 @@ internal static class SafeTriageRules
             !string.IsNullOrWhiteSpace(item.Quote) &&
             (value is null || string.Equals(item.Value, value, StringComparison.OrdinalIgnoreCase)));
 
+    private static readonly IReadOnlyDictionary<string, string> NormalizedEmergencyWarnings =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["breathing_difficulty"] = "grounded normalized breathing difficulty",
+            ["severe_chest_pain"] = "grounded normalized severe chest pain",
+            ["fainting_or_loss_of_consciousness"] = "grounded normalized fainting or loss of consciousness",
+            ["new_confusion"] = "grounded normalized new confusion",
+            ["stroke_like_symptoms"] = "grounded normalized stroke-like symptoms",
+            ["severe_bleeding"] = "grounded normalized severe bleeding",
+            ["seizure"] = "grounded normalized seizure",
+            ["severe_allergic_reaction"] = "grounded normalized severe allergic reaction",
+            ["blue_lips"] = "grounded normalized blue lips",
+            ["coughing_or_vomiting_blood"] = "grounded normalized coughing or vomiting blood"
+        };
+
+    private static readonly IReadOnlyDictionary<string, string> NormalizedUrgentWarnings =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["persistent_vomiting"] = "grounded normalized persistent vomiting",
+            ["dehydration_signs"] = "grounded normalized dehydration signs",
+            ["high_fever"] = "grounded normalized high fever"
+        };
+
     private static bool ContainsNonNegatedPhrase(string text, string phrase)
     {
         var start = 0;
@@ -621,12 +679,25 @@ internal static class SafeTriageRules
         {
             var index = text.IndexOf(phrase, start, StringComparison.OrdinalIgnoreCase);
             if (index < 0) return false;
+            
             var prefix = text[..index];
-            var nearby = prefix[Math.Max(0, prefix.Length - 45)..];
-            if (!System.Text.RegularExpressions.Regex.IsMatch(nearby,
+            var nearbyPrefix = prefix[Math.Max(0, prefix.Length - 45)..];
+            
+            var suffixIndex = index + phrase.Length;
+            var suffix = text[suffixIndex..];
+            var nearbySuffix = suffix[..Math.Min(suffix.Length, 45)];
+            
+            var hasPrefixNegation = System.Text.RegularExpressions.Regex.IsMatch(nearbyPrefix,
                     @"\b(no|not|without|deny|denies|never|don't|do not)\b(?:\W+\w+){0,4}\W*$",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    
+            var hasSuffixNegation = System.Text.RegularExpressions.Regex.IsMatch(nearbySuffix,
+                    @"^\W+(is|are|was|were)?\W*(not|resolved|gone|cleared|absent)\b",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (!hasPrefixNegation && !hasSuffixNegation)
                 return true;
+                
             start = index + phrase.Length;
         }
         return false;

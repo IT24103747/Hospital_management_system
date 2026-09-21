@@ -110,7 +110,7 @@ public class TriageWorkflowServiceTests
     }
 
     [Fact]
-    public async Task StartForPatientAsync_CancerReport_RequiresClinicalReviewAndIsNeverNonUrgent()
+    public async Task StartForPatientAsync_HighRiskContext_OffersPatientControlledClinicalReview()
     {
         await using var db = CreateDb();
         var extraction = new CountingExtractionAgent();
@@ -120,17 +120,21 @@ public class TriageWorkflowServiceTests
         var result = await service.StartForPatientAsync(1, new StartTriageWorkflowDto { Symptoms = "I have cancer." });
 
         Assert.Equal(TriageLevels.ClinicalReview, result.TriageLevel);
-        Assert.Equal(TriageWorkflowStatuses.PendingClinicalReview, result.Status);
-        Assert.Equal(TriageApprovalStatuses.Pending, result.ApprovalStatus);
-        Assert.True(result.RequiresHumanReview);
-        Assert.Equal("Your assessment has been sent for clinical review.", result.PatientMessage);
-        Assert.Null(result.Guidance);
-        var review = await service.GetForClinicalReviewerAsync(result.WorkflowId);
-        Assert.Contains("must not be classified as routine self-care", review!.SafeTriageSuggestion);
+        Assert.Equal(TriageWorkflowStatuses.Completed, result.Status);
+        Assert.Equal(TriageApprovalStatuses.NotRequired, result.ApprovalStatus);
+        Assert.False(result.RequiresHumanReview);
+        Assert.Contains("ask for Clinical Review", result.PatientMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(await service.GetPendingClinicalReviewsAsync());
         Assert.Empty(result.RedFlags);
         Assert.Empty(result.UrgentFlags);
         Assert.Contains(result.ClinicalReviewFlags, flag => flag.Contains("cancer", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(0, extraction.Calls);
+
+        var requested = await service.SetPatientClinicalReviewChoiceAsync(result.WorkflowId, 1, requested: true);
+        Assert.NotNull(requested);
+        Assert.Equal(TriageWorkflowStatuses.PendingClinicalReview, requested!.Status);
+        Assert.True(requested.RequiresHumanReview);
+        Assert.Single(await service.GetPendingClinicalReviewsAsync());
     }
 
     [Fact]
@@ -196,6 +200,59 @@ public class TriageWorkflowServiceTests
         Assert.Equal(TriageLevels.NonUrgent, result.TriageLevel);
         Assert.NotNull(result.Guidance);
         Assert.Contains("cough", result.Guidance!.Heading, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("Appointment date is 20/09/2026")]
+    [InlineData("Appointment date is 2026-09-20")]
+    [InlineData("Appointment date is 20-09-2026")]
+    [InlineData("Appointment date is 09/20/2026")]
+    public async Task StartForPatientAsync_DateIsNotTreatedAsPhoneNumber(string symptoms)
+    {
+        await using var db = CreateDb();
+        var result = await CreateService(db).StartForPatientAsync(1, new StartTriageWorkflowDto { Symptoms = symptoms });
+
+        Assert.NotEqual(TriageWorkflowStatuses.FailedSafely, result.Status);
+        Assert.False(result.RequiresHumanReview);
+        Assert.DoesNotContain(result.MissingInformation, item => item.Contains("contact details", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task StartForPatientAsync_PhoneNumberIsDetectedWithoutClinicalReview()
+    {
+        await using var db = CreateDb();
+        var result = await CreateService(db).StartForPatientAsync(1, new StartTriageWorkflowDto { Symptoms = "My phone number is 0771234567" });
+
+        Assert.Equal(TriageWorkflowStatuses.FailedSafely, result.Status);
+        Assert.False(result.RequiresHumanReview);
+        Assert.Contains(result.MissingInformation, item => item.Contains("contact details", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task StartForPatientAsync_OutOfScopeCondition_IsControlledWithoutClinicalReview()
+    {
+        await using var db = CreateDb();
+        var result = await CreateService(db).StartForPatientAsync(1, new StartTriageWorkflowDto { Symptoms = "I have dengue" });
+
+        Assert.Equal(TriageWorkflowStatuses.Completed, result.Status);
+        Assert.Equal(TriageUncertaintyStates.OutsideValidatedScope, result.UncertaintyState);
+        Assert.False(result.RequiresHumanReview);
+        Assert.Contains("outside the currently supported triage scope", result.PatientMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task StartForPatientAsync_ExtractionFailure_UsesFailedSafelyWithoutClinicalReview()
+    {
+        await using var db = CreateDb();
+        var failing = new FailingExtractionAgent();
+        var plannerAndResponse = new TestSafeTriageAgents();
+        var service = new TriageWorkflowService(db, NullLogger<TriageWorkflowService>.Instance, failing, plannerAndResponse, plannerAndResponse);
+
+        var result = await service.StartForPatientAsync(1, new StartTriageWorkflowDto { Symptoms = "I have a mild cough." });
+
+        Assert.Equal(TriageWorkflowStatuses.FailedSafely, result.Status);
+        Assert.False(result.RequiresHumanReview);
+        Assert.Contains("try again", result.PatientMessage, StringComparison.OrdinalIgnoreCase);
     }
 
 
@@ -596,6 +653,21 @@ public class TriageWorkflowServiceTests
         var planner = new GeminiSafeTriageQuestionPlanningAgent(http, GeminiSettings(), NullLogger<GeminiSafeTriageQuestionPlanningAgent>.Instance);
         var plan = await planner.PlanAsync(new([], [], null, "Completed", Requirements: [new("onset"), new("progression")]), []);
         Assert.Equal("onset", Assert.Single(plan.Questions).Id);
+    }
+
+    [Fact]
+    public async Task GeminiGuidance_AcceptsSafeDisclaimersButRejectsMedicationDirections()
+    {
+        var safe = new { summary = "This is not a diagnosis; monitor how you feel.", generalActions = new[] { "Rest and monitor symptoms." }, safetyNetting = new[] { "Seek urgent help if symptoms become severe." } };
+        using var safeHttp = GeminiHttp(safe);
+        var agent = new GeminiSafeTriageResponseGenerationAgent(safeHttp, GeminiSettings(), NullLogger<GeminiSafeTriageResponseGenerationAgent>.Instance);
+        var context = new SafeTriageResponseContext("I have a cough.", new ClinicalExtractionResult(["cough"], [], null, "Completed"), "Completed", TriageLevels.NonUrgent, false);
+        Assert.NotNull(await agent.GenerateAsync(context));
+
+        var unsafeResponse = new { summary = "You have a respiratory infection.", generalActions = new[] { "Take 500 mg antibiotic." }, safetyNetting = new[] { "Seek help if worse." } };
+        using var unsafeHttp = GeminiHttp(unsafeResponse);
+        var unsafeAgent = new GeminiSafeTriageResponseGenerationAgent(unsafeHttp, GeminiSettings(), NullLogger<GeminiSafeTriageResponseGenerationAgent>.Instance);
+        Assert.Null(await unsafeAgent.GenerateAsync(context));
     }
 
     [Fact]

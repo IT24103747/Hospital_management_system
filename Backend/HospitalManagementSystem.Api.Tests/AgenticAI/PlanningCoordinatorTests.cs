@@ -90,6 +90,21 @@ public class PlanningCoordinatorTests
         Assert.True(response.Plan.PatientConfirmationRequired);
     }
 
+    [Theory]
+    [InlineData("I want to see an eye surgeon")]
+    [InlineData("I need an appointment with an ophthalmologist")]
+    public async Task AppointmentOnlySpecialistRequest_RoutesToAppointmentNotTriage(string objective)
+    {
+        var model = new StubPlanningModelClient(new GeminiPlanningDecision { WorkflowType = "SafeTriage", RequiredSteps = [PlanningWorkflowSteps.SafetyCheck] });
+        var agent = new PlanningCoordinatorAgent(model, CreateStore(), NullLogger<PlanningCoordinatorAgent>.Instance);
+
+        var response = await agent.PlanAsync(new PlanningRequestDto { Objective = objective, PatientId = 15 });
+
+        Assert.Equal(PlanningWorkflowType.AppointmentProposal.ToString(), response.Plan.WorkflowType);
+        Assert.True(response.Plan.AppointmentRequested);
+        Assert.DoesNotContain(PlanningWorkflowSteps.TriageAssessment, response.Plan.RequiredSteps);
+    }
+
     [Fact]
     public async Task ConsentRule_NeverInferConsentToBookFromSymptoms_EvenIfModelReturnsTrue()
     {
@@ -151,6 +166,22 @@ public class PlanningCoordinatorTests
         Assert.False(response.Plan.AppointmentRequested);
         Assert.NotEmpty(response.Plan.SafeResponse);
         Assert.Contains(PlanningWorkflowSteps.SafeControlledResponse, response.Plan.RequiredSteps);
+    }
+
+    [Theory]
+    [InlineData("What is rabies?")]
+    [InlineData("What is dengue?")]
+    [InlineData("Explain pneumonia")]
+    public async Task ConditionDefinitionQuestion_IsNotRoutedToTriage(string objective)
+    {
+        var model = new StubPlanningModelClient(new GeminiPlanningDecision { WorkflowType = "SafeTriage", RequiredSteps = [PlanningWorkflowSteps.SafetyCheck] });
+        var agent = new PlanningCoordinatorAgent(model, CreateStore(), NullLogger<PlanningCoordinatorAgent>.Instance);
+
+        var response = await agent.PlanAsync(new PlanningRequestDto { Objective = objective, PatientId = 15 });
+
+        Assert.Equal(PlanningWorkflowType.Unsupported.ToString(), response.Plan.WorkflowType);
+        Assert.DoesNotContain(PlanningWorkflowSteps.TriageAssessment, response.Plan.RequiredSteps);
+        Assert.Contains(response.AuditEvents, item => item.EventType == "InformationalIntentDetected");
     }
 
     [Fact]
