@@ -33,11 +33,14 @@ export default function MedicalRecordFormModal({
   onSubmit,
   initialData = null,
   patients = [],
+  doctors = [],
+  currentDoctorId = null,
   loading = false,
 }) {
   const isModalOpen = open ?? isOpen ?? false
   const fileInputRef = useRef(null)
   const patientDropdownRef = useRef(null)
+  const doctorDropdownRef = useRef(null)
 
   const [formData, setFormData] = useState({
     patientId: '',
@@ -57,6 +60,8 @@ export default function MedicalRecordFormModal({
 
   const [patientSearch, setPatientSearch] = useState('')
   const [isPatientDropdownOpen, setIsPatientDropdownOpen] = useState(false)
+  const [doctorSearch, setDoctorSearch] = useState('')
+  const [isDoctorDropdownOpen, setIsDoctorDropdownOpen] = useState(false)
   const [validationError, setValidationError] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
 
@@ -78,10 +83,19 @@ export default function MedicalRecordFormModal({
         attachments: initialData.attachments ? [...initialData.attachments] : [],
       })
       setPatientSearch(initialData.patientName || '')
+      const foundDoctor = doctors.find((d) => String(d.doctorId) === String(initialData.doctorId))
+      setDoctorSearch(
+        initialData.doctorName ||
+        (foundDoctor ? (foundDoctor.doctorName || foundDoctor.fullName) : '')
+      )
     } else {
+      const defaultDocId = currentDoctorId || ''
+      const foundDoctor = defaultDocId
+        ? doctors.find((d) => String(d.doctorId) === String(defaultDocId))
+        : null
       setFormData({
         patientId: '',
-        doctorId: '',
+        doctorId: defaultDocId,
         appointmentId: '',
         recordDate: new Date().toISOString().split('T')[0],
         recordType: 'Consultation',
@@ -95,16 +109,31 @@ export default function MedicalRecordFormModal({
         attachments: [],
       })
       setPatientSearch('')
+      setDoctorSearch(foundDoctor ? (foundDoctor.doctorName || foundDoctor.fullName) : '')
     }
     setValidationError(null)
     setIsPatientDropdownOpen(false)
-  }, [initialData, isModalOpen, patients])
+    setIsDoctorDropdownOpen(false)
+  }, [initialData, isModalOpen, patients, doctors, currentDoctorId])
 
-  // Close patient dropdown when clicked outside
+  // Sync doctor search display if doctors load asynchronously
+  useEffect(() => {
+    if (formData.doctorId && !doctorSearch && doctors.length > 0) {
+      const doc = doctors.find((d) => String(d.doctorId) === String(formData.doctorId))
+      if (doc) {
+        setDoctorSearch(doc.doctorName || doc.fullName || `Doctor #${doc.doctorId}`)
+      }
+    }
+  }, [formData.doctorId, doctorSearch, doctors])
+
+  // Close dropdowns when clicked outside
   useEffect(() => {
     function handleClickOutside(event) {
       if (patientDropdownRef.current && !patientDropdownRef.current.contains(event.target)) {
         setIsPatientDropdownOpen(false)
+      }
+      if (doctorDropdownRef.current && !doctorDropdownRef.current.contains(event.target)) {
+        setIsDoctorDropdownOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -131,6 +160,27 @@ export default function MedicalRecordFormModal({
     setPatientSearch(patient.fullName || `${patient.firstName} ${patient.lastName}`)
     setIsPatientDropdownOpen(false)
     setValidationError(null)
+  }
+
+  const filteredDoctors = doctors.filter((d) => {
+    if (!doctorSearch.trim()) return true
+    const q = doctorSearch.toLowerCase()
+    const name = (d.doctorName || d.fullName || '').toLowerCase()
+    const specialty = (d.specialty || d.specialization || '').toLowerCase()
+    const id = String(d.doctorId)
+    return name.includes(q) || specialty.includes(q) || id.includes(q)
+  })
+
+  const handleSelectDoctor = (doctor) => {
+    setFormData((prev) => ({ ...prev, doctorId: doctor.doctorId }))
+    setDoctorSearch(doctor.doctorName || doctor.fullName || `Dr. #${doctor.doctorId}`)
+    setIsDoctorDropdownOpen(false)
+  }
+
+  const handleClearDoctor = () => {
+    setFormData((prev) => ({ ...prev, doctorId: '' }))
+    setDoctorSearch('')
+    setIsDoctorDropdownOpen(false)
   }
 
   const handleFileChange = async (e) => {
@@ -490,6 +540,173 @@ export default function MedicalRecordFormModal({
               )}
             </div>
 
+            {/* Searchable Doctor Selector */}
+            <div className="field" ref={doctorDropdownRef} style={{ position: 'relative' }}>
+              <label className="field__label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>
+                  Doctor / Clinician <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>(Optional)</span>
+                </span>
+                {formData.doctorId && (
+                  <button
+                    type="button"
+                    onClick={handleClearDoctor}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--clr-primary)',
+                      fontSize: '0.74rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '2px',
+                    }}
+                    title="Clear assigned doctor"
+                  >
+                    <X size={12} /> Clear
+                  </button>
+                )}
+              </label>
+              <div style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
+                  <Stethoscope
+                    size={16}
+                    style={{
+                      position: 'absolute',
+                      left: '12px',
+                      color: 'var(--clr-primary)',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                  <input
+                    type="text"
+                    className="field__input"
+                    style={{ paddingLeft: '36px', paddingRight: '32px' }}
+                    placeholder="Search doctor by name or specialty..."
+                    value={doctorSearch}
+                    onChange={(e) => {
+                      setDoctorSearch(e.target.value)
+                      setIsDoctorDropdownOpen(true)
+                      if (!e.target.value.trim()) {
+                        setFormData((prev) => ({ ...prev, doctorId: '' }))
+                      }
+                    }}
+                    onFocus={() => setIsDoctorDropdownOpen(true)}
+                  />
+                  <ChevronDown
+                    size={16}
+                    style={{
+                      position: 'absolute',
+                      right: '12px',
+                      color: 'var(--text-muted)',
+                      pointerEvents: 'none',
+                      transform: isDoctorDropdownOpen ? 'rotate(180deg)' : 'none',
+                      transition: 'transform 0.2s ease',
+                    }}
+                  />
+                </div>
+
+                {/* Dropdown list */}
+                {isDoctorDropdownOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      marginTop: '4px',
+                      maxHeight: '220px',
+                      overflowY: 'auto',
+                      background: 'var(--bg-surface)',
+                      border: '1px solid var(--border-default)',
+                      borderRadius: '10px',
+                      boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+                      zIndex: 50,
+                    }}
+                  >
+                    {/* Unassigned / General Hospital Record option */}
+                    <div
+                      data-testid="doctor-option-unassigned"
+                      onClick={() => {
+                        setFormData((prev) => ({ ...prev, doctorId: '' }))
+                        setDoctorSearch('')
+                        setIsDoctorDropdownOpen(false)
+                      }}
+                      style={{
+                        padding: '10px 14px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: !formData.doctorId ? 'rgba(14, 165, 233, 0.08)' : 'transparent',
+                        borderBottom: '1px solid var(--border-default)',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (formData.doctorId) e.currentTarget.style.background = 'var(--bg-base)'
+                      }}
+                      onMouseLeave={(e) => {
+                        if (formData.doctorId) e.currentTarget.style.background = 'transparent'
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                          Unassigned / General Hospital Record
+                        </div>
+                        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                          Visible to hospital administrators and patient
+                        </div>
+                      </div>
+                      {!formData.doctorId && <CheckCircle2 size={16} color="var(--clr-primary)" />}
+                    </div>
+
+                    {filteredDoctors.length > 0 ? (
+                      filteredDoctors.map((d) => {
+                        const isSelected = String(d.doctorId) === String(formData.doctorId)
+                        const dName = d.doctorName || d.fullName || `Doctor #${d.doctorId}`
+                        const dSpec = d.specialty || d.specialization || 'Specialist'
+                        return (
+                          <div
+                            key={d.doctorId}
+                            data-testid={`doctor-option-${d.doctorId}`}
+                            onClick={() => handleSelectDoctor(d)}
+                            style={{
+                              padding: '10px 14px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              background: isSelected ? 'rgba(14, 165, 233, 0.1)' : 'transparent',
+                              borderBottom: '1px solid var(--border-default)',
+                              transition: 'background 0.15s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSelected) e.currentTarget.style.background = 'var(--bg-base)'
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSelected) e.currentTarget.style.background = 'transparent'
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-primary)' }}>
+                                {dName}
+                              </div>
+                              <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                Specialty: {dSpec} • ID: #{d.doctorId}
+                              </div>
+                            </div>
+                            {isSelected && <CheckCircle2 size={16} color="var(--clr-primary)" />}
+                          </div>
+                        )
+                      })
+                    ) : (
+                      <div style={{ padding: '16px', textAlign: 'center', fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                        No doctors found matching "{doctorSearch}"
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="field">
               <label className="field__label">
                 Record Type <span className="field__required">*</span>
@@ -525,7 +742,7 @@ export default function MedicalRecordFormModal({
               />
             </div>
 
-            <div className="field">
+            <div className="field form-grid__span-2">
               <label className="field__label">
                 Workflow Status <span className="field__required">*</span>
               </label>

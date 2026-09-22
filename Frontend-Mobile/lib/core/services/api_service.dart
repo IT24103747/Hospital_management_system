@@ -787,6 +787,7 @@ class ApiService {
     String? status,
     DateTime? fromDate,
     DateTime? toDate,
+    int? doctorId,
   }) async {
     try {
       final queryParams = <String, String>{
@@ -801,6 +802,8 @@ class ApiService {
           'fromDate': fromDate.toIso8601String().split('T').first,
         if (toDate != null)
           'toDate': toDate.toIso8601String().split('T').first,
+        if (doctorId != null)
+          'doctorId': doctorId.toString(),
       };
 
       final uri = Uri.parse('$baseUrl/medicalrecord').replace(queryParameters: queryParams);

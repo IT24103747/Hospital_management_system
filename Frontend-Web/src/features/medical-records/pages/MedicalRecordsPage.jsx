@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { useMedicalRecords } from '../hooks/useMedicalRecords'
 import { patientApi } from '../../patients/services/patientApi'
+import { appointmentApi } from '../../appointments/services/appointmentApi'
 import { useAuth } from '../../auth/AuthContext'
 import Button from '../../../components/Button'
 import Badge from '../../../components/Badge'
@@ -39,6 +40,7 @@ export default function MedicalRecordsPage() {
   const [status, setStatus] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
+  const [selectedDoctorId, setSelectedDoctorId] = useState('')
   const [page, setPage] = useState(1)
   const pageSize = 10
 
@@ -52,6 +54,7 @@ export default function MedicalRecordsPage() {
   }, [searchInput])
 
   const [patients, setPatients] = useState([])
+  const [doctors, setDoctors] = useState([])
   const [selectedRecord, setSelectedRecord] = useState(null)
   const [editingRecord, setEditingRecord] = useState(null)
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -80,11 +83,16 @@ export default function MedicalRecordsPage() {
     toDate,
     page,
     pageSize,
+    doctorId: selectedDoctorId ? parseInt(selectedDoctorId, 10) : null,
   })
 
   useEffect(() => {
     patientApi.getAll({ pageSize: 100 }).then((res) => {
       setPatients(res.data || [])
+    }).catch(console.error)
+
+    appointmentApi.getDoctors().then((res) => {
+      setDoctors(res || [])
     }).catch(console.error)
   }, [])
 
@@ -175,6 +183,7 @@ export default function MedicalRecordsPage() {
     setStatus('')
     setFromDate('')
     setToDate('')
+    setSelectedDoctorId('')
     setPage(1)
   }
 
@@ -205,7 +214,7 @@ export default function MedicalRecordsPage() {
     return res
   }
 
-  const hasActiveFilters = Boolean(searchInput || recordType || status || fromDate || toDate)
+  const hasActiveFilters = Boolean(searchInput || recordType || status || fromDate || toDate || selectedDoctorId)
 
   const getTypeVariant = (type) => {
     switch (type) {
@@ -351,7 +360,9 @@ export default function MedicalRecordsPage() {
         <div className="mr-header__left">
           <h1 className="page-title">Medical Records Management</h1>
           <p className="page-subtitle">
-            {totalCount} recorded {totalCount === 1 ? 'entry' : 'entries'} · Search, filter, and audit clinical patient health histories
+            {user?.role === 'Doctor'
+              ? `Dr. ${user.fullName || 'Clinician'} — Viewing patient records assigned to your profile (${totalCount} entries)`
+              : `${totalCount} recorded ${totalCount === 1 ? 'entry' : 'entries'} · Search, filter, and audit clinical patient health histories`}
           </p>
         </div>
         <div className="mr-header__actions">
@@ -468,6 +479,26 @@ export default function MedicalRecordsPage() {
           <option value="Archived">Archived</option>
         </select>
 
+        {/* Doctor Filter (Admin Only) */}
+        {user?.role === 'Admin' && (
+          <select
+            id="mr-filter-doctor"
+            className="mr-select"
+            value={selectedDoctorId}
+            onChange={(e) => {
+              setSelectedDoctorId(e.target.value)
+              setPage(1)
+            }}
+          >
+            <option value="">All Doctors / Unassigned</option>
+            {doctors.map((d) => (
+              <option key={d.doctorId} value={d.doctorId}>
+                {d.doctorName || d.fullName} {d.specialty ? `(${d.specialty})` : ''}
+              </option>
+            ))}
+          </select>
+        )}
+
         {/* Date from/to */}
         <div className="mr-date-box">
           <Calendar size={14} color="var(--text-muted)" />
@@ -563,6 +594,8 @@ export default function MedicalRecordsPage() {
         onSubmit={handleCreateOrUpdate}
         initialData={editingRecord}
         patients={patients}
+        doctors={doctors}
+        currentDoctorId={user?.role === 'Doctor' ? user.doctorId : null}
         loading={saving}
       />
 

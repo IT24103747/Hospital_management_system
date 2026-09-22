@@ -92,13 +92,18 @@ namespace HospitalManagementSystem.Api.Repositories
                 .ToListAsync();
         }
 
-        public async Task<MedicalRecordSummaryDto> GetSummaryAsync()
+        public async Task<MedicalRecordSummaryDto> GetSummaryAsync(int? doctorId = null)
         {
             var now = DateTime.UtcNow;
             var startOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
-            var summary = await _db.MedicalRecords
-                .AsNoTracking()
+            var query = _db.MedicalRecords.AsNoTracking();
+            if (doctorId.HasValue)
+            {
+                query = query.Where(m => m.DoctorId == doctorId.Value);
+            }
+
+            var summary = await query
                 .GroupBy(_ => 1)
                 .Select(g => new MedicalRecordSummaryDto
                 {

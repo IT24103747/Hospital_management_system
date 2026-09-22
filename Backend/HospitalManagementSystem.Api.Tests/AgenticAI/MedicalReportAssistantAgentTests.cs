@@ -282,7 +282,7 @@ public sealed class MedicalReportAssistantAgentTests
             DateTime? toDate) =>
             Task.FromResult(_records.Count);
 
-        public Task<MedicalRecordSummaryDto> GetSummaryAsync() =>
+        public Task<MedicalRecordSummaryDto> GetSummaryAsync(int? doctorId = null) =>
             Task.FromResult(new MedicalRecordSummaryDto());
 
         public Task<MedicalRecord> CreateAsync(MedicalRecord record)
