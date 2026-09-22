@@ -107,17 +107,14 @@ export default function MedicalRecordDetailModal({
         return
       } else {
         console.warn(`Server responded with HTTP ${response.status} when downloading ${att.fileName}`)
+        alert(`Attachment "${att.fileName}" could not be downloaded from the server (HTTP ${response.status}).`)
+        return
       }
     } catch (err) {
       console.warn('Direct blob fetch failed:', err)
+      // If direct fetch had a CORS or network error, open in a new tab rather than navigating the current window
+      window.open(effectiveUrl, '_blank')
     }
-
-    const a = document.createElement('a')
-    a.href = effectiveUrl
-    a.download = att.fileName
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
   }
 
   return (

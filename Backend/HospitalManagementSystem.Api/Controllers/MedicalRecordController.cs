@@ -19,11 +19,16 @@ namespace HospitalManagementSystem.Api.Controllers
     {
         private readonly IMedicalRecordService _service;
         private readonly ILogger<MedicalRecordController> _logger;
+        private readonly Microsoft.AspNetCore.Hosting.IWebHostEnvironment _environment;
 
-        public MedicalRecordController(IMedicalRecordService service, ILogger<MedicalRecordController> logger)
+        public MedicalRecordController(
+            IMedicalRecordService service,
+            ILogger<MedicalRecordController> logger,
+            Microsoft.AspNetCore.Hosting.IWebHostEnvironment environment)
         {
             _service = service;
             _logger = logger;
+            _environment = environment;
         }
 
         private (bool isAdmin, bool isDoctor, bool isPatient, string? email) GetUserContext()
@@ -75,6 +80,25 @@ namespace HospitalManagementSystem.Api.Controllers
                 // Strictly overwrite any client-supplied patientId with caller's own patientId
                 patientId = myPatientId.Value;
             }
+            else if (isDoctor && !isAdmin)
+            {
+                if (string.IsNullOrWhiteSpace(email))
+                    return Unauthorized(new { message = "Token missing email claim." });
+
+                var myDoctorId = await _service.GetDoctorIdByEmailAsync(email);
+                if (!myDoctorId.HasValue)
+                {
+                    return Ok(new PagedResult<MedicalRecordDto>
+                    {
+                        Data = new List<MedicalRecordDto>(),
+                        TotalCount = 0,
+                        Page = page,
+                        PageSize = pageSize
+                    });
+                }
+                // Strictly overwrite doctorId so doctors only view records assigned to their own doctor profile
+                doctorId = myDoctorId.Value;
+            }
 
             var result = await _service.GetAllRecordsAsync(
                 patientId, doctorId, recordType, status, search, fromDate, toDate, sortBy, sortDirection, page, pageSize);
@@ -87,7 +111,17 @@ namespace HospitalManagementSystem.Api.Controllers
         [ProducesResponseType(typeof(MedicalRecordSummaryDto), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetSummary()
         {
-            var summary = await _service.GetSummaryAsync();
+            var (isAdmin, isDoctor, _, email) = GetUserContext();
+            int? doctorId = null;
+
+            if (isDoctor && !isAdmin && !string.IsNullOrWhiteSpace(email))
+            {
+                doctorId = await _service.GetDoctorIdByEmailAsync(email);
+                if (!doctorId.HasValue)
+                    return Ok(new MedicalRecordSummaryDto());
+            }
+
+            var summary = await _service.GetSummaryAsync(doctorId);
             return Ok(summary);
         }
 
@@ -101,10 +135,20 @@ namespace HospitalManagementSystem.Api.Controllers
             if (string.IsNullOrWhiteSpace(email))
                 return Unauthorized(new { message = "Token missing email claim." });
 
-            if (isAdmin || isDoctor)
+            if (isAdmin)
             {
                 var all = await _service.GetAllRecordsAsync(null, null, null, null, null, null, null, null, null, 1, 100);
                 return Ok(all.Data);
+            }
+
+            if (isDoctor)
+            {
+                var myDoctorId = await _service.GetDoctorIdByEmailAsync(email);
+                if (!myDoctorId.HasValue)
+                    return Ok(new List<MedicalRecordDto>());
+
+                var docRecords = await _service.GetAllRecordsAsync(null, myDoctorId.Value, null, null, null, null, null, null, null, 1, 100);
+                return Ok(docRecords.Data);
             }
 
             var records = await _service.GetMyMedicalRecordsAsync(email);
@@ -158,6 +202,17 @@ namespace HospitalManagementSystem.Api.Controllers
                     !string.Equals(record.PatientEmail.Trim(), email.Trim(), StringComparison.OrdinalIgnoreCase))
                 {
                     return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have access to view this medical record." });
+                }
+            }
+            else if (isDoctor && !isAdmin)
+            {
+                if (!string.IsNullOrWhiteSpace(email))
+                {
+                    var myDoctorId = await _service.GetDoctorIdByEmailAsync(email);
+                    if (!myDoctorId.HasValue || record.DoctorId != myDoctorId.Value)
+                    {
+                        return StatusCode(StatusCodes.Status403Forbidden, new { message = "You do not have access to view this medical record." });
+                    }
                 }
             }
 
@@ -260,7 +315,7 @@ namespace HospitalManagementSystem.Api.Controllers
             var safeOriginalName = Path.GetFileName(file.FileName);
             var uniqueFileName = $"{Guid.NewGuid():N}_{safeOriginalName}";
 
-            var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var webRoot = _environment.WebRootPath ?? Path.Combine(_environment.ContentRootPath, "wwwroot");
             var uploadsDir = Path.Combine(webRoot, "uploads", "medical-records");
             Directory.CreateDirectory(uploadsDir);
             var filePath = Path.Combine(uploadsDir, uniqueFileName);
@@ -327,7 +382,7 @@ namespace HospitalManagementSystem.Api.Controllers
                         var safeName = Path.GetFileName(dto.FileName);
                         if (string.IsNullOrWhiteSpace(safeName)) safeName = "attachment.bin";
                         var uniqueName = $"{Guid.NewGuid():N}_{safeName}";
-                        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+                        var webRoot = _environment.WebRootPath ?? Path.Combine(_environment.ContentRootPath, "wwwroot");
                         var uploadsDir = Path.Combine(webRoot, "uploads", "medical-records");
                         Directory.CreateDirectory(uploadsDir);
                         var targetPath = Path.Combine(uploadsDir, uniqueName);
@@ -363,6 +418,36 @@ namespace HospitalManagementSystem.Api.Controllers
 
             _logger.LogInformation("Attachment {AttachmentId} removed from record {RecordId}", attachmentId, id);
             return NoContent();
+        }
+
+        // GET /api/medicalrecord/{id}/attachments/{attachmentId}/download
+        [HttpGet("{id:int}/attachments/{attachmentId:int}/download")]
+        [AllowAnonymous]
+        public async Task<IActionResult> DownloadAttachment(int id, int attachmentId)
+        {
+            var record = await _service.GetRecordByIdAsync(id);
+            if (record == null)
+                return NotFound(new { message = $"Medical record #{id} was not found." });
+
+            var attachment = record.Attachments?.Find(a => a.AttachmentId == attachmentId);
+            if (attachment == null)
+                return NotFound(new { message = $"Attachment #{attachmentId} was not found." });
+
+            var webRoot = _environment.WebRootPath ?? Path.Combine(_environment.ContentRootPath, "wwwroot");
+            var relativePath = (attachment.FileUrl ?? string.Empty).TrimStart('/');
+            var fullPath = Path.Combine(webRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+            if (!System.IO.File.Exists(fullPath))
+            {
+                _logger.LogWarning("Physical file not found for attachment {AttachmentId} at {Path}", attachmentId, fullPath);
+                return NotFound(new { message = "Attachment file not found on server disk." });
+            }
+
+            var contentType = string.IsNullOrWhiteSpace(attachment.FileType)
+                ? "application/octet-stream"
+                : attachment.FileType;
+
+            return PhysicalFile(fullPath, contentType, attachment.FileName, enableRangeProcessing: true);
         }
     }
 }

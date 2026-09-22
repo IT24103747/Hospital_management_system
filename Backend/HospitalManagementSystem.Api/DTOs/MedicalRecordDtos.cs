@@ -113,6 +113,7 @@ namespace HospitalManagementSystem.Api.DTOs
         public string? LabNotes { get; set; }
 
         public DateTime? FollowUpDate { get; set; }
+        public int? DoctorId { get; set; }
 
         [Required, MaxLength(30)]
         public string Status { get; set; } = MedicalRecordStatuses.Finalized;

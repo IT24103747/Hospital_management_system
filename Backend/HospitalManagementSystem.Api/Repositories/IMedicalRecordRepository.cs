@@ -32,7 +32,7 @@ namespace HospitalManagementSystem.Api.Repositories
 
         Task<MedicalRecord?> GetByIdAsync(int id);
         Task<IEnumerable<MedicalRecord>> GetByPatientIdAsync(int patientId);
-        Task<MedicalRecordSummaryDto> GetSummaryAsync();
+        Task<MedicalRecordSummaryDto> GetSummaryAsync(int? doctorId = null);
         Task<MedicalRecord> CreateAsync(MedicalRecord record);
         Task<MedicalRecord> UpdateAsync(MedicalRecord record);
         Task DeleteAsync(MedicalRecord record);

@@ -35,6 +35,7 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
   final _prescriptionController = TextEditingController();
   final _labNotesController = TextEditingController();
   final _patientSearchController = TextEditingController();
+  final _doctorSearchController = TextEditingController();
   final _manualIdController = TextEditingController();
 
   DateTime _recordDate = DateTime.now();
@@ -45,6 +46,7 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
   int? _selectedPatientId;
   String? _selectedPatientName;
   int? _selectedDoctorId;
+  String? _selectedDoctorName;
 
   List<Patient> _patients = [];
   List<DoctorSearchResult> _doctors = [];
@@ -90,6 +92,7 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
       _selectedPatientId = r.patientId;
       _selectedPatientName = r.patientName;
       _selectedDoctorId = r.doctorId;
+      _selectedDoctorName = r.doctorName;
     } else {
       _selectedPatientId = widget.initialPatientId;
       _selectedPatientName = widget.initialPatientName;
@@ -105,6 +108,7 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
     _prescriptionController.dispose();
     _labNotesController.dispose();
     _patientSearchController.dispose();
+    _doctorSearchController.dispose();
     _manualIdController.dispose();
     _patientSearchDebounce?.cancel();
     super.dispose();
@@ -142,8 +146,11 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
       if (mounted) {
         setState(() {
           _doctors = doctors;
-          if (_doctors.isNotEmpty && _selectedDoctorId == null && widget.recordToEdit == null) {
-            _selectedDoctorId = _doctors.first.doctorId;
+          if (_selectedDoctorId != null && _selectedDoctorName == null) {
+            final found = _doctors.where((d) => d.doctorId == _selectedDoctorId);
+            if (found.isNotEmpty) {
+              _selectedDoctorName = found.first.fullName;
+            }
           }
         });
       }
@@ -154,6 +161,17 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
     if (mounted) {
       setState(() => _loadingDependencies = false);
     }
+  }
+
+  List<DoctorSearchResult> get _filteredDoctors {
+    final query = _doctorSearchController.text.trim().toLowerCase();
+    if (query.isEmpty) return _doctors;
+    return _doctors.where((d) {
+      final name = d.fullName.toLowerCase();
+      final spec = d.specialization.toLowerCase();
+      final id = d.doctorId.toString();
+      return name.contains(query) || spec.contains(query) || id.contains(query);
+    }).toList();
   }
 
   void _onPatientSearchChanged(String query) {
@@ -565,6 +583,10 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
 
                             // 2. Record Type & Doctor (Responsive layout)
                             if (isNarrow) ...[
+                              _buildSectionLabel('Doctor (Optional)', isDark),
+                              _buildDoctorSelector(isDark),
+                              const SizedBox(height: 14),
+
                               _buildSectionLabel('Record Type *', isDark),
                               DropdownButtonFormField<String>(
                                 isExpanded: true,
@@ -592,35 +614,6 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
                                   }
                                 },
                               ),
-                              const SizedBox(height: 14),
-                              _buildSectionLabel('Doctor (Optional)', isDark),
-                              if (_doctors.isNotEmpty)
-                                DropdownButtonFormField<int?>(
-                                  isExpanded: true,
-                                  initialValue: _selectedDoctorId,
-                                  decoration: _inputDecoration(isDark, prefixIcon: Icons.medication_liquid_rounded),
-                                  items: [
-                                    const DropdownMenuItem<int?>(
-                                      value: null,
-                                      child: Text('Unassigned / Clinician', style: TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
-                                    ),
-                                    ..._doctors.map((d) => DropdownMenuItem<int?>(
-                                          value: d.doctorId,
-                                          child: Text(
-                                            '${d.fullName} (${d.specialization})',
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(fontSize: 13),
-                                          ),
-                                        )),
-                                  ],
-                                  onChanged: (val) => setState(() => _selectedDoctorId = val),
-                                )
-                              else
-                                TextFormField(
-                                  decoration: _inputDecoration(isDark, hint: 'Doctor ID (optional)'),
-                                  keyboardType: TextInputType.number,
-                                  onChanged: (val) => _selectedDoctorId = int.tryParse(val),
-                                ),
                               const SizedBox(height: 14),
                               _buildSectionLabel('Record Date', isDark),
                               InkWell(
@@ -664,6 +657,10 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
                                 },
                               ),
                             ] else ...[
+                              _buildSectionLabel('Doctor (Optional)', isDark),
+                              _buildDoctorSelector(isDark),
+                              const SizedBox(height: 16),
+
                               Row(
                                 children: [
                                   // Record Type
@@ -702,50 +699,6 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
                                     ),
                                   ),
                                   const SizedBox(width: 14),
-
-                                  // Doctor Selector
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        _buildSectionLabel('Doctor (Optional)', isDark),
-                                        if (_doctors.isNotEmpty)
-                                          DropdownButtonFormField<int?>(
-                                            isExpanded: true,
-                                            initialValue: _selectedDoctorId,
-                                            decoration: _inputDecoration(isDark, prefixIcon: Icons.medication_liquid_rounded),
-                                            items: [
-                                              const DropdownMenuItem<int?>(
-                                                value: null,
-                                                child: Text('Unassigned / Clinician', style: TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
-                                              ),
-                                              ..._doctors.map((d) => DropdownMenuItem<int?>(
-                                                    value: d.doctorId,
-                                                    child: Text(
-                                                      '${d.fullName} (${d.specialization})',
-                                                      overflow: TextOverflow.ellipsis,
-                                                      style: const TextStyle(fontSize: 13),
-                                                    ),
-                                                  )),
-                                            ],
-                                            onChanged: (val) => setState(() => _selectedDoctorId = val),
-                                          )
-                                        else
-                                          TextFormField(
-                                            decoration: _inputDecoration(isDark, hint: 'Doctor ID (optional)'),
-                                            keyboardType: TextInputType.number,
-                                            onChanged: (val) => _selectedDoctorId = int.tryParse(val),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-
-                              // Record Date & Status Row
-                              Row(
-                                children: [
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1196,8 +1149,8 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
         ),
-        child: Row(
-          children: const [
+        child: const Row(
+          children: [
             SizedBox(
               width: 18,
               height: 18,
@@ -1249,7 +1202,7 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
 
     // If a patient is selected and not searching
     if (_selectedPatientId != null && (_patientSearchController.text.isEmpty || selectedPatient != null)) {
-      final name = selectedPatient?.fullName ?? _selectedPatientName ?? 'Patient #${_selectedPatientId}';
+      final name = selectedPatient?.fullName ?? _selectedPatientName ?? 'Patient #$_selectedPatientId';
       final nic = selectedPatient?.nic ?? '';
       final phone = selectedPatient?.phoneNumber ?? '';
 
@@ -1281,7 +1234,7 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'ID: #${_selectedPatientId}${nic.isNotEmpty ? ' • NIC: $nic' : ''}${phone.isNotEmpty ? ' • $phone' : ''}',
+                    'ID: #$_selectedPatientId${nic.isNotEmpty ? ' • NIC: $nic' : ''}${phone.isNotEmpty ? ' • $phone' : ''}',
                     style: TextStyle(
                       color: isDark ? Colors.white70 : const Color(0xFF64748B),
                       fontSize: 12,
@@ -1490,6 +1443,256 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  // --- Doctor Selector with Real-time Search ---
+  Widget _buildDoctorSelector(bool isDark) {
+    final selectedDoctor = _doctors.where((d) => d.doctorId == _selectedDoctorId).firstOrNull;
+
+    // If a doctor is selected
+    if (_selectedDoctorId != null) {
+      final name = selectedDoctor?.fullName ?? _selectedDoctorName ?? 'Doctor #$_selectedDoctorId';
+      final spec = selectedDoctor?.specialization ?? 'Assigned Clinician';
+
+      return Container(
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            const CircleAvatar(
+              radius: 18,
+              backgroundColor: AppColors.primary,
+              child: Icon(Icons.medical_services_rounded, color: Colors.white, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$spec • ID: #$_selectedDoctorId',
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                      fontSize: 11,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () {
+                setState(() {
+                  _selectedDoctorId = null;
+                  _selectedDoctorName = null;
+                  _doctorSearchController.clear();
+                });
+              },
+              icon: const Icon(Icons.swap_horiz_rounded, size: 16),
+              label: const Text('Change', style: TextStyle(fontSize: 12)),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Doctor Search Box & Interactive List
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.surfaceDark : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _doctorSearchController,
+            decoration: InputDecoration(
+              hintText: 'Search doctor by name or specialty...',
+              hintStyle: const TextStyle(color: Colors.grey, fontSize: 13),
+              prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppColors.primary),
+              suffixIcon: _doctorSearchController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () {
+                        _doctorSearchController.clear();
+                        setState(() {});
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+              ),
+            ),
+            onChanged: (val) => setState(() {}),
+          ),
+          const SizedBox(height: 8),
+
+          // Unassigned / Clinician Option
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () {
+                setState(() {
+                  _selectedDoctorId = null;
+                  _selectedDoctorName = null;
+                });
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 14,
+                      backgroundColor: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
+                      child: Icon(Icons.domain_rounded, size: 14, color: isDark ? Colors.white70 : Colors.black54),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Unassigned / General Hospital Record',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                          Text(
+                            'Visible to administrators and patient',
+                            style: TextStyle(fontSize: 10, color: isDark ? Colors.white54 : Colors.grey[600]),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (_selectedDoctorId == null)
+                      const Icon(Icons.check_circle_rounded, size: 16, color: AppColors.primary),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          if (_filteredDoctors.isNotEmpty) ...[
+            Divider(height: 12, color: isDark ? AppColors.borderDark : AppColors.borderLight),
+            Text(
+              'Select Doctor (${_filteredDoctors.length} available):',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white60 : Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 6),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 180),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _filteredDoctors.length > 15 ? 15 : _filteredDoctors.length,
+                  separatorBuilder: (_, __) => Divider(
+                    height: 1,
+                    color: isDark ? AppColors.borderDark : AppColors.borderLight,
+                  ),
+                  itemBuilder: (context, index) {
+                    final d = _filteredDoctors[index];
+                    final isSelected = d.doctorId == _selectedDoctorId;
+                    return Material(
+                      color: isSelected
+                          ? AppColors.primary.withValues(alpha: 0.12)
+                          : Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          setState(() {
+                            _selectedDoctorId = d.doctorId;
+                            _selectedDoctorName = d.fullName;
+                          });
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 14,
+                                backgroundColor: isSelected
+                                    ? AppColors.primary
+                                    : (isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
+                                child: Text(
+                                  d.fullName.isNotEmpty ? d.fullName[0].toUpperCase() : 'D',
+                                  style: TextStyle(
+                                    color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      d.fullName,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                        color: isSelected ? AppColors.primary : null,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${d.specialization} • ID: #${d.doctorId}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark ? Colors.white54 : Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (isSelected)
+                                const Icon(Icons.check_circle_rounded, size: 16, color: AppColors.primary),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

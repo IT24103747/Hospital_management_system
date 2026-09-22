@@ -100,9 +100,18 @@ namespace HospitalManagementSystem.Api.Services
             return patient?.PatientId;
         }
 
-        public async Task<MedicalRecordSummaryDto> GetSummaryAsync()
+        public async Task<int?> GetDoctorIdByEmailAsync(string email)
         {
-            return await _repo.GetSummaryAsync();
+            var normalized = email?.Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(normalized)) return null;
+
+            var doctor = await _db.Doctors.FirstOrDefaultAsync(d => d.User.Email != null && d.User.Email.ToLower() == normalized);
+            return doctor?.DoctorId;
+        }
+
+        public async Task<MedicalRecordSummaryDto> GetSummaryAsync(int? doctorId = null)
+        {
+            return await _repo.GetSummaryAsync(doctorId);
         }
 
         public async Task<MedicalRecordDto> CreateRecordAsync(CreateMedicalRecordDto dto, string? userEmail, string? userRole)
@@ -200,6 +209,8 @@ namespace HospitalManagementSystem.Api.Services
             record.PrescriptionNotes = dto.PrescriptionNotes?.Trim();
             record.LabNotes = dto.LabNotes?.Trim();
             record.FollowUpDate = dto.FollowUpDate;
+            if (dto.DoctorId.HasValue)
+                record.DoctorId = dto.DoctorId;
             record.Status = dto.Status;
 
             var updated = await _repo.UpdateAsync(record);

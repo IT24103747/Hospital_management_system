@@ -4,7 +4,9 @@ import { ArrowLeft, Phone, Mail, MapPin, Droplets, User, Calendar, Shield, Calen
 import Button from '../../../components/Button'
 import Badge, { BloodGroupBadge } from '../../../components/Badge'
 import { patientApi } from '../services/patientApi'
+import { appointmentApi } from '../../appointments/services/appointmentApi'
 import { medicalRecordApi } from '../../medical-records/services/medicalRecordApi'
+import { useAuth } from '../../auth/AuthContext'
 import MedicalRecordDetailModal from '../../medical-records/components/MedicalRecordDetailModal'
 import MedicalRecordFormModal from '../../medical-records/components/MedicalRecordFormModal'
 import { calculateAge, formatDate, getInitials, nameToGradient } from '../../../lib/utils'
@@ -12,10 +14,12 @@ import './PatientDetailPage.css'
 
 export default function PatientDetailPage() {
   const { id } = useParams()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [patient, setPatient] = useState(null)
   const [appointments, setAppointments] = useState([])
   const [medicalRecords, setMedicalRecords] = useState([])
+  const [doctors, setDoctors] = useState([])
   const [selectedRecord, setSelectedRecord] = useState(null)
   const [isAddRecordOpen, setIsAddRecordOpen] = useState(false)
   const [savingRecord, setSavingRecord] = useState(false)
@@ -263,6 +267,8 @@ export default function PatientDetailPage() {
           onClose={() => setIsAddRecordOpen(false)}
           onSubmit={handleSaveRecord}
           patients={[patient]}
+          doctors={doctors}
+          currentDoctorId={user?.role === 'Doctor' ? user.doctorId : null}
           loading={savingRecord}
         />
       )}
