@@ -13,10 +13,31 @@ import {
   Download,
   CheckCircle2,
   Image as ImageIcon,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  RefreshCw,
+  Eye,
 } from 'lucide-react'
 import Modal from '../../../components/Modal'
 import Button from '../../../components/Button'
 import Badge from '../../../components/Badge'
+
+export const getFullAttachmentUrl = (fileUrl) => {
+  if (!fileUrl) return ''
+  if (
+    fileUrl.startsWith('data:') ||
+    fileUrl.startsWith('blob:') ||
+    fileUrl.startsWith('http://') ||
+    fileUrl.startsWith('https://')
+  ) {
+    return fileUrl
+  }
+  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+  const origin = apiBase.replace(/\/api\/?$/, '')
+  const cleanPath = fileUrl.startsWith('/') ? fileUrl : `/${fileUrl}`
+  return `${origin}${cleanPath}`
+}
 
 export default function MedicalRecordDetailModal({
   record,
@@ -25,6 +46,9 @@ export default function MedicalRecordDetailModal({
   canEdit = true,
 }) {
   const [previewAttachment, setPreviewAttachment] = useState(null)
+  const [zoom, setZoom] = useState(1)
+  const [rotation, setRotation] = useState(0)
+  const [imageLoadError, setImageLoadError] = useState(false)
 
   if (!record) return null
 
@@ -45,77 +69,55 @@ export default function MedicalRecordDetailModal({
     return `${(kb / 1024).toFixed(1)} MB`
   }
 
-  const handleViewAttachment = (e, att) => {
-    e.preventDefault()
-    if (att.fileUrl?.startsWith('data:') || att.fileUrl?.startsWith('blob:')) {
-      const win = window.open('')
-      if (win) {
-        if (att.fileType.includes('image')) {
-          win.document.write(
-            `<body style="margin:0;background:#0f172a;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="${att.fileUrl}" style="max-width:95vw;max-height:95vh;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.5);" /></body>`
-          )
-        } else if (att.fileType.includes('pdf')) {
-          win.document.write(
-            `<iframe src="${att.fileUrl}" frameborder="0" style="border:0;top:0;left:0;bottom:0;right:0;width:100%;height:100%;" allowfullscreen></iframe>`
-          )
-        } else {
-          win.location.href = att.fileUrl
-        }
-      } else {
-        setPreviewAttachment(att)
-      }
-    } else if (att.fileUrl?.startsWith('http://') || att.fileUrl?.startsWith('https://')) {
-      window.open(att.fileUrl, '_blank')
-    } else {
-      setPreviewAttachment(att)
-    }
+  const openPreview = (att) => {
+    setPreviewAttachment(att)
+    setZoom(1)
+    setRotation(0)
+    setImageLoadError(false)
   }
 
-  const handleDownloadSample = (att) => {
-    const docContent = `MEDICORE HOSPITAL MANAGEMENT SYSTEM
-========================================
-OFFICIAL CLINICAL DIAGNOSTIC REPORT
-Document: ${att.fileName}
-File Type: ${att.fileType} | Size: ${formatFileSize(att.fileSize)}
-Uploaded Date: ${new Date(att.uploadedAt || Date.now()).toLocaleDateString()}
+  const handleDownloadAttachment = async (att) => {
+    if (!att) return
+    const cachedDataUrl =
+      typeof window !== 'undefined' ? sessionStorage.getItem(`med_preview_${att.fileName}`) : null
+    const effectiveUrl = cachedDataUrl || getFullAttachmentUrl(att.fileUrl)
 
-PATIENT INFORMATION
--------------------
-Patient Name:  ${record.patientName}
-Patient Email: ${record.patientEmail}
+    try {
+      if (effectiveUrl.startsWith('data:') || effectiveUrl.startsWith('blob:')) {
+        const a = document.createElement('a')
+        a.href = effectiveUrl
+        a.download = att.fileName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        return
+      }
 
-CLINICAL ENCOUNTER DETAILS
---------------------------
-Record ID:        #${record.medicalRecordId}
-Record Type:      ${record.recordType}
-Date of Visit:    ${new Date(record.recordDate).toLocaleDateString()}
-Attending Doctor: ${record.doctorName || 'Assigned Clinician'} (${record.doctorSpecialization || 'General Medicine'})
+      const response = await fetch(effectiveUrl)
+      if (response.ok) {
+        const blob = await response.blob()
+        const blobUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = blobUrl
+        a.download = att.fileName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000)
+        return
+      } else {
+        console.warn(`Server responded with HTTP ${response.status} when downloading ${att.fileName}`)
+      }
+    } catch (err) {
+      console.warn('Direct blob fetch failed:', err)
+    }
 
-PRIMARY DIAGNOSIS
------------------
-${record.diagnosis}
-
-SYMPTOMS & CLINICAL OBSERVATIONS
---------------------------------
-${record.symptoms}
-
-TREATMENT PLAN & MEDICAL ADVICE
--------------------------------
-${record.treatmentPlan}
-
-${record.prescriptionNotes ? `PRESCRIPTIONS:\n${record.prescriptionNotes}\n\n` : ''}${record.labNotes ? `DIAGNOSTIC FINDINGS:\n${record.labNotes}\n\n` : ''}========================================
-Status: ${record.status} (Verified)
-Generated on: ${new Date().toLocaleString()}
-`
-    const blob = new Blob([docContent], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
-    a.download = att.fileName.endsWith('.pdf') ? att.fileName.replace('.pdf', '_Report.txt') : `${att.fileName}.txt`
+    a.href = effectiveUrl
+    a.download = att.fileName
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-    URL.revokeObjectURL(url)
   }
 
   return (
@@ -170,20 +172,57 @@ Generated on: ${new Date().toLocaleString()}
           {/* Diagnosis & Clinical Findings */}
           <div className="form-section" style={{ marginTop: '8px' }}>
             <h5 className="form-section__title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Activity size={15} /> Clinical Evaluation
+              {record.recordType === 'LabReport' ? <FlaskConical size={15} /> : record.recordType === 'Prescription' ? <Pill size={15} /> : <Activity size={15} />}
+              {record.recordType === 'LabReport'
+                ? ' Laboratory Investigation'
+                : record.recordType === 'Prescription'
+                ? ' Prescription Overview'
+                : record.recordType === 'DischargeSummary'
+                ? ' Discharge Clinical Evaluation'
+                : ' Clinical Evaluation'}
             </h5>
             <div style={{ background: 'var(--bg-base)', padding: '14px 16px', borderRadius: '10px', border: '1px solid var(--border-default)' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Primary Diagnosis</div>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                {record.recordType === 'LabReport'
+                  ? 'Investigation / Test Name'
+                  : record.recordType === 'Prescription'
+                  ? 'Medical Condition / Indication'
+                  : record.recordType === 'DischargeSummary'
+                  ? 'Final Discharge Diagnosis'
+                  : record.recordType === 'GeneralNote'
+                  ? 'Note Subject'
+                  : 'Primary Diagnosis'}
+              </div>
               <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--clr-primary)', marginTop: '2px', marginBottom: '10px' }}>
                 {record.diagnosis}
               </div>
 
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Symptoms & Observations</div>
-              <div style={{ fontSize: '0.92rem', color: 'var(--text-primary)', lineHeight: 1.5, marginTop: '2px', marginBottom: '10px' }}>
-                {record.symptoms}
-              </div>
+              {record.symptoms && record.recordType !== 'LabReport' && (
+                <>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                    {record.recordType === 'DischargeSummary'
+                      ? 'Hospital Course & Summary'
+                      : record.recordType === 'GeneralNote'
+                      ? 'Clinical Observations'
+                      : 'Symptoms & Observations'}
+                  </div>
+                  <div style={{ fontSize: '0.92rem', color: 'var(--text-primary)', lineHeight: 1.5, marginTop: '2px', marginBottom: '10px' }}>
+                    {record.symptoms}
+                  </div>
+                </>
+              )}
 
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Treatment Plan & Medical Advice</div>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                {record.recordType === 'LabReport'
+                  ? 'Diagnostic Impression & Interpretation'
+                  : record.recordType === 'Prescription'
+                  ? 'Instructions & Directions'
+                  : record.recordType === 'DischargeSummary'
+                  ? 'Post-Discharge Instructions'
+                  : record.recordType === 'GeneralNote'
+                  ? 'Recommendations & Plan'
+                  : 'Treatment Plan & Medical Advice'}
+              </div>
               <div style={{ fontSize: '0.92rem', color: 'var(--text-primary)', lineHeight: 1.5, marginTop: '2px' }}>
                 {record.treatmentPlan}
               </div>
@@ -229,34 +268,160 @@ Generated on: ${new Date().toLocaleString()}
             </h5>
 
             {record.attachments && record.attachments.length > 0 ? (
-              <div className="mr-attachments-list">
-                {record.attachments.map((att) => (
-                  <div key={att.attachmentId} className="mr-attachment-item">
-                    <div className="mr-attachment-item__left">
-                      {att.fileType.includes('image') ? (
-                        <ImageIcon size={22} color="var(--clr-accent)" />
-                      ) : (
-                        <FileSpreadsheet size={22} color="var(--clr-primary)" />
-                      )}
-                      <div>
-                        <div className="mr-attachment-item__name">{att.fileName}</div>
-                        <div className="mr-attachment-item__meta">
-                          {att.fileType} • {formatFileSize(att.fileSize)} • {new Date(att.uploadedAt).toLocaleDateString()}
+              <div className="mr-attachments-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {record.attachments.map((att) => {
+                  const isImage =
+                    att.fileType?.includes('image') ||
+                    /\.(jpe?g|png|webp|gif|bmp)$/i.test(att.fileName)
+                  const fullUrl = getFullAttachmentUrl(att.fileUrl)
+                  return (
+                    <div
+                      key={att.attachmentId}
+                      className="mr-attachment-item"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '12px 14px',
+                        background: 'var(--bg-base)',
+                        border: '1px solid var(--border-default)',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        transition: 'border-color 0.2s ease, transform 0.15s ease',
+                      }}
+                      onClick={() => openPreview(att)}
+                      title="Click to preview attachment"
+                    >
+                      <div
+                        className="mr-attachment-item__left"
+                        style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}
+                      >
+                        {isImage ? (
+                          <div
+                            style={{
+                              position: 'relative',
+                              width: '46px',
+                              height: '46px',
+                              borderRadius: '8px',
+                              overflow: 'hidden',
+                              border: '1px solid var(--border-default)',
+                              background: '#0f172a',
+                              flexShrink: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <img
+                              src={fullUrl}
+                              alt={att.fileName}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              onError={(e) => {
+                                e.target.style.display = 'none'
+                                if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex'
+                              }}
+                            />
+                            <div
+                              style={{
+                                display: 'none',
+                                width: '100%',
+                                height: '100%',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                background: 'rgba(99,102,241,0.1)',
+                              }}
+                            >
+                              <ImageIcon size={20} color="var(--clr-accent)" />
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              width: '46px',
+                              height: '46px',
+                              borderRadius: '8px',
+                              background: 'rgba(99,102,241,0.1)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <FileSpreadsheet size={22} color="var(--clr-primary)" />
+                          </div>
+                        )}
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            className="mr-attachment-item__name"
+                            style={{
+                              fontWeight: 600,
+                              color: 'var(--text-primary)',
+                              fontSize: '0.9rem',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {att.fileName}
+                          </div>
+                          <div
+                            className="mr-attachment-item__meta"
+                            style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}
+                          >
+                            <span style={{ textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.3px' }}>
+                              {att.fileName.split('.').pop() || 'FILE'}
+                            </span>{' '}
+                            • {formatFileSize(att.fileSize)} •{' '}
+                            {new Date(att.uploadedAt || Date.now()).toLocaleDateString()}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="mr-attachment-item__actions">
-                      <button
-                        type="button"
-                        onClick={(e) => handleViewAttachment(e, att)}
-                        className="mr-link-btn"
-                        title="View / Download Document"
+
+                      <div
+                        className="mr-attachment-item__actions"
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <ExternalLink size={15} />
-                      </button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          icon={Eye}
+                          onClick={() => openPreview(att)}
+                          title="Preview full image / document"
+                        >
+                          View
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          icon={Download}
+                          onClick={() => handleDownloadAttachment(att)}
+                          title="Download original file"
+                        >
+                          Download
+                        </Button>
+                        <button
+                          type="button"
+                          onClick={() => window.open(fullUrl, '_blank')}
+                          className="mr-link-btn"
+                          title="Open original file in new browser tab"
+                          style={{
+                            padding: '7px 9px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-default)',
+                            background: 'var(--bg-surface)',
+                            cursor: 'pointer',
+                            color: 'var(--text-muted)',
+                            display: 'flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <ExternalLink size={15} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             ) : (
               <div
@@ -289,52 +454,329 @@ Generated on: ${new Date().toLocaleString()}
         </div>
       </Modal>
 
-      {/* In-App Attachment Preview Modal */}
+      {/* In-App Attachment Lightbox & Preview Modal */}
       {previewAttachment && (
         <Modal
           open={Boolean(previewAttachment)}
           onClose={() => setPreviewAttachment(null)}
           title={
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <FileSpreadsheet size={18} color="var(--clr-primary)" />
-              <span>{previewAttachment.fileName}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '85%' }}>
+              {previewAttachment.fileType?.includes('image') ||
+              /\.(jpe?g|png|webp|gif|bmp)$/i.test(previewAttachment.fileName) ? (
+                <ImageIcon size={20} color="var(--clr-accent)" />
+              ) : (
+                <FileSpreadsheet size={20} color="var(--clr-primary)" />
+              )}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {previewAttachment.fileName}
+              </span>
             </div>
           }
-          subtitle={`${previewAttachment.fileType} • ${formatFileSize(previewAttachment.fileSize)}`}
-          size="md"
+          subtitle={`Record #${record.medicalRecordId} • ${previewAttachment.fileType || 'Medical Attachment'} • ${formatFileSize(previewAttachment.fileSize)}`}
+          size="lg"
         >
           <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {previewAttachment.fileType?.includes('image') ||
+            /\.(jpe?g|png|webp|gif|bmp)$/i.test(previewAttachment.fileName) ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {/* Image Toolbar */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: 'var(--bg-base)',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-default)',
+                    flexWrap: 'wrap',
+                    gap: '8px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={ZoomOut}
+                      onClick={() => setZoom((z) => Math.max(0.5, Number((z - 0.25).toFixed(2))))}
+                      title="Zoom Out"
+                    />
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, minWidth: '46px', textAlign: 'center' }}>
+                      {Math.round(zoom * 100)}%
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={ZoomIn}
+                      onClick={() => setZoom((z) => Math.min(3, Number((z + 0.25).toFixed(2))))}
+                      title="Zoom In"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={RotateCw}
+                      onClick={() => setRotation((r) => (r + 90) % 360)}
+                      title="Rotate 90°"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={RefreshCw}
+                      onClick={() => {
+                        setZoom(1)
+                        setRotation(0)
+                      }}
+                      title="Reset View"
+                    >
+                      Reset
+                    </Button>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={ExternalLink}
+                      onClick={() => window.open(getFullAttachmentUrl(previewAttachment.fileUrl), '_blank')}
+                      title="Open full image in new tab"
+                    >
+                      New Tab
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon={Download}
+                      onClick={() => handleDownloadAttachment(previewAttachment)}
+                      title="Download authentic image"
+                    >
+                      Download Image
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Dark Canvas Viewer */}
+                <div
+                  style={{
+                    background: '#090d16',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    minHeight: '380px',
+                    maxHeight: '65vh',
+                    overflow: 'auto',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '20px',
+                    position: 'relative',
+                  }}
+                >
+                  {!imageLoadError ? (
+                    <img
+                      src={getFullAttachmentUrl(previewAttachment.fileUrl)}
+                      alt={previewAttachment.fileName}
+                      style={{
+                        transform: `scale(${zoom}) rotate(${rotation}deg)`,
+                        transformOrigin: 'center center',
+                        transition: 'transform 0.15s ease-out',
+                        maxWidth: zoom > 1 ? 'none' : '100%',
+                        maxHeight: zoom > 1 ? 'none' : '58vh',
+                        objectFit: 'contain',
+                        borderRadius: '6px',
+                        boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+                        cursor: zoom > 1 ? 'grab' : 'default',
+                      }}
+                      onError={() => setImageLoadError(true)}
+                    />
+                  ) : (
+                    /* Fallback diagnostic document view */
+                    <div
+                      style={{
+                        background: '#ffffff',
+                        color: '#0f172a',
+                        borderRadius: '10px',
+                        padding: '24px',
+                        maxWidth: '520px',
+                        width: '100%',
+                        boxShadow: '0 12px 36px rgba(0,0,0,0.5)',
+                        border: '1px solid #cbd5e1',
+                        fontFamily: 'system-ui, sans-serif',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          borderBottom: '2px solid #0284c7',
+                          paddingBottom: '12px',
+                          marginBottom: '16px',
+                        }}
+                      >
+                        <div>
+                          <div
+                            style={{
+                              fontSize: '1.1rem',
+                              fontWeight: 800,
+                              color: '#0284c7',
+                              letterSpacing: '-0.3px',
+                            }}
+                          >
+                            MEDICORE HEALTH ARCHIVES
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                            Diagnostic Radiology & Clinical Imaging
+                          </div>
+                        </div>
+                        <Badge variant="primary">Record #{record.medicalRecordId}</Badge>
+                      </div>
+
+                      <div style={{ fontSize: '0.85rem', lineHeight: '1.6', marginBottom: '14px' }}>
+                        <div>
+                          <strong>Document:</strong> {previewAttachment.fileName}
+                        </div>
+                        <div>
+                          <strong>Patient:</strong> {record.patientName} ({record.patientEmail})
+                        </div>
+                        <div>
+                          <strong>Record Type:</strong> {record.recordType} (
+                          {new Date(record.recordDate).toLocaleDateString()})
+                        </div>
+                        <div>
+                          <strong>Condition / Diagnosis:</strong> {record.diagnosis}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          background: '#f8fafc',
+                          border: '1px dashed #94a3b8',
+                          borderRadius: '8px',
+                          padding: '14px',
+                          textAlign: 'center',
+                          marginBottom: '16px',
+                        }}
+                      >
+                        <ImageIcon
+                          size={36}
+                          color="#0284c7"
+                          style={{ margin: '0 auto 8px', display: 'block' }}
+                        />
+                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
+                          Verified Diagnostic Scan Record
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
+                          This image was archived in the MediCore Diagnostic System.
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          icon={RefreshCw}
+                          onClick={() => setImageLoadError(false)}
+                        >
+                          Retry
+                        </Button>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          icon={Download}
+                          onClick={() => handleDownloadAttachment(previewAttachment)}
+                        >
+                          Download Image
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : previewAttachment.fileType?.includes('pdf') || /\.pdf$/i.test(previewAttachment.fileName) ? (
+              /* PDF embedded iframe viewer */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={ExternalLink}
+                    onClick={() => {
+                      const cached =
+                        typeof window !== 'undefined'
+                          ? sessionStorage.getItem(`med_preview_${previewAttachment.fileName}`)
+                          : null
+                      window.open(cached || getFullAttachmentUrl(previewAttachment.fileUrl), '_blank')
+                    }}
+                  >
+                    Open in New Tab
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={Download}
+                    onClick={() => handleDownloadAttachment(previewAttachment)}
+                  >
+                    Download PDF
+                  </Button>
+                </div>
+                <iframe
+                  src={
+                    (typeof window !== 'undefined' &&
+                      sessionStorage.getItem(`med_preview_${previewAttachment.fileName}`)) ||
+                    getFullAttachmentUrl(previewAttachment.fileUrl)
+                  }
+                  title={previewAttachment.fileName}
+                  style={{
+                    width: '100%',
+                    height: '65vh',
+                    border: '1px solid var(--border-default)',
+                    borderRadius: '10px',
+                    background: '#fff',
+                  }}
+                />
+              </div>
+            ) : (
+              /* Other document types */
+              <div
+                style={{
+                  background: 'var(--bg-base)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: '10px',
+                  padding: '24px',
+                  textAlign: 'center',
+                }}
+              >
+                <FileSpreadsheet
+                  size={42}
+                  color="var(--clr-primary)"
+                  style={{ margin: '0 auto 12px', display: 'block' }}
+                />
+                <h4 style={{ margin: '0 0 8px', fontSize: '1rem' }}>{previewAttachment.fileName}</h4>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 16px' }}>
+                  {previewAttachment.fileType} • {formatFileSize(previewAttachment.fileSize)}
+                </p>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                  <Button
+                    variant="primary"
+                    icon={Download}
+                    onClick={() => handleDownloadAttachment(previewAttachment)}
+                  >
+                    Download Document
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Footer Close */}
             <div
               style={{
-                background: 'var(--bg-base)',
-                border: '1px solid var(--border-default)',
-                borderRadius: '10px',
-                padding: '16px',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                borderTop: '1px solid var(--border-default)',
+                paddingTop: '10px',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--clr-primary)', fontWeight: 700, fontSize: '0.92rem', marginBottom: '8px' }}>
-                <CheckCircle2 size={16} /> MediCore Diagnostic Repository
-              </div>
-              <p style={{ fontSize: '0.84rem', color: 'var(--text-primary)', margin: '0 0 8px', lineHeight: 1.5 }}>
-                This clinical attachment is linked to <strong>Medical Record #{record.medicalRecordId}</strong> for patient{' '}
-                <strong>{record.patientName}</strong>.
-              </p>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                <strong>Diagnosis:</strong> {record.diagnosis}<br />
-                <strong>Attending Clinician:</strong> {record.doctorName || 'Assigned Clinician'}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <Button variant="secondary" onClick={() => setPreviewAttachment(null)}>
                 Close Preview
-              </Button>
-              <Button
-                variant="primary"
-                icon={Download}
-                onClick={() => handleDownloadSample(previewAttachment)}
-              >
-                Download Report
               </Button>
             </div>
           </div>

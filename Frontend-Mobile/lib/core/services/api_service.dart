@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' as http_parser;
 import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
 import 'package:smartcare_mobile/models/appointment.dart';
 import 'package:smartcare_mobile/models/doctor.dart';
@@ -783,6 +784,9 @@ class ApiService {
     int pageSize = 100,
     String? search,
     String? recordType,
+    String? status,
+    DateTime? fromDate,
+    DateTime? toDate,
   }) async {
     try {
       final queryParams = <String, String>{
@@ -791,6 +795,12 @@ class ApiService {
         if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
         if (recordType != null && recordType != 'All' && recordType.trim().isNotEmpty)
           'recordType': recordType.trim(),
+        if (status != null && status != 'All' && status.trim().isNotEmpty)
+          'status': status.trim(),
+        if (fromDate != null)
+          'fromDate': fromDate.toIso8601String().split('T').first,
+        if (toDate != null)
+          'toDate': toDate.toIso8601String().split('T').first,
       };
 
       final uri = Uri.parse('$baseUrl/medicalrecord').replace(queryParameters: queryParams);
@@ -860,9 +870,69 @@ class ApiService {
     throw Exception(_errorMessage(response.body));
   }
 
-  static Future<List<Patient>> getAllPatients({int pageSize = 100}) async {
+  static Future<MedicalRecord> updateMedicalRecord(int id, Map<String, dynamic> data) async {
+    final response = await _client.put(
+      Uri.parse('$baseUrl/medicalrecord/$id'),
+      headers: await _authHeaders(),
+      body: jsonEncode(data),
+    );
+
+    if (response.statusCode == 200) {
+      return MedicalRecord.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<bool> deleteMedicalRecord(int id) async {
+    final response = await _client.delete(
+      Uri.parse('$baseUrl/medicalrecord/$id'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 204 || response.statusCode == 200) {
+      return true;
+    }
+
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<MedicalRecordSummary> getMedicalRecordSummary() async {
     final response = await _client.get(
-      Uri.parse('$baseUrl/patient?pageSize=$pageSize'),
+      Uri.parse('$baseUrl/medicalrecord/summary'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return MedicalRecordSummary.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+
+    return const MedicalRecordSummary();
+  }
+
+  static Future<bool> deleteMedicalRecordAttachment(int recordId, int attachmentId) async {
+    final response = await _client.delete(
+      Uri.parse('$baseUrl/medicalrecord/$recordId/attachments/$attachmentId'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 204 || response.statusCode == 200) {
+      return true;
+    }
+
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<List<Patient>> getAllPatients({int pageSize = 100, String? search}) async {
+    final queryParams = <String, String>{
+      'pageSize': pageSize.toString(),
+    };
+    if (search != null && search.trim().isNotEmpty) {
+      queryParams['search'] = search.trim();
+    }
+    final uri = Uri.parse('$baseUrl/patient').replace(queryParameters: queryParams);
+    final response = await _client.get(
+      uri,
       headers: await _authHeaders(),
     );
 
@@ -877,6 +947,19 @@ class ApiService {
     }
 
     return [];
+  }
+
+  static Future<Patient> getMyPatientProfile() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/patient/me'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return Patient.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+
+    throw Exception(_errorMessage(response.body));
   }
 
   static Future<MedicalRecord> getMedicalRecordById(
@@ -915,6 +998,49 @@ class ApiService {
         'fileSize': fileSize,
       }),
     );
+
+    if (response.statusCode == 201) {
+      return MedicalRecordAttachment.fromJson(
+        jsonDecode(response.body),
+      );
+    }
+
+    throw Exception(_errorMessage(response.body));
+  }
+
+  static Future<MedicalRecordAttachment> uploadMedicalRecordAttachment(
+    int recordId, {
+    required List<int> fileBytes,
+    required String fileName,
+    String? fileType,
+  }) async {
+    final headers = await _authHeaders();
+    final uri = Uri.parse('$baseUrl/medicalrecord/$recordId/upload-attachment');
+    final request = http.MultipartRequest('POST', uri);
+
+    request.headers.addAll(headers);
+    request.headers.remove('content-type');
+    request.headers.remove('Content-Type');
+
+    final mediaType = (fileType != null && fileType.contains('/'))
+        ? http_parser.MediaType.parse(fileType)
+        : (fileName.toLowerCase().endsWith('.png')
+            ? http_parser.MediaType('image', 'png')
+            : fileName.toLowerCase().endsWith('.pdf')
+                ? http_parser.MediaType('application', 'pdf')
+                : http_parser.MediaType('image', 'jpeg'));
+
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'file',
+        fileBytes,
+        filename: fileName,
+        contentType: mediaType,
+      ),
+    );
+
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
 
     if (response.statusCode == 201) {
       return MedicalRecordAttachment.fromJson(

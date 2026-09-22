@@ -1,6 +1,34 @@
 import './Table.css'
 
-export default function Table({ columns, data, loading = false, emptyMessage = 'No records found', onRowClick }) {
+export default function Table({
+  columns,
+  data = [],
+  loading = false,
+  emptyMessage = 'No records found',
+  emptyText,
+  onRowClick,
+  rowKey,
+}) {
+  const displayEmptyMessage = emptyText || emptyMessage
+
+  const getRowKey = (row, i) => {
+    if (typeof rowKey === 'function') {
+      const k = rowKey(row)
+      if (k != null) return k
+    }
+    if (typeof rowKey === 'string' && row[rowKey] != null) {
+      return row[rowKey]
+    }
+    return (
+      row.medicalRecordId ??
+      row.appointmentId ??
+      row.id ??
+      row._id ??
+      (row.patientId != null && !row.medicalRecordId ? row.patientId : null) ??
+      i
+    )
+  }
+
   if (loading) {
     return (
       <div className="table-wrapper">
@@ -44,13 +72,13 @@ export default function Table({ columns, data, loading = false, emptyMessage = '
           {data.length === 0 ? (
             <tr>
               <td colSpan={columns.length} className="table__empty">
-                {emptyMessage}
+                {displayEmptyMessage}
               </td>
             </tr>
           ) : (
             data.map((row, i) => (
               <tr
-                key={row.id || row.appointmentId || row.patientId || i}
+                key={getRowKey(row, i)}
                 className={onRowClick ? 'table__row--clickable' : ''}
                 onClick={() => onRowClick?.(row)}
               >

@@ -1,6 +1,20 @@
 import { useState, useEffect, useCallback } from 'react'
 import { medicalRecordApi } from '../services/medicalRecordApi'
 
+function extractErrorMessage(err, fallback) {
+  if (err?.response?.data) {
+    const data = err.response.data
+    if (typeof data === 'string') return data
+    if (data.message) return data.message
+    if (data.errors && typeof data.errors === 'object') {
+      const messages = Object.values(data.errors).flat().filter(Boolean)
+      if (messages.length > 0) return messages.join('; ')
+    }
+    if (data.title) return data.title
+  }
+  return err?.message || fallback
+}
+
 export function useMedicalRecords({
   search = '',
   recordType = '',
@@ -41,7 +55,7 @@ export function useMedicalRecords({
       if (summaryRes) setSummary(summaryRes)
     } catch (err) {
       console.error('Failed to fetch medical records:', err)
-      setError(err.response?.data?.message || 'Failed to load medical records')
+      setError(extractErrorMessage(err, 'Failed to load medical records'))
     } finally {
       setLoading(false)
     }
@@ -58,7 +72,7 @@ export function useMedicalRecords({
       await load()
       return { success: true, data: res }
     } catch (err) {
-      return { success: false, error: err.response?.data?.message || 'Failed to create record' }
+      return { success: false, error: extractErrorMessage(err, 'Failed to create record') }
     } finally {
       setSaving(false)
     }
@@ -74,7 +88,7 @@ export function useMedicalRecords({
       await load()
       return { success: true, data: res }
     } catch (err) {
-      return { success: false, error: err.response?.data?.message || 'Failed to update record' }
+      return { success: false, error: extractErrorMessage(err, 'Failed to update record') }
     } finally {
       setSaving(false)
     }
@@ -89,7 +103,7 @@ export function useMedicalRecords({
       await load()
       return { success: true }
     } catch (err) {
-      return { success: false, error: err.response?.data?.message || 'Failed to delete record' }
+      return { success: false, error: extractErrorMessage(err, 'Failed to delete record') }
     } finally {
       setSaving(false)
     }
@@ -101,7 +115,17 @@ export function useMedicalRecords({
       await load()
       return { success: true, data: res }
     } catch (err) {
-      return { success: false, error: err.response?.data?.message || 'Failed to add attachment' }
+      return { success: false, error: extractErrorMessage(err, 'Failed to add attachment') }
+    }
+  }
+
+  const uploadAttachment = async (recordId, file) => {
+    try {
+      const res = await medicalRecordApi.uploadAttachment(recordId, file)
+      await load()
+      return { success: true, data: res }
+    } catch (err) {
+      return { success: false, error: extractErrorMessage(err, 'Failed to upload attachment') }
     }
   }
 
@@ -111,7 +135,7 @@ export function useMedicalRecords({
       await load()
       return { success: true }
     } catch (err) {
-      return { success: false, error: err.response?.data?.message || 'Failed to delete attachment' }
+      return { success: false, error: extractErrorMessage(err, 'Failed to delete attachment') }
     }
   }
 
@@ -128,6 +152,7 @@ export function useMedicalRecords({
     updateRecord,
     deleteRecord,
     addAttachment,
+    uploadAttachment,
     deleteAttachment,
   }
 }

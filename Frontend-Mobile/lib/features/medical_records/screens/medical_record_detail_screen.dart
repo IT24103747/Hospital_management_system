@@ -1,9 +1,10 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartcare_mobile/core/constants/app_colors.dart';
 import 'package:smartcare_mobile/core/services/api_service.dart';
+import 'package:smartcare_mobile/features/medical_records/screens/add_medical_record_dialog.dart';
 import 'package:smartcare_mobile/models/medical_record.dart';
 
 class MedicalRecordDetailScreen extends StatefulWidget {
@@ -23,12 +24,28 @@ class MedicalRecordDetailScreen extends StatefulWidget {
 class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
   late MedicalRecord _record;
   bool _uploading = false;
+  bool _isAdmin = false;
+  bool _isAdminOrDoctor = false;
   final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
     _record = widget.record;
+    _checkRole();
+  }
+
+  Future<void> _checkRole() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final role = prefs.getString('user_role');
+      final email = (prefs.getString('patient_email') ?? '').toLowerCase();
+      if (!mounted) return;
+      setState(() {
+        _isAdmin = role == 'Admin' || email.contains('admin');
+        _isAdminOrDoctor = _isAdmin || role == 'Doctor' || email.contains('doctor');
+      });
+    } catch (_) {}
   }
 
   Future<void> _pickAndUploadImage(ImageSource source) async {
@@ -43,11 +60,10 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
 
       setState(() => _uploading = true);
 
-      final file = File(pickedFile.path);
       final fileName = pickedFile.name.isNotEmpty
           ? pickedFile.name
           : 'report_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final fileSize = await file.length();
+      final fileSize = await pickedFile.length();
 
       // Simulated local path url for mobile upload attachment
       final mockFileUrl = '/uploads/mobile-scans/$fileName';
@@ -94,6 +110,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
         const SnackBar(
           content: Text('Document / Scan uploaded successfully!'),
           backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     } catch (e) {
@@ -103,6 +120,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
         SnackBar(
           content: Text('Upload failed: $e'),
           backgroundColor: AppColors.danger,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -116,16 +134,16 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
       ),
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 20.0),
+          padding: const EdgeInsets.symmetric(vertical: 18.0, horizontal: 20.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
                 'Upload Diagnostic Report / Scan',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               const Text(
                 'Take a photo of your paper report or choose from gallery',
                 style: TextStyle(color: Colors.grey, fontSize: 13),
@@ -156,7 +174,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                   ),
                   child: const Icon(Icons.photo_library_rounded, color: AppColors.accent),
                 ),
-                title: const Text('Choose from Photo Gallery', style: TextStyle(fontWeight: FontWeight.w600)),
+                title: const Text('Choose from Photo Gallery / Storage', style: TextStyle(fontWeight: FontWeight.w600)),
                 subtitle: const Text('Select saved report image from device'),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -180,8 +198,23 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
         return const Color(0xFFD97706);
       case 'Prescription':
         return const Color(0xFF4F46E5);
+      case 'GeneralNote':
+        return const Color(0xFF10B981);
       default:
         return Colors.grey;
+    }
+  }
+
+  String _getTypeDisplayName(String type) {
+    switch (type) {
+      case 'LabReport':
+        return 'Lab Report';
+      case 'DischargeSummary':
+        return 'Discharge Summary';
+      case 'GeneralNote':
+        return 'General Note';
+      default:
+        return type;
     }
   }
 
@@ -192,14 +225,80 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Record #${_record.medicalRecordId}'),
+        title: Text('${_getTypeDisplayName(_record.recordType)} #${_record.medicalRecordId}'),
         actions: [
+          if (_isAdminOrDoctor)
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'Edit Medical Record',
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (_) => AddMedicalRecordDialog(
+                    recordToEdit: _record,
+                    onRecordCreated: () async {
+                      try {
+                        final refreshed = await ApiService.getMedicalRecordById(_record.medicalRecordId);
+                        if (mounted) setState(() => _record = refreshed);
+                      } catch (_) {}
+                      widget.onRecordUpdated?.call();
+                    },
+                  ),
+                );
+              },
+            ),
+          if (_isAdmin)
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded, color: AppColors.danger),
+              tooltip: 'Delete Medical Record',
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Text('Delete Record #${_record.medicalRecordId}?'),
+                    content: const Text(
+                      'Are you sure you want to permanently delete this medical record? This action cannot be undone.',
+                    ),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.danger,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          try {
+                            await ApiService.deleteMedicalRecord(_record.medicalRecordId);
+                            widget.onRecordUpdated?.call();
+                            if (mounted) Navigator.pop(context);
+                          } catch (e) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Delete failed: $e'),
+                                backgroundColor: AppColors.danger,
+                              ),
+                            );
+                          }
+                        },
+                        child: const Text('Delete'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.share_outlined),
             tooltip: 'Share Record',
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Medical record summary copied to clipboard.')),
+                const SnackBar(
+                  content: Text('Medical record summary copied to clipboard.'),
+                  behavior: SnackBarBehavior.floating,
+                ),
               );
             },
           ),
@@ -235,7 +334,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          _record.recordType,
+                          _getTypeDisplayName(_record.recordType),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
@@ -271,7 +370,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                       color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       const Icon(Icons.calendar_today_rounded, size: 14, color: Colors.grey),
@@ -294,87 +393,48 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                       ],
                     ],
                   ),
+                  if (_record.patientName.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.person_outline_rounded, size: 14, color: Colors.grey),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Patient: ${_record.patientName}',
+                          style: const TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
             const SizedBox(height: 20),
 
-            // Symptoms Section
-            _buildSectionCard(
-              title: 'Symptoms & Observations',
-              icon: Icons.personal_injury_outlined,
-              iconColor: Colors.orange,
-              content: Text(
-                _record.symptoms,
-                style: TextStyle(
-                  fontSize: 14,
-                  height: 1.5,
-                  color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
+            // Dynamic Content Sections according to recordType
+            ..._buildDynamicContentSections(isDark),
 
-            // Treatment Plan Section
-            _buildSectionCard(
-              title: 'Treatment Plan & Advice',
-              icon: Icons.healing_outlined,
-              iconColor: AppColors.primary,
-              content: Text(
-                _record.treatmentPlan,
-                style: TextStyle(
-                  fontSize: 14,
-                  height: 1.5,
-                  color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Prescription Notes
-            if (_record.prescriptionNotes != null && _record.prescriptionNotes!.trim().isNotEmpty) ...[
+            // Follow-up Date Card (if set)
+            if (_record.followUpDate != null) ...[
+              const SizedBox(height: 16),
               _buildSectionCard(
-                title: 'Prescribed Medication',
-                icon: Icons.medication_outlined,
-                iconColor: const Color(0xFF4F46E5),
-                content: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.black26 : const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
-                  ),
-                  child: Text(
-                    _record.prescriptionNotes!,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 13,
-                      height: 1.5,
+                title: 'Follow-up / Review Schedule',
+                icon: Icons.event_repeat_rounded,
+                iconColor: AppColors.primary,
+                content: Row(
+                  children: [
+                    const Icon(Icons.calendar_month_rounded, size: 20, color: AppColors.primary),
+                    const SizedBox(width: 10),
+                    Text(
+                      DateFormat('EEEE, MMMM dd, yyyy').format(_record.followUpDate!),
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                     ),
-                  ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
             ],
 
-            // Lab Notes
-            if (_record.labNotes != null && _record.labNotes!.trim().isNotEmpty) ...[
-              _buildSectionCard(
-                title: 'Lab & Diagnostic Findings',
-                icon: Icons.science_outlined,
-                iconColor: const Color(0xFF0891B2),
-                content: Text(
-                  _record.labNotes!,
-                  style: TextStyle(
-                    fontSize: 14,
-                    height: 1.5,
-                    color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
+            const SizedBox(height: 16),
 
             // Attachments Section
             _buildSectionCard(
@@ -451,14 +511,10 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                                 ),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                                icon: const Icon(Icons.visibility_outlined, size: 18),
                                 color: AppColors.primary,
                                 tooltip: 'View File',
-                                onPressed: () {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Opening ${att.fileName}...')),
-                                  );
-                                },
+                                onPressed: () => _previewAttachment(att),
                               ),
                             ],
                           ),
@@ -473,6 +529,269 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
         ),
       ),
     );
+  }
+
+  void _previewAttachment(MedicalRecordAttachment att) {
+    final isImage = att.fileType.toLowerCase().contains('image') ||
+        att.fileName.toLowerCase().endsWith('.jpg') ||
+        att.fileName.toLowerCase().endsWith('.jpeg') ||
+        att.fileName.toLowerCase().endsWith('.png');
+
+    final fullUrl = att.fileUrl.startsWith('http')
+        ? att.fileUrl
+        : '${ApiService.baseUrl.replaceAll('/api', '')}${att.fileUrl.startsWith('/') ? '' : '/'}${att.fileUrl}';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      att.fileName,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (isImage)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    fullUrl,
+                    fit: BoxFit.contain,
+                    height: 280,
+                    errorBuilder: (_, __, ___) => Container(
+                      height: 140,
+                      color: Colors.grey[200],
+                      alignment: Alignment.center,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.broken_image_rounded, size: 36, color: Colors.grey),
+                          const SizedBox(height: 6),
+                          Text(
+                            att.fileName,
+                            style: const TextStyle(color: Colors.grey, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.picture_as_pdf_rounded, size: 48, color: AppColors.primary),
+                      const SizedBox(height: 12),
+                      Text(
+                        att.fileName,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${(att.fileSize / 1024).toStringAsFixed(1)} KB • Document',
+                        style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildDynamicContentSections(bool isDark) {
+    final textStyle = TextStyle(
+      fontSize: 14,
+      height: 1.5,
+      color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+    );
+
+    switch (_record.recordType) {
+      case 'LabReport':
+        return [
+          _buildSectionCard(
+            title: 'Test Findings & Measured Values',
+            icon: Icons.science_outlined,
+            iconColor: const Color(0xFF0891B2),
+            content: Text(_record.symptoms, style: textStyle),
+          ),
+          const SizedBox(height: 16),
+          if (_record.treatmentPlan.isNotEmpty) ...[
+            _buildSectionCard(
+              title: 'Reference Ranges & Remarks',
+              icon: Icons.rule_folder_outlined,
+              iconColor: const Color(0xFF0D9488),
+              content: Text(_record.treatmentPlan, style: textStyle),
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (_record.labNotes != null && _record.labNotes!.trim().isNotEmpty) ...[
+            _buildSectionCard(
+              title: 'Laboratory / Specimen Details',
+              icon: Icons.domain_rounded,
+              iconColor: const Color(0xFF6366F1),
+              content: Text(_record.labNotes!, style: textStyle),
+            ),
+          ],
+        ];
+
+      case 'Prescription':
+        return [
+          if (_record.prescriptionNotes != null && _record.prescriptionNotes!.trim().isNotEmpty) ...[
+            _buildSectionCard(
+              title: 'Prescribed Medications & Dosages',
+              icon: Icons.medication_liquid_outlined,
+              iconColor: const Color(0xFF4F46E5),
+              content: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.black26 : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                ),
+                child: Text(
+                  _record.prescriptionNotes!,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 13,
+                    height: 1.6,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          _buildSectionCard(
+            title: 'Instructions, Precautions & Care Plan',
+            icon: Icons.info_outline_rounded,
+            iconColor: AppColors.primary,
+            content: Text(_record.treatmentPlan, style: textStyle),
+          ),
+          if (_record.symptoms.isNotEmpty && !_record.symptoms.contains('Prescription issued')) ...[
+            const SizedBox(height: 16),
+            _buildSectionCard(
+              title: 'Clinical Symptoms & Indication',
+              icon: Icons.healing_outlined,
+              iconColor: Colors.orange,
+              content: Text(_record.symptoms, style: textStyle),
+            ),
+          ],
+        ];
+
+      case 'DischargeSummary':
+        return [
+          _buildSectionCard(
+            title: 'Hospital Course & Inpatient Care Summary',
+            icon: Icons.timeline_rounded,
+            iconColor: const Color(0xFFD97706),
+            content: Text(_record.symptoms, style: textStyle),
+          ),
+          const SizedBox(height: 16),
+          _buildSectionCard(
+            title: 'Discharge Advice & Post-Discharge Medications',
+            icon: Icons.healing_outlined,
+            iconColor: AppColors.primary,
+            content: Text(_record.treatmentPlan, style: textStyle),
+          ),
+        ];
+
+      case 'GeneralNote':
+        return [
+          _buildSectionCard(
+            title: 'Clinical Observations & Note Content',
+            icon: Icons.notes_rounded,
+            iconColor: const Color(0xFF10B981),
+            content: Text(_record.symptoms, style: textStyle),
+          ),
+          const SizedBox(height: 16),
+          if (_record.treatmentPlan.isNotEmpty) ...[
+            _buildSectionCard(
+              title: 'Recommended Action Items & Next Steps',
+              icon: Icons.check_circle_outline_rounded,
+              iconColor: AppColors.primary,
+              content: Text(_record.treatmentPlan, style: textStyle),
+            ),
+          ],
+        ];
+
+      case 'Consultation':
+      default:
+        return [
+          _buildSectionCard(
+            title: 'Symptoms & Observations',
+            icon: Icons.personal_injury_outlined,
+            iconColor: Colors.orange,
+            content: Text(_record.symptoms, style: textStyle),
+          ),
+          const SizedBox(height: 16),
+          _buildSectionCard(
+            title: 'Treatment Plan & Advice',
+            icon: Icons.healing_outlined,
+            iconColor: AppColors.primary,
+            content: Text(_record.treatmentPlan, style: textStyle),
+          ),
+          if (_record.prescriptionNotes != null && _record.prescriptionNotes!.trim().isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _buildSectionCard(
+              title: 'Prescribed Medication',
+              icon: Icons.medication_outlined,
+              iconColor: const Color(0xFF4F46E5),
+              content: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.black26 : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                ),
+                child: Text(
+                  _record.prescriptionNotes!,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 13,
+                    height: 1.5,
+                  ),
+                ),
+              ),
+            ),
+          ],
+          if (_record.labNotes != null && _record.labNotes!.trim().isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _buildSectionCard(
+              title: 'Lab & Diagnostic Findings',
+              icon: Icons.science_outlined,
+              iconColor: const Color(0xFF0891B2),
+              content: Text(_record.labNotes!, style: textStyle),
+            ),
+          ],
+        ];
+    }
   }
 
   Widget _buildSectionCard({

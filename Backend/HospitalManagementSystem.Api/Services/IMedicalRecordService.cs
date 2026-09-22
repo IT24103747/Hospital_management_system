@@ -23,6 +23,7 @@ namespace HospitalManagementSystem.Api.Services
         Task<MedicalRecordDto?> GetRecordByIdAsync(int id);
         Task<IEnumerable<MedicalRecordDto>?> GetPatientMedicalHistoryAsync(int patientId, string? userEmail, string? userRole);
         Task<IEnumerable<MedicalRecordDto>?> GetMyMedicalRecordsAsync(string patientEmail);
+        Task<int?> GetPatientIdByEmailAsync(string email);
         Task<MedicalRecordSummaryDto> GetSummaryAsync();
         Task<MedicalRecordDto> CreateRecordAsync(CreateMedicalRecordDto dto, string? userEmail, string? userRole);
         Task<MedicalRecordDto?> UpdateRecordAsync(int id, UpdateMedicalRecordDto dto);

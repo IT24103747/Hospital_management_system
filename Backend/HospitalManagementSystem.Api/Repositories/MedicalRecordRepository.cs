@@ -35,7 +35,8 @@ namespace HospitalManagementSystem.Api.Repositories
                 .Include(m => m.Patient)
                 .Include(m => m.Doctor)
                 .Include(m => m.Appointment)
-                .Include(m => m.Attachments),
+                .Include(m => m.Attachments)
+                .AsSplitQuery(),
                 patientId, doctorId, recordType, status, search, fromDate, toDate);
 
             // Sorting
@@ -96,28 +97,24 @@ namespace HospitalManagementSystem.Api.Repositories
             var now = DateTime.UtcNow;
             var startOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
-            var total = await _db.MedicalRecords.CountAsync();
-            var consultation = await _db.MedicalRecords.CountAsync(m => m.RecordType == MedicalRecordTypes.Consultation);
-            var lab = await _db.MedicalRecords.CountAsync(m => m.RecordType == MedicalRecordTypes.LabReport);
-            var discharge = await _db.MedicalRecords.CountAsync(m => m.RecordType == MedicalRecordTypes.DischargeSummary);
-            var prescription = await _db.MedicalRecords.CountAsync(m => m.RecordType == MedicalRecordTypes.Prescription);
-            var general = await _db.MedicalRecords.CountAsync(m => m.RecordType == MedicalRecordTypes.GeneralNote);
-            var draft = await _db.MedicalRecords.CountAsync(m => m.Status == MedicalRecordStatuses.Draft);
-            var finalized = await _db.MedicalRecords.CountAsync(m => m.Status == MedicalRecordStatuses.Finalized);
-            var thisMonth = await _db.MedicalRecords.CountAsync(m => m.CreatedAt >= startOfMonth);
+            var summary = await _db.MedicalRecords
+                .AsNoTracking()
+                .GroupBy(_ => 1)
+                .Select(g => new MedicalRecordSummaryDto
+                {
+                    TotalRecords = g.Count(),
+                    ConsultationCount = g.Count(m => m.RecordType == MedicalRecordTypes.Consultation),
+                    LabReportCount = g.Count(m => m.RecordType == MedicalRecordTypes.LabReport),
+                    DischargeSummaryCount = g.Count(m => m.RecordType == MedicalRecordTypes.DischargeSummary),
+                    PrescriptionCount = g.Count(m => m.RecordType == MedicalRecordTypes.Prescription),
+                    GeneralNoteCount = g.Count(m => m.RecordType == MedicalRecordTypes.GeneralNote),
+                    DraftCount = g.Count(m => m.Status == MedicalRecordStatuses.Draft),
+                    FinalizedCount = g.Count(m => m.Status == MedicalRecordStatuses.Finalized),
+                    AddedThisMonth = g.Count(m => m.CreatedAt >= startOfMonth)
+                })
+                .FirstOrDefaultAsync();
 
-            return new MedicalRecordSummaryDto
-            {
-                TotalRecords = total,
-                ConsultationCount = consultation,
-                LabReportCount = lab,
-                DischargeSummaryCount = discharge,
-                PrescriptionCount = prescription,
-                GeneralNoteCount = general,
-                DraftCount = draft,
-                FinalizedCount = finalized,
-                AddedThisMonth = thisMonth
-            };
+            return summary ?? new MedicalRecordSummaryDto();
         }
 
         public async Task<MedicalRecord> CreateAsync(MedicalRecord record)
@@ -176,25 +173,59 @@ namespace HospitalManagementSystem.Api.Repositories
                 query = query.Where(m => m.DoctorId == doctorId.Value);
 
             if (!string.IsNullOrWhiteSpace(recordType))
-                query = query.Where(m => m.RecordType == recordType);
+            {
+                var rt = recordType.Trim().ToLower();
+                query = query.Where(m => m.RecordType.ToLower() == rt);
+            }
 
             if (!string.IsNullOrWhiteSpace(status))
-                query = query.Where(m => m.Status == status);
+            {
+                var st = status.Trim().ToLower();
+                query = query.Where(m => m.Status.ToLower() == st);
+            }
 
             if (fromDate.HasValue)
-                query = query.Where(m => m.RecordDate >= fromDate.Value);
+            {
+                var fromUtc = DateTime.SpecifyKind(fromDate.Value.Date, DateTimeKind.Utc);
+                query = query.Where(m => m.RecordDate >= fromUtc);
+            }
 
             if (toDate.HasValue)
-                query = query.Where(m => m.RecordDate <= toDate.Value);
+            {
+                var toUtc = DateTime.SpecifyKind(toDate.Value.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
+                query = query.Where(m => m.RecordDate <= toUtc);
+            }
 
             if (!string.IsNullOrWhiteSpace(search))
             {
                 var s = search.Trim().ToLower();
+                var numStr = s.StartsWith("#") ? s[1..] : s;
+                bool isId = int.TryParse(numStr, out int targetId);
+
                 query = query.Where(m =>
+                    (isId && m.MedicalRecordId == targetId) ||
                     m.Diagnosis.ToLower().Contains(s) ||
                     m.Symptoms.ToLower().Contains(s) ||
                     m.TreatmentPlan.ToLower().Contains(s) ||
-                    (m.Patient != null && (m.Patient.FirstName.ToLower().Contains(s) || m.Patient.LastName.ToLower().Contains(s) || m.Patient.NIC.ToLower().Contains(s))));
+                    m.RecordType.ToLower().Contains(s) ||
+                    m.Status.ToLower().Contains(s) ||
+                    (m.PrescriptionNotes != null && m.PrescriptionNotes.ToLower().Contains(s)) ||
+                    (m.LabNotes != null && m.LabNotes.ToLower().Contains(s)) ||
+                    (m.Patient != null && (
+                        (m.Patient.FirstName.ToLower() + " " + m.Patient.LastName.ToLower()).Contains(s) ||
+                        m.Patient.FirstName.ToLower().Contains(s) ||
+                        m.Patient.LastName.ToLower().Contains(s) ||
+                        (m.Patient.Email != null && m.Patient.Email.ToLower().Contains(s)) ||
+                        (m.Patient.NIC != null && m.Patient.NIC.ToLower().Contains(s)) ||
+                        (m.Patient.PhoneNumber != null && m.Patient.PhoneNumber.ToLower().Contains(s))
+                    )) ||
+                    (m.Doctor != null && (
+                        (m.Doctor.FirstName.ToLower() + " " + m.Doctor.LastName.ToLower()).Contains(s) ||
+                        m.Doctor.FirstName.ToLower().Contains(s) ||
+                        m.Doctor.LastName.ToLower().Contains(s) ||
+                        (m.Doctor.Specialization != null && m.Doctor.Specialization.ToLower().Contains(s))
+                    ))
+                );
             }
 
             return query;

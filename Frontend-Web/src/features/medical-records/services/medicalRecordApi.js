@@ -21,12 +21,22 @@ export const medicalRecordApi = {
     return res.data
   },
 
+  getPatientMedicalRecords: async (patientId) => {
+    const res = await apiClient.get(`/medicalrecord/patient/${patientId}`)
+    return res.data
+  },
+
   getMyRecords: async () => {
     const res = await apiClient.get('/medicalrecord/me')
     return res.data
   },
 
   create: async (data) => {
+    const res = await apiClient.post('/medicalrecord', data)
+    return res.data
+  },
+
+  createMedicalRecord: async (data) => {
     const res = await apiClient.post('/medicalrecord', data)
     return res.data
   },
@@ -43,6 +53,17 @@ export const medicalRecordApi = {
 
   addAttachment: async (id, attachmentData) => {
     const res = await apiClient.post(`/medicalrecord/${id}/attachments`, attachmentData)
+    return res.data
+  },
+
+  uploadAttachment: async (id, file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await apiClient.post(`/medicalrecord/${id}/upload-attachment`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
     return res.data
   },
 

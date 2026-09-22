@@ -150,3 +150,41 @@ class MedicalRecord {
     };
   }
 }
+
+class MedicalRecordSummary {
+  final int totalRecords;
+  final int consultationCount;
+  final int labReportCount;
+  final int dischargeSummaryCount;
+  final int prescriptionCount;
+  final int generalNoteCount;
+  final int draftCount;
+  final int finalizedCount;
+  final int addedThisMonth;
+
+  const MedicalRecordSummary({
+    this.totalRecords = 0,
+    this.consultationCount = 0,
+    this.labReportCount = 0,
+    this.dischargeSummaryCount = 0,
+    this.prescriptionCount = 0,
+    this.generalNoteCount = 0,
+    this.draftCount = 0,
+    this.finalizedCount = 0,
+    this.addedThisMonth = 0,
+  });
+
+  factory MedicalRecordSummary.fromJson(Map<String, dynamic> json) {
+    return MedicalRecordSummary(
+      totalRecords: json['totalRecords'] as int? ?? 0,
+      consultationCount: json['consultationCount'] as int? ?? 0,
+      labReportCount: json['labReportCount'] as int? ?? 0,
+      dischargeSummaryCount: json['dischargeSummaryCount'] as int? ?? 0,
+      prescriptionCount: json['prescriptionCount'] as int? ?? 0,
+      generalNoteCount: json['generalNoteCount'] as int? ?? 0,
+      draftCount: json['draftCount'] as int? ?? 0,
+      finalizedCount: json['finalizedCount'] as int? ?? 0,
+      addedThisMonth: json['addedThisMonth'] as int? ?? 0,
+    );
+  }
+}
