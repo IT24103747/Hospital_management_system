@@ -230,11 +230,27 @@ namespace HospitalManagementSystem.Api.Repositories
                     (hasEmail && a.PatientEmail != null && a.PatientEmail.ToLower() == normalizedEmail));
             }
 
-            if (doctorId.HasValue)
+            if (doctorId.HasValue || !string.IsNullOrWhiteSpace(doctorName))
             {
-                query = query.Where(a => a.DoctorTimeSlot!.DoctorId == doctorId.Value);
-            }
+                var term = !string.IsNullOrWhiteSpace(doctorName)
+                    ? doctorName.Trim().ToLower().Replace("dr.", "").Trim()
+                    : string.Empty;
 
+                if (doctorId.HasValue && !string.IsNullOrWhiteSpace(term))
+                {
+                    query = query.Where(a => a.DoctorTimeSlot != null &&
+                        (a.DoctorTimeSlot.DoctorId == doctorId.Value ||
+                         a.DoctorTimeSlot.DoctorName.ToLower().Contains(term)));
+                }
+                else if (doctorId.HasValue)
+                {
+                    query = query.Where(a => a.DoctorTimeSlot != null && a.DoctorTimeSlot.DoctorId == doctorId.Value);
+                }
+                else if (!string.IsNullOrWhiteSpace(term))
+                {
+                    query = query.Where(a => a.DoctorTimeSlot != null && a.DoctorTimeSlot.DoctorName.ToLower().Contains(term));
+                }
+            }
             if (!string.IsNullOrWhiteSpace(search))
             {
                 var term = search.ToLower();
@@ -242,19 +258,13 @@ namespace HospitalManagementSystem.Api.Repositories
                     a.PatientName.ToLower().Contains(term) ||
                     a.PatientPhone.Contains(term) ||
                     (a.PatientEmail != null && a.PatientEmail.ToLower().Contains(term)) ||
-                    a.DoctorTimeSlot!.DoctorName.ToLower().Contains(term) ||
+                    (a.DoctorTimeSlot != null && a.DoctorTimeSlot.DoctorName.ToLower().Contains(term)) ||
                     a.Reason.ToLower().Contains(term));
             }
 
             if (!string.IsNullOrWhiteSpace(status) && status != "all")
             {
                 query = query.Where(a => a.Status == status);
-            }
-
-            if (!string.IsNullOrWhiteSpace(doctorName))
-            {
-                var term = doctorName.ToLower();
-                query = query.Where(a => a.DoctorTimeSlot!.DoctorName.ToLower().Contains(term));
             }
 
             if (date.HasValue)
