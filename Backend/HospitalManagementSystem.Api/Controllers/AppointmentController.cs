@@ -46,8 +46,22 @@ namespace HospitalManagementSystem.Api.Controllers
             var access = await GetAppointmentAccessAsync();
             if (access.Result is not null) return access.Result;
 
+            var resolvedDoctorName = doctorName;
+            if (User.IsInRole("Doctor") && string.IsNullOrWhiteSpace(resolvedDoctorName))
+            {
+                var doctor = await GetApprovedDoctorForCurrentUserAsync();
+                if (doctor is not null)
+                {
+                    resolvedDoctorName = $"{doctor.FirstName} {doctor.LastName}".Trim();
+                }
+                else
+                {
+                    resolvedDoctorName = User.FindFirstValue(ClaimTypes.Name);
+                }
+            }
+
             var result = await _service.GetAllAppointmentsAsync(
-                search, status, doctorName, date, sortBy, sortDirection, page, pageSize,
+                search, status, resolvedDoctorName, date, sortBy, sortDirection, page, pageSize,
                 access.PatientId, access.PatientEmail, access.DoctorId);
             return Ok(result);
         }
@@ -416,13 +430,22 @@ namespace HospitalManagementSystem.Api.Controllers
         private async Task<Doctor?> GetApprovedDoctorForCurrentUserAsync()
         {
             var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (!int.TryParse(userIdValue, out var userId))
-                return null;
+            if (int.TryParse(userIdValue, out var userId))
+            {
+                var doc = await _db.Doctors.AsNoTracking()
+                    .FirstOrDefaultAsync(doctor => doctor.UserId == userId);
+                if (doc is not null) return doc;
+            }
 
-            return await _db.Doctors.AsNoTracking()
-                .SingleOrDefaultAsync(doctor =>
-                    doctor.UserId == userId &&
-                    doctor.RegistrationStatus.Trim().ToLower() == DoctorRegistrationStatuses.Approved.ToLower());
+            var doctorIdValue = User.FindFirstValue("doctorId");
+            if (int.TryParse(doctorIdValue, out var docId))
+            {
+                var doc = await _db.Doctors.AsNoTracking()
+                    .FirstOrDefaultAsync(doctor => doctor.DoctorId == docId);
+                if (doc is not null) return doc;
+            }
+
+            return null;
         }
 
         private static void ApplyDoctorProfile(CreateDoctorTimeSlotDto dto, Doctor doctor)
