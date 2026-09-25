@@ -121,6 +121,5 @@ public sealed class AssistantAgentRegistry(IEnumerable<IHospitalAssistantReadAge
         new("find-doctor", "Find Doctor", true, "Find a doctor"),
         new("appointments", "Appointments", true, "Show my appointments"),
         AdditionalAgents.FirstOrDefault(a => a.Capability.Id == "medical-reports")?.Capability ?? new("medical-reports", "Medical Reports", false, ""),
-        AdditionalAgents.FirstOrDefault(a => a.Capability.Id == "doctor-schedules")?.Capability ?? new("doctor-schedules", "Doctor Schedules", false, "")
     }.Concat(AdditionalAgents.Where(a => a.Capability.Id != "medical-reports" && a.Capability.Id != "doctor-schedules").Select(a => a.Capability)).ToArray();
 }

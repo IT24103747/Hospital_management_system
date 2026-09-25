@@ -42,23 +42,27 @@ public partial class DoctorService : IDoctorService
         if (await _db.Doctors.AnyAsync(doctor => doctor.SlmcLicenseNumber == license))
             throw new InvalidOperationException("A doctor registration already exists for this SLMC license number.");
 
-        await using var transaction = await _db.Database.BeginTransactionAsync();
-        var user = new User { FullName = $"{firstName} {lastName}", Email = email, Role = "Doctor" };
-        user.PasswordHash = _passwordHasher.HashPassword(user, dto.Password);
-        _db.Users.Add(user);
-        _db.Doctors.Add(new Doctor
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(_db, async (context, ct) =>
         {
-            User = user,
-            FirstName = firstName,
-            LastName = lastName,
-            NIC = nic,
-            Specialization = dto.Specialization.Trim(),
-            SlmcLicenseNumber = license,
-            PhoneNumber = phone,
-            RegistrationStatus = DoctorRegistrationStatuses.Pending
-        });
-        await _db.SaveChangesAsync();
-        await transaction.CommitAsync();
+            await using var transaction = await context.Database.BeginTransactionAsync(ct);
+            var user = new User { FullName = $"{firstName} {lastName}", Email = email, Role = "Doctor" };
+            user.PasswordHash = _passwordHasher.HashPassword(user, dto.Password);
+            context.Users.Add(user);
+            context.Doctors.Add(new Doctor
+            {
+                User = user,
+                FirstName = firstName,
+                LastName = lastName,
+                NIC = nic,
+                Specialization = dto.Specialization.Trim(),
+                SlmcLicenseNumber = license,
+                PhoneNumber = phone,
+                RegistrationStatus = DoctorRegistrationStatuses.Pending
+            });
+            await context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        }, default);
     }
 
     public async Task<IEnumerable<DoctorDto>> GetRegistrationsAsync(string? status)
@@ -104,11 +108,27 @@ public partial class DoctorService : IDoctorService
     {
         var doctor = await _db.Doctors.Include(d => d.User).SingleOrDefaultAsync(d => d.UserId == userId);
         if (doctor is null) return null;
+        var previousDoctorName = $"Dr. {doctor.FirstName} {doctor.LastName}".Trim();
         doctor.FirstName = ValidateName(dto.FirstName, "First name");
         doctor.LastName = ValidateName(dto.LastName, "Last name");
         doctor.PhoneNumber = NormalizePhone(dto.PhoneNumber);
         doctor.User.FullName = $"{doctor.FirstName} {doctor.LastName}";
         doctor.UpdatedAt = DateTime.UtcNow;
+
+        // DoctorTimeSlots keeps a display-name copy. Refresh it after a profile
+        // name change, but deliberately leave Specialty untouched because doctors
+        // are not allowed to edit their verified specialization.
+        var updatedDoctorName = $"Dr. {doctor.FirstName} {doctor.LastName}".Trim();
+        var now = DateTime.UtcNow;
+        var matchingSlots = await _db.DoctorTimeSlots
+            .Where(slot => slot.DoctorId == doctor.DoctorId || slot.DoctorName == previousDoctorName)
+            .ToListAsync();
+        foreach (var slot in matchingSlots)
+        {
+            slot.DoctorId ??= doctor.DoctorId;
+            slot.DoctorName = updatedDoctorName;
+            slot.UpdatedAt = now;
+        }
         await _db.SaveChangesAsync();
         return Map(doctor);
     }

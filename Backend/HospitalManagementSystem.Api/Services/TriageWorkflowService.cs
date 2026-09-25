@@ -408,6 +408,11 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             throw new ArgumentException("Provide a non-empty clinical response of at most 4000 characters.");
         var assessment = JsonNode.Parse(workflow.ResultJson)!.AsObject();
         var suggestion = assessment["safeTriageSuggestion"]?.GetValue<string>() ?? workflow.FinalOutcome;
+        // Doctors commonly enter their patient-facing message in Note when approving
+        // the assessment. Prefer an explicit final response, then that note, so the
+        // reviewed message is retained for both chat refresh and notifications.
+        var patientFacingResponse = request.FinalResponse?.Trim();
+        if (string.IsNullOrWhiteSpace(patientFacingResponse)) patientFacingResponse = request.Note?.Trim();
         if (decision == TriageApprovalStatuses.Approved && string.IsNullOrWhiteSpace(suggestion))
             throw new ArgumentException("No SafeTriage suggestion is available to approve. Provide your own suggestion.");
 
@@ -424,7 +429,7 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         workflow.Status = decision == TriageApprovalStatuses.RevisionRequested ? TriageWorkflowStatuses.PendingClinicalReview : TriageWorkflowStatuses.Completed;
         workflow.FinalOutcome = decision switch
         {
-            TriageApprovalStatuses.Approved => suggestion,
+            TriageApprovalStatuses.Approved => patientFacingResponse ?? suggestion,
             "ClinicianResponse" => request.FinalResponse!.Trim(),
             TriageApprovalStatuses.Rejected => "A clinical reviewer did not approve the proposed escalation. Contact the care team for further guidance.",
             _ => "A clinical reviewer requested additional information before a decision can be made."
@@ -549,7 +554,7 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         var guidance = MapGuidance(generated);
         if (guidance is not null && questions is not null)
         {
-            guidance.FollowUpItems = questions.Take(1).ToList();
+            guidance.FollowUpItems = questions.Take(4).ToList();
             guidance.FollowUpQuestions = guidance.FollowUpItems.Select(question => question.Prompt).ToList();
         }
         if (guidance is not null)
@@ -566,12 +571,17 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         Summary = "No configured emergency, urgent, or high-risk warning sign was detected in the information you provided. The AI symptom analysis is temporarily unavailable, so this is general guidance only.",
         Actions =
         [
-            "Rest, stay hydrated, and monitor how your symptoms change.",
+            "Rest, drink fluids regularly, and eat regular meals if you can.",
+            "Avoid known triggers or irritants, such as smoke, dust, or strong scents, when possible.",
+            "Take it easy and avoid strenuous activity until you are feeling better.",
+            "Keep a note of changes in your symptoms, including anything that makes them better or worse.",
             "Contact a healthcare professional if the symptom persists, worsens, or concerns you."
         ],
         SeekHelpIf =
         [
-            "Seek urgent help for severe or rapidly worsening symptoms, trouble breathing, chest pain, fainting, confusion, or severe bleeding."
+            "Seek urgent help for severe or rapidly worsening symptoms.",
+            "Seek urgent help for trouble breathing, chest pain, fainting, confusion, or severe bleeding.",
+            "Contact a healthcare professional if symptoms do not improve, interfere with daily activities, or you develop a new concern."
         ],
         FollowUpItems = [],
         FollowUpQuestions = [],
@@ -641,7 +651,8 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
                 context.Extraction.Facts is { } facts && SafeTriageRules.HasGroundedConcept(facts) &&
                 context.Requirements.All(r => r.State is SafeTriageRequirementState.Answered or SafeTriageRequirementState.NotApplicable) &&
                 (context.Requirements.Count > 0 || context.Extraction.MissingInformation.Count == 0);
-            var next = context.PlannedQuestions.FirstOrDefault(q => context.Requirements.Any(r => r.Key == q.Id && r.State == SafeTriageRequirementState.Missing));
+            var next = context.PlannedQuestions.Where(q => context.Requirements.Any(r => r.Key == q.Id && r.State == SafeTriageRequirementState.Missing))
+                .Take(Math.Min(4, Math.Max(0, _options.EffectiveMaxFollowUpQuestions - context.FollowUpCount))).ToList();
             if (sufficient && guidance is not null)
             {
                 workflow.Status = TriageWorkflowStatuses.Completed;
@@ -652,7 +663,7 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
                 workflow.FinalOutcome = "Your assessment is complete. This general guidance is not a diagnosis.";
                 workflow.ErrorCode = null;
             }
-            else if (context.Extraction?.Status == "Completed" && next is not null && guidance is not null && context.FollowUpCount < _options.EffectiveMaxFollowUpQuestions)
+            else if (context.Extraction?.Status == "Completed" && next.Count > 0 && guidance is not null && context.FollowUpCount < _options.EffectiveMaxFollowUpQuestions)
             {
                 workflow.Status = TriageWorkflowStatuses.PendingPatientInput;
                 workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
@@ -660,9 +671,9 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
                 workflow.TriageLevel = context.IsWithinValidatedRoutineScope ? TriageLevels.NonUrgent : TriageLevels.InsufficientInformation;
                 workflow.FinalOutcome = "Please answer the next question, or choose Prefer not to answer.";
                 workflow.ErrorCode = null;
-                guidance.FollowUpItems = [next];
-                guidance.FollowUpQuestions = [next.Prompt];
-                context.FollowUpCount++;
+                guidance.FollowUpItems = next;
+                guidance.FollowUpQuestions = next.Select(question => question.Prompt).ToList();
+                context.FollowUpCount += next.Count;
             }
             else if (extractionFailed && context.IsWithinValidatedRoutineScope && guidance is not null)
             {

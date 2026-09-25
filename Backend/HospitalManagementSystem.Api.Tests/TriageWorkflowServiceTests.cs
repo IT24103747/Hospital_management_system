@@ -644,7 +644,7 @@ public class TriageWorkflowServiceTests
     }
 
     [Fact]
-    public async Task GeminiPlannerRemainsLimitedToOneValidatedQuestion()
+    public async Task GeminiPlannerReturnsMultipleValidatedQuestionsWhenRelevant()
     {
         using var http = GeminiHttp(new { questions = new[] {
             new { id = "onset", question = "When did this begin?" },
@@ -652,17 +652,20 @@ public class TriageWorkflowServiceTests
         } });
         var planner = new GeminiSafeTriageQuestionPlanningAgent(http, GeminiSettings(), NullLogger<GeminiSafeTriageQuestionPlanningAgent>.Instance);
         var plan = await planner.PlanAsync(new([], [], null, "Completed", Requirements: [new("onset"), new("progression")]), []);
-        Assert.Equal("onset", Assert.Single(plan.Questions).Id);
+        Assert.Equal(["onset", "progression"], plan.Questions.Select(question => question.Id));
     }
 
     [Fact]
     public async Task GeminiGuidance_AcceptsSafeDisclaimersButRejectsMedicationDirections()
     {
-        var safe = new { summary = "This is not a diagnosis; monitor how you feel.", generalActions = new[] { "Rest and monitor symptoms." }, safetyNetting = new[] { "Seek urgent help if symptoms become severe." } };
+        var safe = new { summary = "This is not a diagnosis; monitor how you feel.", generalActions = new[] { "Rest when you can.", "Drink fluids regularly.", "Eat regular meals if you can.", "Avoid smoke and other irritants.", "Take it easy with strenuous activity." }, safetyNetting = new[] { "Seek urgent help if symptoms become severe.", "Seek urgent help if breathing becomes difficult.", "Contact a healthcare professional if symptoms worsen.", "Get advice if a new concern develops." } };
         using var safeHttp = GeminiHttp(safe);
         var agent = new GeminiSafeTriageResponseGenerationAgent(safeHttp, GeminiSettings(), NullLogger<GeminiSafeTriageResponseGenerationAgent>.Instance);
         var context = new SafeTriageResponseContext("I have a cough.", new ClinicalExtractionResult(["cough"], [], null, "Completed"), "Completed", TriageLevels.NonUrgent, false);
-        Assert.NotNull(await agent.GenerateAsync(context));
+        var generated = await agent.GenerateAsync(context);
+        Assert.NotNull(generated);
+        Assert.Equal(5, generated!.GeneralActions.Count);
+        Assert.Equal(4, generated.SafetyNetting.Count);
 
         var unsafeResponse = new { summary = "You have a respiratory infection.", generalActions = new[] { "Take 500 mg antibiotic." }, safetyNetting = new[] { "Seek help if worse." } };
         using var unsafeHttp = GeminiHttp(unsafeResponse);
@@ -821,8 +824,12 @@ internal sealed class TestSafeTriageAgents : ISafeTriageSemanticExtractionAgent,
     public Task<SafeTriageQuestionPlan> PlanAsync(ClinicalExtractionResult extraction, IReadOnlyList<string> alreadyAsked, CancellationToken cancellationToken = default)
     {
         Excluded = alreadyAsked;
-        return Task.FromResult(new SafeTriageQuestionPlan((extraction.Requirements ?? [])
-            .Where(r => ReturnIneligibleQuestions || r.State == SafeTriageRequirementState.Missing)
+        var eligible = (extraction.Requirements ?? [])
+            .Where(r => ReturnIneligibleQuestions || r.State == SafeTriageRequirementState.Missing);
+        if (!ReturnIneligibleQuestions) eligible = eligible.Take(1);
+        return Task.FromResult(new SafeTriageQuestionPlan(eligible
+            // Legacy workflow tests exercise one answer per interaction. Gemini's
+            // production planner is separately tested for multi-question batches.
             .Select(r => new TriageFollowUpQuestionDto { Id = r.Key, Prompt = $"Please describe {r.Key}.", Required = true,
                 Type = UseChoiceQuestion && r.Key == "onset" ? "singleChoice" : "shortText",
                 Options = UseChoiceQuestion && r.Key == "onset" ? ["Gradually", "Suddenly"] : [] }).ToList(), "Completed"));

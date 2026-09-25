@@ -49,34 +49,38 @@ namespace HospitalManagementSystem.Api.Repositories
 
         public async Task<Appointment> CreateAsync(Appointment appointment)
         {
-            // Serialize bookings for the same session across API instances.
-            // The existing unique index remains the final duplicate-number guard.
-            await using var transaction = _context.Database.IsRelational() && _context.Database.CurrentTransaction is null
-                ? await _context.Database.BeginTransactionAsync()
-                : null;
-            if (_context.Database.IsNpgsql())
+            var strategy = _context.Database.CreateExecutionStrategy();
+            return await strategy.ExecuteAsync(_context, async (context, ct) =>
             {
-                await _context.Database.ExecuteSqlInterpolatedAsync(
-                    $"SELECT 1 FROM \"DoctorTimeSlots\" WHERE \"DoctorTimeSlotId\" = {appointment.DoctorTimeSlotId} FOR UPDATE");
-            }
+                // Serialize bookings for the same session across API instances.
+                // The existing unique index remains the final duplicate-number guard.
+                await using var transaction = context.Database.IsRelational() && context.Database.CurrentTransaction is null
+                    ? await context.Database.BeginTransactionAsync(ct)
+                    : null;
+                if (context.Database.IsNpgsql())
+                {
+                    await context.Database.ExecuteSqlInterpolatedAsync(
+                        $"SELECT 1 FROM \"DoctorTimeSlots\" WHERE \"DoctorTimeSlotId\" = {appointment.DoctorTimeSlotId} FOR UPDATE", ct);
+                }
 
-            var slot = await _context.DoctorTimeSlots.AsNoTracking()
-                .SingleOrDefaultAsync(s => s.DoctorTimeSlotId == appointment.DoctorTimeSlotId);
-            if (slot is null || !slot.IsActive)
-                throw new InvalidOperationException("Selected doctor time slot is not available.");
-            if (slot.StartAt <= DateTime.UtcNow)
-                throw new InvalidOperationException("Past doctor time slots cannot be booked.");
+                var slot = await context.DoctorTimeSlots.AsNoTracking()
+                    .SingleOrDefaultAsync(s => s.DoctorTimeSlotId == appointment.DoctorTimeSlotId, ct);
+                if (slot is null || !slot.IsActive)
+                    throw new InvalidOperationException("Selected doctor time slot is not available.");
+                if (slot.StartAt <= DateTime.UtcNow)
+                    throw new InvalidOperationException("Past doctor time slots cannot be booked.");
 
-            var bookedNumbers = (await GetBookedAppointmentNumbersAsync(slot.DoctorTimeSlotId)).ToHashSet();
-            // Recalculate after acquiring the lock; the displayed preview is not a reservation.
-            appointment.AppointmentNumber = AppointmentNumbering.NextAvailable(slot.Capacity, bookedNumbers);
-            if (appointment.AppointmentNumber == 0)
-                throw new InvalidOperationException("Selected doctor time slot is fully booked.");
+                var bookedNumbers = (await GetBookedAppointmentNumbersAsync(slot.DoctorTimeSlotId)).ToHashSet();
+                // Recalculate after acquiring the lock; the displayed preview is not a reservation.
+                appointment.AppointmentNumber = AppointmentNumbering.NextAvailable(slot.Capacity, bookedNumbers);
+                if (appointment.AppointmentNumber == 0)
+                    throw new InvalidOperationException("Selected doctor time slot is fully booked.");
 
-            _context.Appointments.Add(appointment);
-            await _context.SaveChangesAsync();
-            if (transaction is not null) await transaction.CommitAsync();
-            return (await GetByIdAsync(appointment.AppointmentId))!;
+                context.Appointments.Add(appointment);
+                await context.SaveChangesAsync(ct);
+                if (transaction is not null) await transaction.CommitAsync(ct);
+                return (await GetByIdAsync(appointment.AppointmentId))!;
+            }, default);
         }
 
         public async Task<Appointment> UpdateAsync(Appointment appointment)

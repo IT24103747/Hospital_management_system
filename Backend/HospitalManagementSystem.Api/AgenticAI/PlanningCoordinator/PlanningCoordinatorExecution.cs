@@ -86,15 +86,16 @@ public sealed partial class PlanningCoordinatorAgent
                 await InvalidateAsync(state, "Expired", token);
                 Reply(state, "The pending request expired. Ask me to search again for current options.", "CANCELLED");
             }
-            if (state.WorkflowId.HasValue && state.Awaiting == "clinical-review")
+            if (state.WorkflowId.HasValue)
             {
                 var workflow = await workflows.GetForPatientAsync(state.WorkflowId.Value, patientId);
-                if (workflow != null && workflow.ApprovalStatus != TriageApprovalStatuses.Pending)
+                if (workflow?.ReviewedResponse is { Length: > 0 } reviewedResponse &&
+                    !state.Messages.Any(message => message.Role == "assistant" && message.Text.Contains(reviewedResponse, StringComparison.Ordinal)))
                 {
                     ApplyWorkflow(state, workflow);
                     ClinicalReply(state, workflow);
                 }
-                else if (workflow != null && workflow.TriageLevel is not (TriageLevels.Emergency or TriageLevels.Urgent) &&
+                else if (state.Awaiting == "clinical-review" && workflow != null && workflow.TriageLevel is not (TriageLevels.Emergency or TriageLevels.Urgent) &&
                          workflow.Status != TriageWorkflowStatuses.FailedSafely)
                 {
                     // Self-heal conversations that were corrupted by the old CheckPatientSafetyAsync
@@ -559,12 +560,7 @@ public sealed partial class PlanningCoordinatorAgent
             Reply(state, await extension.ReadAsync(text, patient, token), "COMPLETED");
             return;
         }
-        if (Has(text, @"\b(report|reports|medical record|medical records|doctor schedule|change schedule)\b"))
-        {
-            await InvalidateAsync(state, "Superseded", token);
-            Reply(state, "Medical report AI and doctor schedule management are coming soon. You can continue using the existing hospital screens for those services.", "COMPLETED");
-            return;
-        }
+
         if (askingCancel)
         {
             await InvalidateAsync(state, "Superseded", token);
@@ -1002,16 +998,20 @@ public sealed partial class PlanningCoordinatorAgent
         await gate.WaitAsync(token);
         try
         {
-            await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(token) : null;
-            if (db.Database.IsNpgsql())
-                await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(1396916552, {patientId})", token);
-            var result = await action();
-            if (transaction != null)
+            var strategy = db.Database.CreateExecutionStrategy();
+            return await strategy.ExecuteAsync(db, async (context, ct) =>
             {
-                await transaction.CommitAsync(token);
-                await sms.FlushCommittedAsync(transaction.TransactionId);
-            }
-            return result;
+                await using var transaction = context.Database.IsRelational() ? await context.Database.BeginTransactionAsync(ct) : null;
+                if (context.Database.IsNpgsql())
+                    await context.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(1396916552, {patientId})", ct);
+                var result = await action();
+                if (transaction != null)
+                {
+                    await transaction.CommitAsync(ct);
+                    await sms.FlushCommittedAsync(transaction.TransactionId);
+                }
+                return result;
+            }, token);
         }
         catch (Exception ex) when (ex is not ArgumentException && ex is not KeyNotFoundException)
         {

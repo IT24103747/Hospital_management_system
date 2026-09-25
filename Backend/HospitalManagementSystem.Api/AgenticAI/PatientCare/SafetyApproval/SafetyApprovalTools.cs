@@ -38,9 +38,9 @@ public sealed class SafetyApprovalTools(ApplicationDbContext db, IAppointmentAge
     }
     public Task<AgentBooking> FinalizeBookingAsync(AgentSlot slot, PatientDto patient, CancellationToken token) => appointmentTools.BookAsync(slot, patient);
     public async Task<bool> CanBookPatientAsync(int patientId, CancellationToken token) => !await db.TriageWorkflows.AnyAsync(w =>
-        w.PatientId == patientId && (w.Status == TriageWorkflowStatuses.FailedSafely || w.Status == TriageWorkflowStatuses.PendingPatientInput ||
+        w.PatientId == patientId &&
         ((w.TriageLevel == TriageLevels.Emergency || w.TriageLevel == TriageLevels.Urgent) &&
-        (w.ApprovalStatus == TriageApprovalStatuses.Pending || w.ApprovalStatus == TriageApprovalStatuses.RevisionRequested))), token);
+        (w.ApprovalStatus == TriageApprovalStatuses.Pending || w.ApprovalStatus == TriageApprovalStatuses.RevisionRequested)), token);
     public async Task SaveAsync(CancellationToken token)
     {
         foreach (var entry in db.ChangeTracker.Entries<ProposalEntity>().Where(e => e.State == EntityState.Modified).ToList())

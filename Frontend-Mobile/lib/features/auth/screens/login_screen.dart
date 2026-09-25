@@ -26,20 +26,6 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSavedEmail();
-  }
-
-  Future<void> _loadSavedEmail() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedEmail = prefs.getString('saved_patient_email');
-      if (savedEmail != null && savedEmail.isNotEmpty) {
-        setState(() {
-          _emailController.text = savedEmail;
-          _rememberMe = true;
-        });
-      }
-    } catch (_) {}
   }
 
   void _handleLogin() async {
@@ -138,20 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _fillDemoCredentials() {
-    setState(() {
-      _emailController.text = 'amal.perera@email.com';
-      _passwordController.text = 'Patient123!';
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Demo credentials loaded (Amal Perera)'),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-  }
+
 
   void _showForgotPasswordModal() {
     final resetEmailController =
@@ -510,28 +483,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 14),
 
-                // Quick Demo Access Banner
-                OutlinedButton.icon(
-                  onPressed: _fillDemoCredentials,
-                  icon: const Icon(Icons.flash_on_rounded,
-                      color: AppColors.warning, size: 18),
-                  label: const Text(
-                    'Autofill Demo Patient Credentials',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    side: BorderSide(
-                      color:
-                          isDark ? AppColors.borderDark : AppColors.borderLight,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
                 const SizedBox(height: 18),
 
                 // Register Footer Link

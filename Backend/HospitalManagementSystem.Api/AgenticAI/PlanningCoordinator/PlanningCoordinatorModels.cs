@@ -193,7 +193,7 @@ public sealed class PlanningAgentOptions
 {
     public const string SectionName = "PlanningAgent";
     public string GeminiApiKey { get; set; } = string.Empty;
-    public string Model { get; set; } = "gemini-3.1-flash-lite";
+    public string Model { get; set; } = "gemini-3.5-flash-lite";
     public int TimeoutSeconds { get; set; } = 45;
 }
 

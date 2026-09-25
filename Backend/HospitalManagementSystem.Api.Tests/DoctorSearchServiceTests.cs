@@ -1,4 +1,5 @@
 using HospitalManagementSystem.Api.Data;
+using HospitalManagementSystem.Api.DTOs;
 using HospitalManagementSystem.Api.Models;
 using HospitalManagementSystem.Api.Services;
 using Microsoft.AspNetCore.Identity;
@@ -53,6 +54,29 @@ public class DoctorSearchServiceTests
         Assert.Equal("doctor@hospital.lk", approved!.Email);
         Assert.Equal("SLMC-100", approved.SlmcLicenseNumber);
         Assert.Null(pending);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_RefreshesMatchingSlotDoctorNamesButNotSpecialty()
+    {
+        await using var db = CreateContext();
+        var ids = await SeedDoctors(db);
+        var doctor = await db.Doctors.SingleAsync(value => value.DoctorId == ids.ApprovedId);
+        var slot = new DoctorTimeSlot
+        {
+            DoctorId = doctor.DoctorId, DoctorName = "Dr. Nimal Perera", Specialty = "Cardiology",
+            StartAt = DateTime.UtcNow.AddDays(1), EndAt = DateTime.UtcNow.AddDays(1).AddHours(1), Capacity = 1, IsActive = true
+        };
+        db.DoctorTimeSlots.Add(slot);
+        await db.SaveChangesAsync();
+
+        await CreateService(db).UpdateProfileAsync(doctor.UserId, new UpdateDoctorProfileDto
+        {
+            FirstName = "Nimal", LastName = "Silva", PhoneNumber = "0771234567"
+        });
+
+        Assert.Equal("Dr. Nimal Silva", slot.DoctorName);
+        Assert.Equal("Cardiology", slot.Specialty);
     }
 
     private static DoctorService CreateService(ApplicationDbContext db) =>
