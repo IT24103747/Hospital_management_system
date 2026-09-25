@@ -4,6 +4,7 @@ import Sidebar from '../components/Sidebar'
 import { Bell, Search, Sun, Moon, LogOut, User as UserIcon, Settings, CheckCheck } from 'lucide-react'
 import './DashboardLayout.css'
 import { useAuth } from '../features/auth/AuthContext'
+import apiClient from '../lib/apiClient'
 
 const PAGE_TITLES = {
   '/dashboard':       { title: 'Dashboard',       subtitle: 'Welcome back, Admin' },
@@ -15,27 +16,6 @@ const PAGE_TITLES = {
   '/admin':           { title: 'Available Rooms', subtitle: 'Manage hospital room availability' },
 }
 
-const INITIAL_NOTIFICATIONS = [
-  {
-    id: 1,
-    title: 'Medical record #4 finalized for Deshan Kumara',
-    time: '2 minutes ago',
-    read: false,
-  },
-  {
-    id: 2,
-    title: 'Appointment booked with Dr. Priyantha Jayasuriya',
-    time: '25 minutes ago',
-    read: false,
-  },
-  {
-    id: 3,
-    title: 'ECG diagnostic scan uploaded for Nimesha Silva',
-    time: '1 hour ago',
-    read: false,
-  },
-]
-
 export default function DashboardLayout() {
   const { user, signOut } = useAuth()
   const [collapsed, setCollapsed] = useState(false)
@@ -44,7 +24,8 @@ export default function DashboardLayout() {
 
   const [showNotifications, setShowNotifications] = useState(false)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS)
+  const [notifications, setNotifications] = useState([])
+  const [notificationsLoading, setNotificationsLoading] = useState(false)
 
   const notifRef = useRef(null)
   const profileRef = useRef(null)
@@ -91,6 +72,31 @@ export default function DashboardLayout() {
   const handleMarkAllAsRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
   }
+
+  const loadNotifications = async () => {
+    if (user?.role?.toLowerCase() !== 'patient') return
+    setNotificationsLoading(true)
+    try {
+      const { data } = await apiClient.get('/triage-workflows/notifications')
+      setNotifications(data.map((item) => ({
+        id: item.triageWorkflowId,
+        title: 'Clinical Review Available',
+        message: item.message || 'A clinician has reviewed your assessment.',
+        time: item.createdAt ? new Date(item.createdAt).toLocaleString() : 'Recently',
+        read: false,
+      })))
+    } catch {
+      setNotifications([])
+    } finally {
+      setNotificationsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (user?.role?.toLowerCase() === 'patient') loadNotifications()
+  // Refresh the badge whenever the signed-in account changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.userId, user?.role])
 
   const handleSignOut = () => {
     signOut()
@@ -158,7 +164,10 @@ export default function DashboardLayout() {
                 id="notifications-btn"
                 aria-label="Notifications"
                 onClick={() => {
-                  setShowNotifications((prev) => !prev)
+                  setShowNotifications((prev) => {
+                    if (!prev) loadNotifications()
+                    return !prev
+                  })
                   setShowProfileMenu(false)
                 }}
                 title="Notifications"
@@ -183,6 +192,8 @@ export default function DashboardLayout() {
                     )}
                   </div>
                   <div className="notifications-list">
+                    {notificationsLoading && <div className="notification-item"><div>Loading notifications…</div></div>}
+                    {!notificationsLoading && notifications.length === 0 && <div className="notification-item"><div><div className="notification-title">No new notifications</div><div className="notification-time">Clinical review responses will appear here.</div></div></div>}
                     {notifications.map((notif) => (
                       <div
                         key={notif.id}
@@ -202,6 +213,7 @@ export default function DashboardLayout() {
                         />
                         <div>
                           <div className="notification-title">{notif.title}</div>
+                          {notif.message && <div className="notification-time">{notif.message}</div>}
                           <div className="notification-time">{notif.time}</div>
                         </div>
                       </div>

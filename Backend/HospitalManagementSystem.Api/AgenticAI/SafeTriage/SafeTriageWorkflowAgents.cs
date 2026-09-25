@@ -261,7 +261,8 @@ public sealed class AdaptiveQuestionPlanningAgent(ISafeTriageQuestionPlanningAge
             ? new SafeTriageQuestionPlan([], "Completed")
             : await planner.PlanAsync(context.Extraction ?? new ClinicalExtractionResult([], [], null, "FailedSafely"), excluded, cancellationToken);
         context.PlannedQuestions.AddRange(plan.Questions.Where(q => missing.Contains(SafeTriageRequirementRules.CanonicalKey(q.Id)))
-            .Take(1).Select(q => { q.Id = SafeTriageRequirementRules.CanonicalKey(q.Id); return q; }));
+            .Take(Math.Min(4, Math.Max(0, context.MaxFollowUpQuestions - context.FollowUpCount)))
+            .Select(q => { q.Id = SafeTriageRequirementRules.CanonicalKey(q.Id); return q; }));
         context.PlannedInformationNeeds.AddRange(context.PlannedQuestions.Select(item => item.Prompt));
         watch.Stop();
         return new SafeTriageAgentExecution(Name, ToolName, plan.Status, plan.Status == "Completed",

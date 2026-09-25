@@ -24,7 +24,10 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // A failed login is expected to return 401. Do not reload the page before
+    // LoginPage can show the server's "Invalid email or password" message.
+    const isLoginRequest = error.config?.url?.endsWith('/auth/login')
+    if (error.response?.status === 401 && !isLoginRequest) {
       localStorage.removeItem('hms_token')
       localStorage.removeItem('hms_user')
       window.location.href = '/login'

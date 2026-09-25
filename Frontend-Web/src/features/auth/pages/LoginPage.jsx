@@ -30,7 +30,8 @@ export default function LoginPage() {
       const user = signIn(await login(form))
       navigate(user.role === 'Doctor' ? '/doctor/dashboard' : user.role === 'Admin' ? '/dashboard' : '/login')
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'Unable to sign in right now. Please try again.')
+      setError(requestError.response?.data?.message ||
+        'Cannot reach the hospital server. Start the API on http://localhost:5000 and try again.')
     } finally {
       setLoading(false)
     }

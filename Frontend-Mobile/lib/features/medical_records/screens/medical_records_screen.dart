@@ -1053,66 +1053,7 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Patient Quick Upload Hero Card (if Patient)
-            if (!_isAdminOrDoctor) ...[
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      const Color(0xFF0284C7).withValues(alpha: 0.15),
-                      AppColors.primary.withValues(alpha: 0.05),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.camera_enhance_rounded, color: AppColors.primary, size: 24),
-                    ),
-                    const SizedBox(width: 14),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Have a Paper Report or Scan?',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Scan with camera or upload from gallery to keep all records safe.',
-                            style: TextStyle(color: Colors.grey, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: _showPatientUploadOptions,
-                      icon: const Icon(Icons.add_a_photo_rounded, size: 15),
-                      label: const Text('Scan'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        elevation: 0,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+
 
             // Admin & Doctor KPI Summary Overview Cards
             if (_isAdminOrDoctor) _buildKpiOverview(isDark),
@@ -1419,26 +1360,9 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
               ),
             ] else ...[
               // Summary counter
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    '${_filteredRecords.length} ${_filteredRecords.length == 1 ? 'Record' : 'Records'} Available',
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
-                  ),
-                  if (_isAdminOrDoctor)
-                    TextButton.icon(
-                      onPressed: _openAddRecordDialog,
-                      icon: const Icon(Icons.add_circle_outline_rounded, size: 16),
-                      label: const Text('New Record', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                    )
-                  else
-                    TextButton.icon(
-                      onPressed: _showPatientUploadOptions,
-                      icon: const Icon(Icons.add_a_photo_outlined, size: 16),
-                      label: const Text('Upload Scan', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                    ),
-                ],
+              Text(
+                '${_filteredRecords.length} ${_filteredRecords.length == 1 ? 'Record' : 'Records'} Available',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey),
               ),
               const SizedBox(height: 8),
 
@@ -1670,20 +1594,6 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
           ? null
           : AppBar(
               title: const Text('Medical Records'),
-              actions: [
-                if (_isAdminOrDoctor)
-                  IconButton(
-                    icon: const Icon(Icons.add_rounded),
-                    onPressed: _openAddRecordDialog,
-                    tooltip: 'Add Medical Record',
-                  )
-                else
-                  IconButton(
-                    icon: const Icon(Icons.add_a_photo_rounded),
-                    onPressed: _showPatientUploadOptions,
-                    tooltip: 'Upload Medical Scan',
-                  ),
-              ],
             ),
       body: content,
       floatingActionButton: _isAdminOrDoctor

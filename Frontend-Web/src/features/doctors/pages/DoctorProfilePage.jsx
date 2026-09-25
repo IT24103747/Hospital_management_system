@@ -71,7 +71,11 @@ export default function DoctorProfilePage() {
       setEditing(false)
       setSuccess('Profile updated successfully.')
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'Unable to update profile.')
+      const data = requestError.response?.data
+      const validationMessage = data?.errors
+        ? Object.values(data.errors).flat().find(Boolean)
+        : null
+      setError(data?.message || validationMessage || 'Unable to update profile.')
     } finally {
       setSaving(false)
     }

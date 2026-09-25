@@ -1,6 +1,9 @@
 using System.Security.Claims;
+using HospitalManagementSystem.Api.Data;
 using HospitalManagementSystem.Api.DTOs;
+using HospitalManagementSystem.Api.Models;
 using HospitalManagementSystem.Api.Services;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,11 +16,13 @@ public sealed class TriageWorkflowController : ControllerBase
 {
     private readonly IPatientService _patients;
     private readonly ITriageWorkflowService _workflows;
+    private readonly ApplicationDbContext _db;
 
-    public TriageWorkflowController(IPatientService patients, ITriageWorkflowService workflows)
+    public TriageWorkflowController(IPatientService patients, ITriageWorkflowService workflows, ApplicationDbContext db)
     {
         _patients = patients;
         _workflows = workflows;
+        _db = db;
     }
 
     [HttpPost]
@@ -49,6 +54,24 @@ public sealed class TriageWorkflowController : ControllerBase
         var patient = await CurrentPatient();
         if (patient is null) return NotFound(new { message = "No patient profile found for this account." });
         return Ok(await _workflows.GetHistoryForPatientAsync(patient.PatientId));
+    }
+
+    [HttpGet("notifications")]
+    [Authorize(Roles = "Patient")]
+    public async Task<IActionResult> GetClinicalReviewNotifications()
+    {
+        var patient = await CurrentPatient();
+        if (patient is null) return NotFound(new { message = "No patient profile found for this account." });
+        var notifications = await _db.TriageWorkflows.AsNoTracking()
+            .Where(workflow => workflow.PatientId == patient.PatientId && workflow.ReviewedAt != null &&
+                (workflow.ApprovalStatus == TriageApprovalStatuses.Approved || workflow.ApprovalStatus == "ClinicianResponse"))
+            .OrderByDescending(workflow => workflow.ReviewedAt).Take(50)
+            .Select(workflow => new {
+                workflow.TriageWorkflowId,
+                message = workflow.FinalOutcome,
+                createdAt = workflow.ReviewedAt
+            }).ToListAsync();
+        return Ok(notifications);
     }
 
     [HttpPost("{id:int}/continue")]

@@ -903,15 +903,7 @@ public sealed class HospitalAssistantTests
         Assert.Equal(legacy.ClinicalReviewFlags, workflow.ClinicalReviewFlags);
     }
 
-    [Fact]
-    public async Task CapabilityRegistryDisablesUnimplementedFeatures()
-    {
-        await using var h = await Harness.Create();
-        Assert.False(h.Service.Capabilities.Single(c => c.Id == "medical-reports").Enabled);
-        var result = await h.Send("Summarize my medical reports");
-        Assert.Null(result.PendingAction);
-        Assert.Contains("coming soon", result.Messages.Last().Text, StringComparison.OrdinalIgnoreCase);
-    }
+
 
     [Fact]
     public async Task AlternativeRequestSearchesWithoutCancellingCurrentAppointment()

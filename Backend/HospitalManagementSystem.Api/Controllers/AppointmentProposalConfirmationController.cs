@@ -20,25 +20,29 @@ public sealed class AppointmentProposalConfirmationController(ISafetyValidationA
         var patient = string.IsNullOrWhiteSpace(email) ? null : await patients.GetPatientByEmailAsync(email);
         if (patient is null) return NotFound();
         // Share the assistant's patient lock so old clients cannot race a unified confirmation.
-        await using var transaction = db.Database.IsRelational()
-            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
-        if (db.Database.IsNpgsql())
-            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(1396916552, {patient.PatientId})", cancellationToken);
-        var history = await workflows.GetHistoryForPatientAsync(patient.PatientId);
-        // Clinical review belongs to SafeTriage. Urgent/emergency and incomplete
-        // assessments must be resolved there before a normal booking can proceed.
-        if (history.Any(w =>
-            (w.TriageLevel is TriageLevels.Emergency or TriageLevels.Urgent &&
-             w.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested) ||
-            w.Status is TriageWorkflowStatuses.FailedSafely or TriageWorkflowStatuses.PendingPatientInput))
-            return Ok(new SafetyApprovalResult("Rejected", true, "Complete the urgent safety assessment before confirming an appointment."));
-        var result = await agent.ConfirmAsync(new(proposalId, request.DoctorTimeSlotId), patient, cancellationToken);
-        if (transaction != null)
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(db, async (context, ct) =>
         {
-            await transaction.CommitAsync(cancellationToken);
-            await sms.FlushCommittedAsync(transaction.TransactionId);
-        }
-        return Ok(result);
+            await using var transaction = context.Database.IsRelational()
+                ? await context.Database.BeginTransactionAsync(ct) : null;
+            if (context.Database.IsNpgsql())
+                await context.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(1396916552, {patient.PatientId})", ct);
+            var history = await workflows.GetHistoryForPatientAsync(patient.PatientId);
+            // Only unresolved urgent or emergency assessments block confirmation.
+            // A technical SafeTriage failure or an unrelated incomplete assessment
+            // must not invalidate an already approved appointment proposal.
+            if (history.Any(w =>
+                (w.TriageLevel is TriageLevels.Emergency or TriageLevels.Urgent &&
+                 w.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested)))
+                return Ok(new SafetyApprovalResult("Rejected", true, "Complete the urgent safety assessment before confirming an appointment."));
+            var result = await agent.ConfirmAsync(new(proposalId, request.DoctorTimeSlotId), patient, ct);
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(ct);
+                await sms.FlushCommittedAsync(transaction.TransactionId);
+            }
+            return Ok(result);
+        }, cancellationToken);
     }
 }
 public sealed class ConfirmProposalDto { public int DoctorTimeSlotId { get; set; } }
