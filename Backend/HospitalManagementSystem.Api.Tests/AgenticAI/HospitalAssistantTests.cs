@@ -919,6 +919,47 @@ public sealed class HospitalAssistantTests
     }
 
     [Fact]
+    public async Task RescheduleRequiresSourceAndReplacementConfirmationsBeforeUpdatingAppointment()
+    {
+        await using var h = await Harness.Create();
+        var sourceSlot = await h.Db.DoctorTimeSlots.SingleAsync();
+        var destination = new DoctorTimeSlot {
+            DoctorName = sourceSlot.DoctorName, DoctorId = sourceSlot.DoctorId, Specialty = sourceSlot.Specialty,
+            StartAt = sourceSlot.StartAt.AddDays(1), EndAt = sourceSlot.EndAt.AddDays(1), Capacity = 5, IsActive = true
+        };
+        h.Db.DoctorTimeSlots.Add(destination);
+        await h.Db.SaveChangesAsync();
+        var appointmentService = new AppointmentService(new AppointmentRepository(h.Db), SmsTestSupport.Create(h.Db));
+        var existing = await appointmentService.CreateAppointmentAsync(new() {
+            DoctorTimeSlotId = sourceSlot.DoctorTimeSlotId, PatientId = h.Patient.PatientId,
+            PatientName = h.Patient.FullName, PatientEmail = h.Patient.Email, PatientPhone = h.Patient.PhoneNumber,
+            AppointmentType = "Consultation"
+        });
+
+        var chooseSource = await h.Send("Reschedule my appointment");
+        Assert.Equal("reschedule-source", chooseSource.PendingAction?.Type);
+        Assert.Equal(sourceSlot.DoctorTimeSlotId, (await h.Db.Appointments.SingleAsync()).DoctorTimeSlotId);
+
+        var chooseReplacement = await h.Service.DecideAsync(h.Patient, chooseSource.ConversationId, new() {
+            ActionId = chooseSource.PendingAction!.ActionId, Decision = "confirm", RequestId = Guid.NewGuid(),
+            AppointmentId = existing.AppointmentId
+        }, default);
+        Assert.Equal("reschedule", chooseReplacement.PendingAction?.Type);
+        Assert.Equal(sourceSlot.DoctorTimeSlotId, (await h.Db.Appointments.SingleAsync()).DoctorTimeSlotId);
+
+        var replacementSlot = Assert.Single(chooseReplacement.PendingAction!.Slots,
+            slot => slot.DoctorTimeSlotId == destination.DoctorTimeSlotId);
+        var completed = await h.Service.DecideAsync(h.Patient, chooseSource.ConversationId, new() {
+            ActionId = chooseReplacement.PendingAction.ActionId, Decision = "confirm", RequestId = Guid.NewGuid(),
+            DoctorTimeSlotId = replacementSlot.DoctorTimeSlotId
+        }, default);
+
+        Assert.Equal("COMPLETED", completed.State);
+        Assert.Equal(destination.DoctorTimeSlotId, (await h.Db.Appointments.SingleAsync()).DoctorTimeSlotId);
+        Assert.Contains(completed.Messages, message => message.Text.Contains("was rescheduled"));
+    }
+
+    [Fact]
     public async Task AssistantEndpointsRequirePatientRoleAndOwnedConversation()
     {
         await using var factory = new AppointmentApiFactory();

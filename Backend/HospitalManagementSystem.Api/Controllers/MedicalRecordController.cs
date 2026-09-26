@@ -19,16 +19,16 @@ namespace HospitalManagementSystem.Api.Controllers
     {
         private readonly IMedicalRecordService _service;
         private readonly ILogger<MedicalRecordController> _logger;
-        private readonly Microsoft.AspNetCore.Hosting.IWebHostEnvironment _environment;
+        private readonly IFileStorageService _fileStorageService;
 
         public MedicalRecordController(
             IMedicalRecordService service,
             ILogger<MedicalRecordController> logger,
-            Microsoft.AspNetCore.Hosting.IWebHostEnvironment environment)
+            IFileStorageService fileStorageService)
         {
             _service = service;
             _logger = logger;
-            _environment = environment;
+            _fileStorageService = fileStorageService;
         }
 
         private (bool isAdmin, bool isDoctor, bool isPatient, string? email) GetUserContext()
@@ -313,26 +313,19 @@ namespace HospitalManagementSystem.Api.Controllers
             }
 
             var safeOriginalName = Path.GetFileName(file.FileName);
-            var uniqueFileName = $"{Guid.NewGuid():N}_{safeOriginalName}";
-
-            var webRoot = _environment.WebRootPath ?? Path.Combine(_environment.ContentRootPath, "wwwroot");
-            var uploadsDir = Path.Combine(webRoot, "uploads", "medical-records");
-            Directory.CreateDirectory(uploadsDir);
-            var filePath = Path.Combine(uploadsDir, uniqueFileName);
-
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await file.CopyToAsync(stream);
-            }
-
-            var relativeUrl = $"/uploads/medical-records/{uniqueFileName}";
             var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+
+            string uploadedUrl;
+            using (var stream = file.OpenReadStream())
+            {
+                uploadedUrl = await _fileStorageService.UploadAsync(stream, safeOriginalName, contentType, "medical-records");
+            }
 
             var dto = new CreateAttachmentDto
             {
                 FileName = safeOriginalName,
                 FileType = contentType,
-                FileUrl = relativeUrl,
+                FileUrl = uploadedUrl,
                 FileSize = file.Length
             };
 
@@ -340,7 +333,7 @@ namespace HospitalManagementSystem.Api.Controllers
             if (attachment == null)
                 return NotFound(new { message = $"Medical record with ID {id} was not found." });
 
-            _logger.LogInformation("Attachment file {FileName} uploaded for medical record {RecordId}", safeOriginalName, id);
+            _logger.LogInformation("Attachment file {FileName} uploaded for medical record {RecordId} to {FileUrl}", safeOriginalName, id, uploadedUrl);
             return StatusCode(StatusCodes.Status201Created, attachment);
         }
 
@@ -369,7 +362,7 @@ namespace HospitalManagementSystem.Api.Controllers
                 }
             }
 
-            // If the client provided a base64 data URL, persist it to disk as a real file
+            // If the client provided a base64 data URL, upload it to cloud storage
             if (!string.IsNullOrWhiteSpace(dto.FileUrl) && dto.FileUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
             {
                 try
@@ -381,13 +374,16 @@ namespace HospitalManagementSystem.Api.Controllers
                         var fileBytes = Convert.FromBase64String(base64Data);
                         var safeName = Path.GetFileName(dto.FileName);
                         if (string.IsNullOrWhiteSpace(safeName)) safeName = "attachment.bin";
-                        var uniqueName = $"{Guid.NewGuid():N}_{safeName}";
-                        var webRoot = _environment.WebRootPath ?? Path.Combine(_environment.ContentRootPath, "wwwroot");
-                        var uploadsDir = Path.Combine(webRoot, "uploads", "medical-records");
-                        Directory.CreateDirectory(uploadsDir);
-                        var targetPath = Path.Combine(uploadsDir, uniqueName);
-                        await System.IO.File.WriteAllBytesAsync(targetPath, fileBytes);
-                        dto.FileUrl = $"/uploads/medical-records/{uniqueName}";
+
+                        var mime = "application/octet-stream";
+                        var semiIndex = dto.FileUrl.IndexOf(';');
+                        if (semiIndex > 5)
+                        {
+                            mime = dto.FileUrl[5..semiIndex];
+                        }
+
+                        var uploadedUrl = await _fileStorageService.UploadBytesAsync(fileBytes, safeName, mime, "medical-records");
+                        dto.FileUrl = uploadedUrl;
                         dto.FileSize = fileBytes.Length;
                     }
                 }
@@ -412,9 +408,17 @@ namespace HospitalManagementSystem.Api.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> DeleteAttachment(int id, int attachmentId)
         {
+            var record = await _service.GetRecordByIdAsync(id);
+            var attachment = record?.Attachments?.Find(a => a.AttachmentId == attachmentId);
+
             var deleted = await _service.DeleteAttachmentAsync(id, attachmentId);
             if (!deleted)
                 return NotFound(new { message = $"Attachment with ID {attachmentId} for medical record {id} was not found." });
+
+            if (attachment != null && !string.IsNullOrWhiteSpace(attachment.FileUrl))
+            {
+                await _fileStorageService.DeleteAsync(attachment.FileUrl);
+            }
 
             _logger.LogInformation("Attachment {AttachmentId} removed from record {RecordId}", attachmentId, id);
             return NoContent();
@@ -433,21 +437,14 @@ namespace HospitalManagementSystem.Api.Controllers
             if (attachment == null)
                 return NotFound(new { message = $"Attachment #{attachmentId} was not found." });
 
-            var webRoot = _environment.WebRootPath ?? Path.Combine(_environment.ContentRootPath, "wwwroot");
-            var relativePath = (attachment.FileUrl ?? string.Empty).TrimStart('/');
-            var fullPath = Path.Combine(webRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
-
-            if (!System.IO.File.Exists(fullPath))
+            // Redirect directly to the Cloudflare R2 / remote CDN URL
+            if (attachment.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                attachment.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogWarning("Physical file not found for attachment {AttachmentId} at {Path}", attachmentId, fullPath);
-                return NotFound(new { message = "Attachment file not found on server disk." });
+                return Redirect(attachment.FileUrl);
             }
 
-            var contentType = string.IsNullOrWhiteSpace(attachment.FileType)
-                ? "application/octet-stream"
-                : attachment.FileType;
-
-            return PhysicalFile(fullPath, contentType, attachment.FileName, enableRangeProcessing: true);
+            return NotFound(new { message = "Attachment file not found." });
         }
     }
 }

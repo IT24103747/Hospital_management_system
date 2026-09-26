@@ -40,12 +40,16 @@ public sealed class MedicalReportAssistantAgent : IHospitalAssistantReadAgent
     public async Task<string> ReadAsync(string message, PatientDto patient, CancellationToken cancellationToken)
     {
         var records = await _recordRepository.GetByPatientIdAsync(patient.PatientId);
-        var recordList = records == null ? [] : new System.Collections.Generic.List<Models.MedicalRecord>(records);
+        // Patient-facing AI may explain only clinician-finalized records. Drafts
+        // are incomplete and archived records are not presented as current advice.
+        var recordList = records == null
+            ? []
+            : records.Where(record => record.Status == Models.MedicalRecordStatuses.Finalized).ToList();
 
         if (recordList.Count == 0)
         {
-            return $"Hello {patient.FullName}, you currently do not have any recorded medical reports or clinical records on file. " +
-                   "When your doctor documents a visit, prescription, or lab result, I will be able to summarize findings and explain dosage schedules for you right here.";
+            return $"Hello {patient.FullName}, you currently do not have any finalized medical records available for explanation. " +
+                   "Draft or unavailable information cannot be presented as verified medical guidance.";
         }
 
         var analysis = await _intelligenceAgent.AnalyzeRecordsAsync(

@@ -113,7 +113,7 @@ namespace HospitalManagementSystem.Api.Data
             {
                 entity.ToTable(t => t.HasCheckConstraint(
                     "CK_Doctors_RegistrationStatus",
-                    "\"RegistrationStatus\" IN ('Pending', 'Approved', 'Declined')"));
+                    "\"RegistrationStatus\" IN ('Pending', 'Approved', 'Declined', 'DeletionPending')"));
                 entity.HasKey(d => d.DoctorId);
                 entity.Property(d => d.FirstName).IsRequired().HasMaxLength(100);
                 entity.Property(d => d.LastName).IsRequired().HasMaxLength(100);
@@ -263,9 +263,11 @@ namespace HospitalManagementSystem.Api.Data
                 entity.Property(workflow => workflow.RuleSetVersion).IsRequired().HasMaxLength(100);
                 entity.Property(workflow => workflow.WorkflowVersion).IsRequired().HasMaxLength(100);
                 entity.HasIndex(workflow => new { workflow.PatientId, workflow.CreatedAt });
-                entity.HasIndex(workflow => new { workflow.Status, workflow.ApprovalStatus });
+                entity.Property(workflow => workflow.PriorityLevel).IsRequired().HasMaxLength(40).HasDefaultValue("Normal");
+                entity.Property(workflow => workflow.TargetSpecialty).HasMaxLength(100);
                 entity.HasOne(workflow => workflow.Patient).WithMany().HasForeignKey(workflow => workflow.PatientId).OnDelete(DeleteBehavior.Restrict);
                 entity.HasOne(workflow => workflow.ReviewedByUser).WithMany().HasForeignKey(workflow => workflow.ReviewedByUserId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(workflow => workflow.AssignedDoctor).WithMany().HasForeignKey(workflow => workflow.AssignedDoctorId).OnDelete(DeleteBehavior.SetNull);
             });
 
             modelBuilder.Entity<TriageWorkflowEvent>(entity =>

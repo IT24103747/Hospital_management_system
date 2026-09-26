@@ -45,7 +45,7 @@ public class PlanningCoordinatorTests
         Assert.False(response.Plan.AppointmentRequested); // No explicit consent to book in symptom objective
         Assert.True(response.Plan.PatientConfirmationRequired);
         Assert.Equal("2026-09-15", response.Plan.PreferredDate);
-        Assert.Equal(2, response.Plan.FollowUpQuestions.Count);
+        Assert.Single(response.Plan.FollowUpQuestions);
         Assert.Contains("PlanningStage", response.CompletedStages);
         Assert.NotEmpty(response.AuditEvents);
 
@@ -103,6 +103,29 @@ public class PlanningCoordinatorTests
         Assert.Equal(PlanningWorkflowType.AppointmentProposal.ToString(), response.Plan.WorkflowType);
         Assert.True(response.Plan.AppointmentRequested);
         Assert.DoesNotContain(PlanningWorkflowSteps.TriageAssessment, response.Plan.RequiredSteps);
+    }
+
+    [Theory]
+    [InlineData("Summarize my medical records", "MedicalRecords", false)]
+    [InlineData("Cancel my appointment", "AppointmentCancellation", true)]
+    [InlineData("Reschedule my appointment", "AppointmentReschedule", true)]
+    public async Task CoordinatorCorrectsSpecializedPatientWorkflowRoutes(
+        string objective, string expectedWorkflow, bool confirmationRequired)
+    {
+        var model = new StubPlanningModelClient(new GeminiPlanningDecision {
+            WorkflowType = "Unsupported", RequiredSteps = ["SafeControlledResponse"]
+        });
+        var agent = new PlanningCoordinatorAgent(model, CreateStore(), NullLogger<PlanningCoordinatorAgent>.Instance);
+
+        var response = await agent.PlanAsync(new PlanningRequestDto {
+            PatientId = 7, Objective = objective
+        });
+
+        Assert.Equal(expectedWorkflow, response.Plan.WorkflowType);
+        Assert.Equal(confirmationRequired, response.Plan.PatientConfirmationRequired);
+        Assert.Equal(
+            PlanningWorkflowSteps.DefaultStepsByWorkflow[Enum.Parse<PlanningWorkflowType>(expectedWorkflow)],
+            response.Plan.RequiredSteps);
     }
 
     [Fact]
@@ -240,7 +263,7 @@ public class PlanningCoordinatorTests
     }
 
     [Fact]
-    public async Task MaximumThreeQuestions_TruncatesExcessQuestionsStrictly()
+    public async Task SafeTriageReturnsOnlyOneQuestionPerTurn()
     {
         var stubClient = new StubPlanningModelClient(new GeminiPlanningDecision
         {
@@ -271,10 +294,8 @@ public class PlanningCoordinatorTests
 
         var response = await agent.PlanAsync(request);
 
-        Assert.Equal(3, response.Plan.FollowUpQuestions.Count);
+        Assert.Single(response.Plan.FollowUpQuestions);
         Assert.Equal("Question 1: Where is the pain located?", response.Plan.FollowUpQuestions[0]);
-        Assert.Equal("Question 2: How severe is the pain on a scale of 1-10?", response.Plan.FollowUpQuestions[1]);
-        Assert.Equal("Question 3: Does the pain radiate to your left arm?", response.Plan.FollowUpQuestions[2]);
         Assert.Contains(response.AuditEvents, a => a.EventType == "QuestionLimitEnforced");
     }
 

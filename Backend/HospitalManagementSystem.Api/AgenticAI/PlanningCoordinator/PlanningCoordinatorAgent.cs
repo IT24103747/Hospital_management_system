@@ -250,11 +250,14 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
         // 2. ENFORCE CONSENT RULE: Never infer consent to book from symptoms alone.
         var hasExplicitBookingIntent = HasExplicitBookingIntent(objective);
         var hasSymptoms = HasSymptomKeywords(objective);
+        var medicalRecordsIntent = IsMedicalRecordsIntent(objective);
+        var cancellationIntent = IsAppointmentCancellationIntent(objective);
+        var rescheduleIntent = IsAppointmentRescheduleIntent(objective);
 
         // A definition request is neither a patient symptom report nor a diagnosis
         // request. Keep it out of the clinical workflow even if a model labels the
         // named condition as a triage concept.
-        if (IsHealthInformationQuestion(objective))
+        if (IsHealthInformationQuestion(objective) && !medicalRecordsIntent)
         {
             workflowType = PlanningWorkflowType.Unsupported;
             hasSymptoms = false;
@@ -263,7 +266,19 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
 
         // Routing is based on the patient's expressed purpose, not specialty/body-part words
         // returned by a model. An appointment-only request never enters triage.
-        if (hasExplicitBookingIntent && !hasSymptoms)
+        if (medicalRecordsIntent && !hasSymptoms)
+        {
+            workflowType = PlanningWorkflowType.MedicalRecords;
+        }
+        else if (rescheduleIntent && !hasSymptoms)
+        {
+            workflowType = PlanningWorkflowType.AppointmentReschedule;
+        }
+        else if (cancellationIntent && !hasSymptoms)
+        {
+            workflowType = PlanningWorkflowType.AppointmentCancellation;
+        }
+        else if (hasExplicitBookingIntent && !hasSymptoms)
         {
             if (workflowType != PlanningWorkflowType.AppointmentProposal)
                 record.AuditEvents.Add(new() { EventType = "IntentRouteCorrected", Description = "Appointment-only request routed to appointment workflow.", Metadata = "No symptoms detected" });
@@ -291,7 +306,7 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
             }
             appointmentRequested = false;
         }
-        else if (hasExplicitBookingIntent)
+        else if (hasExplicitBookingIntent && !cancellationIntent && !rescheduleIntent)
         {
             appointmentRequested = true;
         }
@@ -301,6 +316,7 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
         // 3. ENFORCE PATIENT CONFIRMATION RULE
         // Booking or proposing always requires explicit patient confirmation
         var confirmationRequired = workflowType is PlanningWorkflowType.TriageThenAppointmentProposal or PlanningWorkflowType.AppointmentProposal
+            or PlanningWorkflowType.AppointmentCancellation or PlanningWorkflowType.AppointmentReschedule
                                    || decision.PatientConfirmationRequired;
 
         // 4. Sanitize required steps against predefined allow-list
@@ -325,19 +341,20 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
 
         // 5. ENFORCE MAXIMUM 3 FOLLOW-UP QUESTIONS
         // Combine, clean, and take at most 3 questions
+        var questionLimit = workflowType is PlanningWorkflowType.SafeTriage or PlanningWorkflowType.TriageThenAppointmentProposal ? 1 : 3;
         var questions = (decision.FollowUpQuestions ?? [])
             .Where(q => !string.IsNullOrWhiteSpace(q))
             .Select(q => q.Trim())
             .Distinct()
-            .Take(3)
+            .Take(questionLimit)
             .ToList();
 
-        if ((decision.FollowUpQuestions?.Length ?? 0) > 3)
+        if ((decision.FollowUpQuestions?.Length ?? 0) > questionLimit)
         {
             record.AuditEvents.Add(new PlanningAuditEvent
             {
                 EventType = "QuestionLimitEnforced",
-                Description = $"Model proposed {decision.FollowUpQuestions!.Length} questions; bounded to maximum 3 questions.",
+                Description = $"Model proposed {decision.FollowUpQuestions!.Length} questions; bounded to {questionLimit} for this workflow.",
                 Metadata = null
             });
         }
@@ -386,6 +403,16 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
         Regex.IsMatch(text.Trim(), @"^(?:what\s+is|what'?s|tell\s+me\s+about|explain|information\s+about)\s+.+[?!.]*$", RegexOptions.IgnoreCase) &&
         !Regex.IsMatch(text, @"\b(i|my|me)\b.*\b(have|had|feel|felt|was|were|bitten|scratched|exposed|hurt)\b", RegexOptions.IgnoreCase);
 
+    private static bool IsMedicalRecordsIntent(string text) => Regex.IsMatch(text,
+        @"\b(my|latest|last|previous)\b.*\b(medical records?|medical reports?|recorded diagnosis|prescriptions?|lab results?|test results?|follow-up instructions?|visit history)\b|\b(summarize|show|explain)\b.*\b(my (?:medical )?records?|my (?:medical )?reports?|my prescriptions?|my lab results?)\b",
+        RegexOptions.IgnoreCase);
+
+    private static bool IsAppointmentCancellationIntent(string text) =>
+        Regex.IsMatch(text, @"\b(cancel|cancellation)\b.*\b(appointment|booking|reservation)\b|\b(cancel)\s+(it|mine)\b", RegexOptions.IgnoreCase);
+
+    private static bool IsAppointmentRescheduleIntent(string text) =>
+        Regex.IsMatch(text, @"\b(reschedule|move|change)\b.*\b(appointment|booking|visit|date|time)\b", RegexOptions.IgnoreCase);
+
     internal static string HealthInformationReply(string text)
     {
         return "I could not generate the requested general health information right now. Please try again shortly. If this relates to symptoms, an injury, or a possible exposure affecting you, describe what happened and when so the safety-triage workflow can assess it.";
@@ -394,6 +421,29 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
     private static GeminiPlanningDecision DeterministicRuleBasedFallback(string objective, PlanningRequestDto request)
     {
         var lower = objective.ToLowerInvariant();
+
+        var medicalRecords = IsMedicalRecordsIntent(objective);
+        var cancellation = IsAppointmentCancellationIntent(objective);
+        var reschedule = IsAppointmentRescheduleIntent(objective);
+
+        if (medicalRecords)
+        {
+            return Decision(PlanningWorkflowType.MedicalRecords, false, false,
+                "User requested read-only access to verified medical records.",
+                "I can help explain your finalized medical records.");
+        }
+        if (reschedule)
+        {
+            return Decision(PlanningWorkflowType.AppointmentReschedule, false, true,
+                "User requested an appointment reschedule.",
+                "I will verify your appointment and show replacement sessions for your confirmation.");
+        }
+        if (cancellation)
+        {
+            return Decision(PlanningWorkflowType.AppointmentCancellation, false, true,
+                "User requested appointment cancellation.",
+                "I will verify your appointment and ask for confirmation before cancellation.");
+        }
 
         if (lower.Contains("status") || lower.Contains("my appointment") || lower.Contains("when is my"))
         {
@@ -420,7 +470,7 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
                 AppointmentRequested = hasBooking,
                 PatientConfirmationRequired = true,
                 RequiredSteps = [.. PlanningWorkflowSteps.DefaultStepsByWorkflow[PlanningWorkflowType.TriageThenAppointmentProposal]],
-                FollowUpQuestions = ["How long have you experienced these symptoms?", "Are you experiencing severe chest pain or shortness of breath?"],
+                FollowUpQuestions = ["How long have you experienced these symptoms?"],
                 Rationale = "Clinical symptoms detected requiring safety triage assessment.",
                 SafeResponse = "Your symptoms will be evaluated through our clinical safety triage protocol."
             };
@@ -450,6 +500,14 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
             Rationale = "Request does not match supported triage or appointment workflows.",
             SafeResponse = "I can assist with symptom triage assessments, finding doctors, and checking appointments. Please let me know how I can help with your care."
         };
+
+        static GeminiPlanningDecision Decision(PlanningWorkflowType type, bool requested, bool confirmation, string rationale, string response) => new()
+        {
+            WorkflowType = type.ToString(), AppointmentRequested = requested,
+            PatientConfirmationRequired = confirmation,
+            RequiredSteps = [.. PlanningWorkflowSteps.DefaultStepsByWorkflow[type]],
+            FollowUpQuestions = [], Rationale = rationale, SafeResponse = response
+        };
     }
 
     private static string GetDefaultSafeResponse(PlanningWorkflowType workflowType) => workflowType switch
@@ -457,7 +515,10 @@ public sealed partial class PlanningCoordinatorAgent : IPlanningCoordinatorAgent
         PlanningWorkflowType.TriageThenAppointmentProposal => "We will guide your symptoms through the clinical safety triage process before evaluating appointment options.",
         PlanningWorkflowType.AppointmentProposal => "We will search for eligible doctors and available appointment slots based on your preferences.",
         PlanningWorkflowType.AppointmentStatus => "We will check your current appointment records.",
-        _ => "I can only assist with hospital triage assessments, finding doctors, and appointment inquiries."
+        PlanningWorkflowType.AppointmentCancellation => "We will verify the appointment and require your confirmation before cancelling it.",
+        PlanningWorkflowType.AppointmentReschedule => "We will verify the appointment and show current replacement sessions for your confirmation.",
+        PlanningWorkflowType.MedicalRecords => "We will retrieve and explain only your finalized medical records.",
+        _ => "I can assist with symptom triage, medical records, doctors, and appointment inquiries."
     };
 
     private static PlanningResponseDto MapToResponseDto(PlanningWorkflowRecord record)

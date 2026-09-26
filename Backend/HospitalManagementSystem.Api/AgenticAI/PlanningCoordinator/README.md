@@ -4,7 +4,7 @@
 
 # Planning / Coordinator Agent (Member 1)
 
-> **Subsystem**: Planning & Coordinator Agent for SmartCare Hospital Management System  
+> **Subsystem**: Planning & Coordinator Agent for MediCore Hospital Management System  
 > **Course**: SE3090 — Software Engineering Frameworks  
 > **Component Ownership**: Member 1 — Patient Management & Planning / Coordinator Agent  
 > **Backend Platform**: ASP.NET Core 8 Web API & Gemini AI (Server-Side Only)
@@ -13,7 +13,7 @@
 
 ## 1. Overview & Architecture
 
-The **Planning/Coordinator Agent** serves as the front-line orchestrator for all patient healthcare intents within the SmartCare backend. When a patient submits an objective (via web or mobile), the Planning/Coordinator Agent analyzes the intent using a strict Gemini structured-output JSON protocol and constructs an allow-listed execution plan.
+The **Planning/Coordinator Agent** serves as the front-line orchestrator for all patient healthcare intents within the MediCore backend. When a patient submits an objective (via web or mobile), the Planning/Coordinator Agent analyzes the intent using a strict Gemini structured-output JSON protocol and constructs an allow-listed execution plan.
 
 ```
                   ┌─────────────────────────────────┐

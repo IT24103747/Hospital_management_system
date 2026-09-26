@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:smartcare_mobile/core/constants/app_colors.dart';
-import 'package:smartcare_mobile/models/vitals.dart';
+import 'package:medicore_mobile/core/constants/app_colors.dart';
+import 'package:medicore_mobile/models/vitals.dart';
 
 class VitalsLoggerScreen extends StatefulWidget {
   const VitalsLoggerScreen({super.key});

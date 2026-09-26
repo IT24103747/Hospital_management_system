@@ -103,6 +103,8 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
             workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
             workflow.TriageLevel = TriageLevels.Emergency;
+            workflow.PriorityLevel = "Critical";
+            workflow.TargetSpecialty = "Emergency Medicine";
             workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
             workflow.RequiresHumanReview = true;
             riskFactors.Add("Configured emergency red-flag phrase detected in patient-reported symptoms.");
@@ -113,6 +115,8 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
             workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
             workflow.TriageLevel = TriageLevels.Urgent;
+            workflow.PriorityLevel = "Urgent";
+            workflow.TargetSpecialty = DetermineSpecialty(run.Context.Extraction, "Emergency Medicine");
             workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
             workflow.RequiresHumanReview = true;
             riskFactors.Add("Configured urgent-assessment phrase detected in patient-reported symptoms.");
@@ -123,6 +127,8 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             workflow.Status = TriageWorkflowStatuses.Completed;
             workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
             workflow.TriageLevel = TriageLevels.ClinicalReview;
+            workflow.PriorityLevel = "Normal";
+            workflow.TargetSpecialty = DetermineSpecialty(run.Context.Extraction, "General Medicine");
             workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
             workflow.RequiresHumanReview = false;
             riskFactors.AddRange(clinicalReviewFlags);
@@ -282,6 +288,8 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             workflow.Status = TriageWorkflowStatuses.PendingClinicalReview;
             workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
             workflow.TriageLevel = redFlags.Count > 0 ? TriageLevels.Emergency : TriageLevels.Urgent;
+            workflow.PriorityLevel = redFlags.Count > 0 ? "Critical" : "Urgent";
+            workflow.TargetSpecialty = redFlags.Count > 0 ? "Emergency Medicine" : DetermineSpecialty(run.Context.Extraction, "Emergency Medicine");
             workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
             workflow.RequiresHumanReview = true;
             workflow.FinalOutcome = redFlags.Count > 0
@@ -293,6 +301,8 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             workflow.Status = TriageWorkflowStatuses.Completed;
             workflow.ApprovalStatus = TriageApprovalStatuses.NotRequired;
             workflow.TriageLevel = TriageLevels.ClinicalReview;
+            workflow.PriorityLevel = "Normal";
+            workflow.TargetSpecialty = DetermineSpecialty(run.Context.Extraction, "General Medicine");
             workflow.UncertaintyState = TriageUncertaintyStates.LimitedInformation;
             workflow.RequiresHumanReview = false;
             risks.AddRange(clinicalReviewFlags);
@@ -350,15 +360,19 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
 
     public async Task<TriageWorkflowDto?> GetForPatientAsync(int workflowId, int patientId)
     {
-        var workflow = await _db.TriageWorkflows.AsNoTracking().SingleOrDefaultAsync(x => x.TriageWorkflowId == workflowId && x.PatientId == patientId);
+        var workflow = await _db.TriageWorkflows.AsNoTracking()
+            .Include(x => x.AssignedDoctor)
+            .SingleOrDefaultAsync(x => x.TriageWorkflowId == workflowId && x.PatientId == patientId);
         return workflow is null ? null : Map(workflow);
     }
 
     public async Task<IReadOnlyList<TriageWorkflowDto>> GetHistoryForPatientAsync(int patientId)
     {
         var workflows = await _db.TriageWorkflows.AsNoTracking()
+            .Include(x => x.AssignedDoctor)
             .Where(x => x.PatientId == patientId)
-            .OrderByDescending(x => x.UpdatedAt)
+            .OrderByDescending(x => x.CreatedAt)
+            .ThenByDescending(x => x.UpdatedAt)
             .Take(12)
             .ToListAsync();
         return workflows.Select(workflow => Map(workflow)).ToList();
@@ -366,16 +380,50 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
 
     public async Task<TriageWorkflowDto?> GetForClinicalReviewerAsync(int workflowId)
     {
-        var workflow = await _db.TriageWorkflows.AsNoTracking().SingleOrDefaultAsync(x => x.TriageWorkflowId == workflowId);
+        var workflow = await _db.TriageWorkflows.AsNoTracking()
+            .Include(x => x.AssignedDoctor)
+            .SingleOrDefaultAsync(x => x.TriageWorkflowId == workflowId);
         return workflow is null ? null : Map(workflow, redactPatientText: true);
     }
 
-    public async Task<IReadOnlyList<TriageWorkflowDto>> GetPendingClinicalReviewsAsync()
+    public async Task<IReadOnlyList<TriageWorkflowDto>> GetPendingClinicalReviewsAsync(int? doctorUserId = null)
     {
-        var workflows = await _db.TriageWorkflows.AsNoTracking()
+        var query = _db.TriageWorkflows.AsNoTracking()
+            .Include(x => x.AssignedDoctor)
             .Where(x => x.ApprovalStatus == TriageApprovalStatuses.Pending || x.ApprovalStatus == TriageApprovalStatuses.RevisionRequested ||
-                (x.Status == TriageWorkflowStatuses.FailedSafely && x.RequiresHumanReview && x.ApprovalStatus == TriageApprovalStatuses.NotRequired))
-            .OrderBy(x => x.CreatedAt)
+                (x.Status == TriageWorkflowStatuses.FailedSafely && x.RequiresHumanReview && x.ApprovalStatus == TriageApprovalStatuses.NotRequired));
+
+        if (doctorUserId.HasValue)
+        {
+            var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == doctorUserId.Value);
+            if (user != null && user.Role != "Admin")
+            {
+                var doctor = await _db.Doctors.AsNoTracking().FirstOrDefaultAsync(d => d.UserId == doctorUserId.Value);
+                if (doctor != null)
+                {
+                    var doctorSpecialty = (doctor.Specialization ?? "").Trim().ToLowerInvariant();
+                    var isEmergencySpecialist = doctorSpecialty.Contains("emergency") || doctorSpecialty.Contains("critical");
+                    var isGeneralSpecialist = doctorSpecialty.Contains("general") || doctorSpecialty.Contains("medicine") || doctorSpecialty == "";
+                    var escalationCutoff = DateTime.UtcNow.AddMinutes(-2);
+
+                    query = query.Where(x =>
+                        // 1. Specifically assigned to this doctor
+                        x.AssignedDoctorId == doctor.DoctorId ||
+                        // 2. Critical Emergencies: visible to ER/General, OR escalated to all doctors after 2 minutes
+                        (x.PriorityLevel == "Critical" && (isEmergencySpecialist || isGeneralSpecialist || x.CreatedAt <= escalationCutoff)) ||
+                        // 3. Normal / unassigned reviews matching this doctor's specialty or general
+                        (x.AssignedDoctorId == null && x.PriorityLevel != "Critical" &&
+                            (x.TargetSpecialty == null || isGeneralSpecialist ||
+                             x.TargetSpecialty.ToLower() == doctorSpecialty ||
+                             doctorSpecialty.Contains(x.TargetSpecialty.ToLower())))
+                    );
+                }
+            }
+        }
+
+        var workflows = await query
+            .OrderByDescending(x => x.PriorityLevel == "Critical")
+            .ThenByDescending(x => x.CreatedAt)
             .ToListAsync();
         return workflows.Select(workflow => Map(workflow, redactPatientText: true)).ToList();
     }
@@ -460,9 +508,11 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         return Map(workflow);
     }
 
-    public async Task<TriageWorkflowDto?> SetPatientClinicalReviewChoiceAsync(int workflowId, int patientId, bool requested)
+    public async Task<TriageWorkflowDto?> SetPatientClinicalReviewChoiceAsync(int workflowId, int patientId, bool requested, int? preferredDoctorId = null, string? targetSpecialty = null)
     {
-        var workflow = await _db.TriageWorkflows.SingleOrDefaultAsync(x => x.TriageWorkflowId == workflowId && x.PatientId == patientId);
+        var workflow = await _db.TriageWorkflows
+            .Include(x => x.AssignedDoctor)
+            .SingleOrDefaultAsync(x => x.TriageWorkflowId == workflowId && x.PatientId == patientId);
         if (workflow is null || workflow.TriageLevel != TriageLevels.ClinicalReview || workflow.RequiresHumanReview) return null;
         if (requested)
         {
@@ -470,9 +520,34 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             workflow.ApprovalStatus = TriageApprovalStatuses.Pending;
             workflow.RequiresHumanReview = true;
             workflow.UncertaintyState = TriageUncertaintyStates.HumanReviewRequired;
-            workflow.FinalOutcome = "Your assessment has been sent for Clinical Review at your request.";
+            workflow.PriorityLevel = "Normal";
+
+            if (preferredDoctorId.HasValue)
+            {
+                var preferredDoctor = await _db.Doctors.FirstOrDefaultAsync(d => d.DoctorId == preferredDoctorId.Value);
+                if (preferredDoctor != null)
+                {
+                    workflow.AssignedDoctorId = preferredDoctor.DoctorId;
+                    workflow.AssignedDoctor = preferredDoctor;
+                    workflow.TargetSpecialty = preferredDoctor.Specialization;
+                    workflow.FinalOutcome = $"Your assessment has been assigned to Dr. {preferredDoctor.FirstName} {preferredDoctor.LastName} ({preferredDoctor.Specialization}) for clinical review.";
+                }
+                else
+                {
+                    workflow.FinalOutcome = "Your assessment has been sent to our clinical team for review.";
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(targetSpecialty))
+            {
+                workflow.TargetSpecialty = targetSpecialty;
+                workflow.FinalOutcome = $"Your assessment has been routed to our on-duty {targetSpecialty} team for clinical review.";
+            }
+            else
+            {
+                workflow.FinalOutcome = "Your assessment has been sent for Clinical Review at your request.";
+            }
         }
-        await AddEvent(workflow, "PatientClinicalReviewChoice", requested ? "Requested" : "Declined", new { patientId });
+        await AddEvent(workflow, "PatientClinicalReviewChoice", requested ? "Requested" : "Declined", new { patientId, preferredDoctorId, targetSpecialty });
         workflow.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         return Map(workflow);
@@ -554,6 +629,9 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
         var guidance = MapGuidance(generated);
         if (guidance is not null && questions is not null)
         {
+            // Present exactly one active clinical question per turn. The adaptive
+            // planner may rank several relevant needs, but a question is counted
+            // only when it is actually issued to the patient.
             guidance.FollowUpItems = questions.Take(4).ToList();
             guidance.FollowUpQuestions = guidance.FollowUpItems.Select(question => question.Prompt).ToList();
         }
@@ -833,11 +911,35 @@ public sealed class TriageWorkflowService : ITriageWorkflowService
             FollowUpCount = assessment["followUpCount"]?.GetValue<int>() ?? 0,
             SafeTriageSuggestion = redactPatientText ? assessment["safeTriageSuggestion"]?.GetValue<string>() ?? workflow.FinalOutcome : null,
             ReviewedResponse = reviewedResponse,
-            PatientReportedSymptoms = redactPatientText ? RedactUnneededIdentifiers(workflow.Symptoms) : workflow.Symptoms, Guidance = guidance, RiskFactors = risks, RedFlags = flags, UrgentFlags = urgentFlags, ClinicalReviewFlags = clinicalReviewFlags, MissingInformation = missing, ClinicalFacts = MapFacts(facts), DecisionBasis = decisionBasis, Plan = JsonSerializer.Deserialize<List<TriagePlanStepDto>>(workflow.PlanJson) ?? [], RuleSetVersion = workflow.RuleSetVersion, WorkflowVersion = workflow.WorkflowVersion, CreatedAt = workflow.CreatedAt, UpdatedAt = workflow.UpdatedAt };
+            PatientReportedSymptoms = redactPatientText ? RedactUnneededIdentifiers(workflow.Symptoms) : workflow.Symptoms, Guidance = guidance, RiskFactors = risks, RedFlags = flags, UrgentFlags = urgentFlags, ClinicalReviewFlags = clinicalReviewFlags, MissingInformation = missing, ClinicalFacts = MapFacts(facts), DecisionBasis = decisionBasis, Plan = JsonSerializer.Deserialize<List<TriagePlanStepDto>>(workflow.PlanJson) ?? [], RuleSetVersion = workflow.RuleSetVersion, WorkflowVersion = workflow.WorkflowVersion,
+            AssignedDoctorId = workflow.AssignedDoctorId,
+            AssignedDoctorName = workflow.AssignedDoctor != null ? $"Dr. {workflow.AssignedDoctor.FirstName} {workflow.AssignedDoctor.LastName}" : null,
+            TargetSpecialty = workflow.TargetSpecialty,
+            PriorityLevel = string.IsNullOrWhiteSpace(workflow.PriorityLevel) ? "Normal" : workflow.PriorityLevel,
+            CreatedAt = workflow.CreatedAt, UpdatedAt = workflow.UpdatedAt };
     }
 
     private static string RedactUnneededIdentifiers(string text) => SafeTriageRules.RedactPhoneNumbers(
         System.Text.RegularExpressions.Regex.Replace(text, @"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[redacted email]"));
+
+    private static string DetermineSpecialty(ClinicalExtractionResult? extraction, string defaultSpecialty = "General Medicine")
+    {
+        if (extraction == null) return defaultSpecialty;
+        var tokens = extraction.Symptoms.Concat(extraction.Concepts ?? []).Concat(extraction.Facts?.WarningSigns ?? []).ToList();
+        if (extraction.Facts?.PrimaryConcept != null) tokens.Add(extraction.Facts.PrimaryConcept);
+        var text = string.Join(" ", tokens).ToLowerInvariant();
+
+        if (text.Contains("heart") || text.Contains("chest") || text.Contains("palpitation") || text.Contains("cardiac") || text.Contains("pulse") || text.Contains("pressure"))
+            return "Cardiologist";
+        if (text.Contains("eye") || text.Contains("vision") || text.Contains("sight") || text.Contains("cornea") || text.Contains("blur") || text.Contains("blind"))
+            return "ophthalmologist";
+        if (text.Contains("skin") || text.Contains("rash") || text.Contains("itch") || text.Contains("dermat") || text.Contains("eczema"))
+            return "Dermatologist";
+        if (text.Contains("trauma") || text.Contains("accident") || text.Contains("bleed") || text.Contains("chok") || text.Contains("unconscious") || text.Contains("poison") || text.Contains("breath"))
+            return "Emergency Medicine";
+
+        return defaultSpecialty;
+    }
 
     private static TriageClinicalFactsDto? MapFacts(ClinicalFactSet? facts) => facts is null ? null : new TriageClinicalFactsDto
     {

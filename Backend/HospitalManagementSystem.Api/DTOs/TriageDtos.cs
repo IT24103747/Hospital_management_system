@@ -68,6 +68,10 @@ public class TriageWorkflowDto
     public IReadOnlyList<TriagePlanStepDto> Plan { get; set; } = [];
     public string RuleSetVersion { get; set; } = string.Empty;
     public string WorkflowVersion { get; set; } = string.Empty;
+    public int? AssignedDoctorId { get; set; }
+    public string? AssignedDoctorName { get; set; }
+    public string? TargetSpecialty { get; set; }
+    public string PriorityLevel { get; set; } = "Normal";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

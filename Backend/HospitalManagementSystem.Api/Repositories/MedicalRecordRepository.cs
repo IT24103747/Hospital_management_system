@@ -46,9 +46,11 @@ namespace HospitalManagementSystem.Api.Repositories
                 "patient" => desc ? query.OrderByDescending(m => m.Patient != null ? m.Patient.FirstName : "") : query.OrderBy(m => m.Patient != null ? m.Patient.FirstName : ""),
                 "type" => desc ? query.OrderByDescending(m => m.RecordType) : query.OrderBy(m => m.RecordType),
                 "status" => desc ? query.OrderByDescending(m => m.Status) : query.OrderBy(m => m.Status),
-                "date" => desc ? query.OrderByDescending(m => m.RecordDate) : query.OrderBy(m => m.RecordDate),
-                _ => desc ? query.OrderByDescending(m => m.RecordDate).ThenByDescending(m => m.MedicalRecordId)
-                          : query.OrderByDescending(m => m.RecordDate).ThenByDescending(m => m.MedicalRecordId)
+                "id" or "record" => desc ? query.OrderByDescending(m => m.MedicalRecordId) : query.OrderBy(m => m.MedicalRecordId),
+                "date" => desc ? query.OrderByDescending(m => m.RecordDate.Date).ThenByDescending(m => m.CreatedAt).ThenByDescending(m => m.MedicalRecordId)
+                               : query.OrderBy(m => m.RecordDate.Date).ThenBy(m => m.CreatedAt).ThenBy(m => m.MedicalRecordId),
+                _ => desc ? query.OrderByDescending(m => m.RecordDate.Date).ThenByDescending(m => m.CreatedAt).ThenByDescending(m => m.MedicalRecordId)
+                          : query.OrderBy(m => m.RecordDate.Date).ThenBy(m => m.CreatedAt).ThenBy(m => m.MedicalRecordId)
             };
 
             return await query
@@ -88,7 +90,9 @@ namespace HospitalManagementSystem.Api.Repositories
                 .Include(m => m.Appointment)
                 .Include(m => m.Attachments)
                 .Where(m => m.PatientId == patientId)
-                .OrderByDescending(m => m.RecordDate)
+                .OrderByDescending(m => m.RecordDate.Date)
+                .ThenByDescending(m => m.CreatedAt)
+                .ThenByDescending(m => m.MedicalRecordId)
                 .ToListAsync();
         }
 

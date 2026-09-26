@@ -40,7 +40,7 @@ public sealed class GeminiAppointmentIntelligenceClient(
     private const int MaxToolRounds = 6;
 
     private const string SystemPrompt = """
-    You are the Appointment Proposal Agent for the SmartCare Hospital Management System.
+    You are the Appointment Proposal Agent for the MediCore Hospital Management System.
 
     ROLE
     Your responsibility is to find suitable doctors and available appointment slots based on the patient's request using ONLY the authorized tools below.

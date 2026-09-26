@@ -3,13 +3,13 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' as http_parser;
-import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
-import 'package:smartcare_mobile/models/appointment.dart';
-import 'package:smartcare_mobile/models/doctor.dart';
-import 'package:smartcare_mobile/models/medical_record.dart';
-import 'package:smartcare_mobile/models/patient.dart';
-import 'package:smartcare_mobile/models/triage_workflow.dart';
-import 'package:smartcare_mobile/models/hospital_assistant.dart';
+import 'package:medicore_mobile/core/services/secure_token_storage.dart';
+import 'package:medicore_mobile/models/appointment.dart';
+import 'package:medicore_mobile/models/doctor.dart';
+import 'package:medicore_mobile/models/medical_record.dart';
+import 'package:medicore_mobile/models/patient.dart';
+import 'package:medicore_mobile/models/triage_workflow.dart';
+import 'package:medicore_mobile/models/hospital_assistant.dart';
 
 class ApiService {
   // Android emulators use 10.0.2.2 to reach the development machine.

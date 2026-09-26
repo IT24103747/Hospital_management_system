@@ -149,6 +149,7 @@ builder.Services.AddScoped<ISafetyApprovalTools, SafetyApprovalTools>();
 builder.Services.AddScoped<ISafetyValidationApprovalAgent, SafetyValidationApprovalAgent>();
 builder.Services.AddScoped<IMedicalRecordRepository, MedicalRecordRepository>();
 builder.Services.AddScoped<IMedicalRecordService, MedicalRecordService>();
+builder.Services.AddScoped<IFileStorageService, CloudflareR2StorageService>();
 builder.Services.AddScoped<IPlanningCoordinatorStore, PlanningCoordinatorStore>();
 builder.Services.AddScoped<IPlanningCoordinatorAgent>(sp => new PlanningCoordinatorAgent(sp.GetRequiredService<IPlanningModelClient>(), sp.GetRequiredService<IPlanningCoordinatorStore>(), sp.GetRequiredService<ILogger<PlanningCoordinatorAgent>>()));
 builder.Services.AddHttpClient<IPlanningModelClient, GeminiPlanningModelClient>((provider, client) =>
@@ -229,27 +230,6 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
 app.UseCors("AppCors");
-
-var webRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
-var uploadsDir = Path.Combine(webRoot, "uploads", "medical-records");
-var patientScansDir = Path.Combine(webRoot, "uploads", "patient-scans");
-Directory.CreateDirectory(uploadsDir);
-Directory.CreateDirectory(patientScansDir);
-
-var contentTypeProvider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
-contentTypeProvider.Mappings[".docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-contentTypeProvider.Mappings[".doc"] = "application/msword";
-contentTypeProvider.Mappings[".xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-contentTypeProvider.Mappings[".pptx"] = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(webRoot),
-    RequestPath = "",
-    ContentTypeProvider = contentTypeProvider,
-    ServeUnknownFileTypes = true,
-    DefaultContentType = "application/octet-stream"
-});
 
 app.UseAuthentication();
 app.UseAuthorization();

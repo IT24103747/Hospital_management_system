@@ -83,6 +83,50 @@ namespace HospitalManagementSystem.Api.Controllers
             return Ok(notifications);
         }
 
+        [HttpGet("staff-notifications")]
+        [Authorize(Roles = "Admin,Doctor")]
+        public async Task<IActionResult> GetStaffNotifications()
+        {
+            var access = await GetAppointmentAccessAsync();
+            if (access.Result is not null) return access.Result;
+
+            var query = _db.AppointmentNotifications.AsNoTracking()
+                .Include(n => n.Appointment)
+                    .ThenInclude(a => a.DoctorTimeSlot)
+                .AsQueryable();
+
+            if (User.IsInRole("Doctor"))
+            {
+                var doctor = await GetApprovedDoctorForCurrentUserAsync();
+                var doctorId = doctor?.DoctorId ?? access.DoctorId;
+                var doctorName = doctor != null ? $"{doctor.FirstName} {doctor.LastName}".Trim() : null;
+
+                var doctorLastName = doctor != null && !string.IsNullOrWhiteSpace(doctor.LastName) ? doctor.LastName.Trim().ToLower() : null;
+                var doctorNameLower = doctorName?.ToLower();
+
+                query = query.Where(n =>
+                    (n.Appointment.DoctorTimeSlot != null && (
+                        (doctorId.HasValue && n.Appointment.DoctorTimeSlot.DoctorId == doctorId.Value) ||
+                        (doctorNameLower != null && n.Appointment.DoctorTimeSlot.DoctorName.ToLower().Contains(doctorNameLower)) ||
+                        (doctorLastName != null && n.Appointment.DoctorTimeSlot.DoctorName.ToLower().Contains(doctorLastName)))) ||
+                    (doctorNameLower != null && n.Message.ToLower().Contains(doctorNameLower)) ||
+                    (doctorLastName != null && n.Message.ToLower().Contains(doctorLastName)));
+            }
+
+            var notifications = await query
+                .OrderByDescending(n => n.CreatedAt).Take(50)
+                .Select(n => new
+                {
+                    n.AppointmentNotificationId,
+                    n.AppointmentId,
+                    n.Message,
+                    CreatedAt = DateTime.SpecifyKind(n.CreatedAt, DateTimeKind.Utc)
+                })
+                .ToListAsync();
+
+            return Ok(notifications);
+        }
+
         [HttpGet("{id:int}")]
         [Authorize(Roles = AppointmentReaderRoles)]
         [ProducesResponseType(typeof(AppointmentDto), StatusCodes.Status200OK)]

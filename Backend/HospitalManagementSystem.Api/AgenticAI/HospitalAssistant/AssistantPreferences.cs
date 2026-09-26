@@ -12,6 +12,11 @@ public static class AssistantPreferences
 
     public static string? Query(string text, IReadOnlyList<AgentDoctor> doctors)
     {
+        // Pronouns refer to the previously selected doctor/specialty and must be
+        // resolved by the conversation coordinator. Do not parse "doctor tomorrow"
+        // from "book that doctor tomorrow" as a doctor named Tomorrow.
+        if (Has(text, @"\b(that|this|selected)\s+(doctor|specialist|one)\b")) return null;
+
         // Full-name match: "Dr. Neranjani Perera" or "Neranjani Perera"
         var named = doctors.Where(doctor =>
             text.Contains(doctor.Name, StringComparison.OrdinalIgnoreCase) ||

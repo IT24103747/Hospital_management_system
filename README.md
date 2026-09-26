@@ -1,4 +1,4 @@
-# Hospital Management System (SmartCare)
+# Hospital Management System (MediCore)
 
 > **Course**: BSc (Hons) in Information Technology – SE / AI  
 > **Module**: SE3090 – Software Engineering Frameworks (Year 3, Semester 1, 2026)  

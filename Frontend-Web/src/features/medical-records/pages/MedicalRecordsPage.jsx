@@ -41,6 +41,8 @@ export default function MedicalRecordsPage() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [selectedDoctorId, setSelectedDoctorId] = useState('')
+  const [sort, setSort] = useState('date:desc')
+  const [sortBy, sortDirection] = sort.split(':')
   const [page, setPage] = useState(1)
   const pageSize = 10
 
@@ -81,6 +83,8 @@ export default function MedicalRecordsPage() {
     status,
     fromDate,
     toDate,
+    sortBy,
+    sortDirection,
     page,
     pageSize,
     doctorId: selectedDoctorId ? parseInt(selectedDoctorId, 10) : null,
@@ -184,6 +188,7 @@ export default function MedicalRecordsPage() {
     setFromDate('')
     setToDate('')
     setSelectedDoctorId('')
+    setSort('date:desc')
     setPage(1)
   }
 
@@ -214,7 +219,7 @@ export default function MedicalRecordsPage() {
     return res
   }
 
-  const hasActiveFilters = Boolean(searchInput || recordType || status || fromDate || toDate || selectedDoctorId)
+  const hasActiveFilters = Boolean(searchInput || recordType || status || fromDate || toDate || selectedDoctorId || sort !== 'date:desc')
 
   const getTypeVariant = (type) => {
     switch (type) {
@@ -524,6 +529,27 @@ export default function MedicalRecordsPage() {
             }}
           />
         </div>
+
+        {/* Sort Dropdown */}
+        <select
+          id="mr-filter-sort"
+          className="mr-select"
+          value={sort}
+          onChange={(e) => {
+            setSort(e.target.value)
+            setPage(1)
+          }}
+          aria-label="Sort medical records"
+        >
+          <option value="date:desc">Newest Record Date</option>
+          <option value="date:asc">Oldest Record Date</option>
+          <option value="id:desc">Newest Record ID (#)</option>
+          <option value="id:asc">Oldest Record ID (#)</option>
+          <option value="patient:asc">Patient Name (A–Z)</option>
+          <option value="patient:desc">Patient Name (Z–A)</option>
+          <option value="type:asc">Record Type (A–Z)</option>
+          <option value="status:asc">Status (A–Z)</option>
+        </select>
 
         {/* Reset Filter Button */}
         {hasActiveFilters && (

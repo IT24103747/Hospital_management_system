@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { patientApi } from '../services/patientApi'
 
 const USE_MOCK = false
@@ -9,8 +9,18 @@ export function usePatients({ search = '', gender = '', bloodGroup = '', sortBy 
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const latestRequest = useRef(0)
+
+  const loadSummary = useCallback(async () => {
+    try {
+      setSummary(await patientApi.getSummary())
+    } catch {
+      // The patient list remains usable if the optional dashboard summary is unavailable.
+    }
+  }, [])
 
   const load = useCallback(async () => {
+    const requestId = ++latestRequest.current
     setLoading(true)
     setError(null)
     try {
@@ -18,12 +28,9 @@ export function usePatients({ search = '', gender = '', bloodGroup = '', sortBy 
         await new Promise(r => setTimeout(r, 600))
         setPatients(MOCK_PATIENTS)
       } else {
-        const [result, summaryResult] = await Promise.all([
-          patientApi.getAll({ search, gender, bloodGroup, sortBy, sortDirection, page, pageSize }),
-          patientApi.getSummary(),
-        ])
+        const result = await patientApi.getAll({ search, gender, bloodGroup, sortBy, sortDirection, page, pageSize })
+        if (requestId !== latestRequest.current) return
         setPatients(result.data || [])
-        setSummary(summaryResult)
         setPagination({
           page: result.page || page,
           pageSize: result.pageSize || pageSize,
@@ -32,14 +39,20 @@ export function usePatients({ search = '', gender = '', bloodGroup = '', sortBy 
         })
       }
     } catch (err) {
+      if (requestId !== latestRequest.current) return
       setError(err.message || 'Failed to load patients')
       setPatients([])
     } finally {
-      setLoading(false)
+      if (requestId === latestRequest.current) setLoading(false)
     }
   }, [bloodGroup, gender, page, pageSize, search, sortBy, sortDirection])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { loadSummary() }, [loadSummary])
+
+  const refetch = async () => {
+    await Promise.all([load(), loadSummary()])
+  }
 
   const createPatient = async (data) => {
     if (USE_MOCK) {
@@ -48,7 +61,7 @@ export function usePatients({ search = '', gender = '', bloodGroup = '', sortBy 
       return newP
     }
     const created = await patientApi.create(data)
-    await load()
+    await refetch()
     return created
   }
 
@@ -58,7 +71,7 @@ export function usePatients({ search = '', gender = '', bloodGroup = '', sortBy 
       return
     }
     await patientApi.update(id, data)
-    await load()
+    await refetch()
   }
 
   const deletePatient = async (id) => {
@@ -67,8 +80,8 @@ export function usePatients({ search = '', gender = '', bloodGroup = '', sortBy 
       return
     }
     await patientApi.delete(id)
-    await load()
+    await refetch()
   }
 
-  return { patients, pagination, summary, loading, error, refetch: load, createPatient, updatePatient, deletePatient }
+  return { patients, pagination, summary, loading, error, refetch, createPatient, updatePatient, deletePatient }
 }

@@ -63,7 +63,7 @@ public sealed class MedicalReportAssistantAgentTests
         var reply = await agent.ReadAsync("Summarize my medical reports", patient, CancellationToken.None);
 
         Assert.Contains("Kasun Perera", reply);
-        Assert.Contains("currently do not have any recorded medical reports", reply);
+        Assert.Contains("currently do not have any finalized medical records", reply);
     }
 
     [Fact]
@@ -92,63 +92,63 @@ public sealed class MedicalReportAssistantAgentTests
     }
 
     [Fact]
-    public void DeterministicSafetyEngine_DetectsAntibioticsAdvisory()
+    public async Task ReadAsync_ExcludesDraftAndArchivedRecords()
     {
         var records = new[]
         {
-            new MedicalRecord
-            {
-                MedicalRecordId = 1,
-                PrescriptionNotes = "Take Amoxicillin 500mg three times daily",
-                TreatmentPlan = "Follow medication course"
-            }
+            new MedicalRecord { MedicalRecordId = 1, PatientId = 1, Status = MedicalRecordStatuses.Draft },
+            new MedicalRecord { MedicalRecordId = 2, PatientId = 1, Status = MedicalRecordStatuses.Archived },
+            new MedicalRecord { MedicalRecordId = 3, PatientId = 1, Status = MedicalRecordStatuses.Finalized }
         };
+        var fakeAi = new FakeIntelligenceAgent();
+        var agent = new MedicalReportAssistantAgent(new FakeMedicalRecordRepository(records), fakeAi);
+        var patient = new PatientDto { PatientId = 1, FirstName = "Kasun", LastName = "Perera" };
 
-        var alerts = DeterministicClinicalSafetyEngine.EvaluateSafety(records);
+        await agent.ReadAsync("Summarize my medical records", patient, CancellationToken.None);
 
-        var abxAlert = Assert.Single(alerts, a => a.DrugName.Equals("Amoxicillin", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal("Advisory", abxAlert.Severity);
-        Assert.Contains("full antibiotic course", abxAlert.Message);
+        var visible = Assert.Single(fakeAi.ObservedRecords);
+        Assert.Equal(3, visible.MedicalRecordId);
     }
 
     [Fact]
-    public void DeterministicSafetyEngine_DetectsMultipleNsaidsInteraction()
+    public void DeterministicSafetyEngine_DoesNotInventMedicationDirections()
     {
         var records = new[]
         {
             new MedicalRecord
             {
                 MedicalRecordId = 1,
-                PrescriptionNotes = "Ibuprofen 400mg with Aspirin 75mg daily",
+                PrescriptionNotes = "Amoxicillin 500mg, Ibuprofen and Aspirin",
                 TreatmentPlan = "Pain management"
             }
         };
 
         var alerts = DeterministicClinicalSafetyEngine.EvaluateSafety(records);
 
-        var nsaidAlert = Assert.Single(alerts, a => a.Severity == "Warning");
-        Assert.Contains("NSAID", nsaidAlert.Message);
-        Assert.Contains("Ibuprofen", nsaidAlert.DrugName);
-        Assert.Contains("Aspirin", nsaidAlert.DrugName);
+        Assert.Empty(alerts);
     }
 
     [Fact]
-    public void DeterministicSafetyEngine_DetectsParacetamolDosageRule()
+    public void DeterministicSafetyEngine_AnswersPrescriptionQuestionFromRecordedTextOnly()
     {
         var records = new[]
         {
             new MedicalRecord
             {
                 MedicalRecordId = 1,
+                RecordDate = new DateTime(2026, 9, 10),
+                Diagnosis = "Viral infection",
                 PrescriptionNotes = "Paracetamol 500mg 2 tabs PRN for fever",
                 TreatmentPlan = "Rest"
             }
         };
 
-        var alerts = DeterministicClinicalSafetyEngine.EvaluateSafety(records);
+        var result = DeterministicClinicalSafetyEngine.BuildHeuristicSummary(
+            records, "Nimal", "What medicine did my doctor prescribe?");
 
-        var pcmAlert = Assert.Single(alerts, a => a.DrugName.Equals("Paracetamol", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains("4,000 mg", pcmAlert.Message);
+        Assert.Contains("Paracetamol 500mg 2 tabs PRN for fever", result.PlainLanguageSummary);
+        Assert.DoesNotContain("4,000", result.PlainLanguageSummary);
+        Assert.Contains("not a diagnosis or a new prescription", result.PlainLanguageSummary);
     }
 
     [Fact]
@@ -170,7 +170,7 @@ public sealed class MedicalReportAssistantAgentTests
             TreatmentPlan = "Routine follow up"
         };
         var alertsOverdue = DeterministicClinicalSafetyEngine.EvaluateSafety([overdue]);
-        Assert.Contains(alertsOverdue, a => a.Severity == "Advisory" && a.Message.Contains("scheduled for"));
+        Assert.Contains(alertsOverdue, a => a.Severity == "Advisory" && a.Message.Contains("recorded by your clinician"));
     }
 
     [Fact]
@@ -197,8 +197,8 @@ public sealed class MedicalReportAssistantAgentTests
         Assert.Contains("Streptococcal Pharyngitis", summary.PlainLanguageSummary);
         Assert.Contains("Amoxicillin 500mg", summary.PlainLanguageSummary);
         Assert.Contains("Streptococcus pyogenes", summary.PlainLanguageSummary);
-        Assert.Contains("⚠️ Important Safety Precautions", summary.PlainLanguageSummary);
-        Assert.Contains("Guidance Disclaimer", summary.PlainLanguageSummary);
+        Assert.Contains("Recorded follow-up reminders", summary.PlainLanguageSummary);
+        Assert.Contains("Guidance disclaimer", summary.PlainLanguageSummary);
     }
 
     [Fact]

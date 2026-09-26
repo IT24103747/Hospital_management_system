@@ -121,6 +121,14 @@ namespace HospitalManagementSystem.Api.Services
             var notify = appointment.Status != "Cancelled";
             appointment.Status = "Cancelled";
             appointment.CancellationReason = reason.Trim();
+            if (notify)
+            {
+                var docName = appointment.DoctorTimeSlot?.DoctorName ?? "doctor";
+                appointment.Notifications.Add(new AppointmentNotification
+                {
+                    Message = $"Appointment #{appointment.AppointmentNumber} with {docName} was cancelled. Reason: {reason.Trim()}."
+                });
+            }
             var saved = await _repository.UpdateAsync(appointment);
             if (notify) await _sms.NotifyAsync(id, "cancelled");
             return MapAppointment(saved);
@@ -139,6 +147,15 @@ namespace HospitalManagementSystem.Api.Services
             appointment.DoctorTimeSlotId = doctorTimeSlotId;
             appointment.AppointmentNumber = appointmentNumber;
             appointment.Status = "Confirmed";
+            if (notify)
+            {
+                var localTime = TimeZoneInfo.ConvertTimeFromUtc(slot.StartAt,
+                    TimeZoneInfo.FindSystemTimeZoneById("Asia/Colombo"));
+                appointment.Notifications.Add(new AppointmentNotification
+                {
+                    Message = $"Appointment #{appointmentNumber} with {slot.DoctorName} was rescheduled. New appointment time: {localTime:dd MMM yyyy, hh:mm tt} (Sri Lanka time)."
+                });
+            }
             var saved = await _repository.UpdateAsync(appointment);
             if (notify) await _sms.NotifyAsync(id, "rescheduled");
             return MapAppointment(saved);
@@ -178,7 +195,14 @@ namespace HospitalManagementSystem.Api.Services
 
         public async Task<DoctorTimeSlotDto> CreateSlotAsync(CreateDoctorTimeSlotDto dto)
         {
+            if (dto.Capacity < 1 || dto.Capacity > 50)
+                throw new InvalidOperationException("Slot capacity must be between 1 and 50.");
+
             var doctor = await GetApprovedDoctorAsync(dto.DoctorId);
+            var activeSlotsCount = await _repository.GetActiveSlotsCountByDoctorIdAsync(doctor.DoctorId);
+            if (activeSlotsCount >= 50)
+                throw new InvalidOperationException("This doctor has reached the maximum limit of 50 active appointment schedules. Please complete or cancel existing schedules before creating new ones.");
+
             var doctorName = FormatDoctorName(doctor);
             var specialty = doctor.Specialization.Trim();
             var startAt = DateTime.SpecifyKind(dto.StartAt, DateTimeKind.Utc);
@@ -218,6 +242,9 @@ namespace HospitalManagementSystem.Api.Services
 
         public async Task<DoctorTimeSlotDto?> UpdateSlotAsync(int id, UpdateDoctorTimeSlotDto dto)
         {
+            if (dto.Capacity < 1 || dto.Capacity > 50)
+                throw new InvalidOperationException("Slot capacity must be between 1 and 50.");
+
             var slot = await _repository.GetSlotByIdAsync(id);
             if (slot is null) return null;
 
@@ -292,6 +319,10 @@ namespace HospitalManagementSystem.Api.Services
                 appointment.CancellationReason = string.IsNullOrWhiteSpace(reason)
                     ? "Doctor time slot cancelled."
                     : reason.Trim();
+                appointment.Notifications.Add(new AppointmentNotification
+                {
+                    Message = $"Appointment #{appointment.AppointmentNumber} with {slot.DoctorName} was cancelled because the session was cancelled. Reason: {appointment.CancellationReason}"
+                });
             }
 
             var updated = await _repository.UpdateSlotAsync(slot);

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:smartcare_mobile/core/constants/app_colors.dart';
+import 'package:medicore_mobile/core/constants/app_colors.dart';
 
 class ActivityPulsePainter extends CustomPainter {
   final Color color;

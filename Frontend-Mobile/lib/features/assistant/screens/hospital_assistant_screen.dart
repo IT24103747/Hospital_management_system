@@ -4,9 +4,11 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
-import 'package:smartcare_mobile/core/constants/app_colors.dart';
-import 'package:smartcare_mobile/core/services/api_service.dart';
-import 'package:smartcare_mobile/models/hospital_assistant.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:medicore_mobile/core/constants/app_colors.dart';
+import 'package:medicore_mobile/core/services/api_service.dart';
+import 'package:medicore_mobile/features/clinic_finder/screens/emergency_clinic_screen.dart';
+import 'package:medicore_mobile/models/hospital_assistant.dart';
 
 /// One patient conversation; routing, safety and approval authority stay on the server.
 class HospitalAssistantScreen extends StatefulWidget {
@@ -98,8 +100,8 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
         if (action!.slots.length == 1) {
           _selectedSlotId =
               (action.slots.single['doctorTimeSlotId'] as num).toInt();
-        } else if (!action.slots.any(
-            (slot) => slot['doctorTimeSlotId'] == _selectedSlotId)) {
+        } else if (!action.slots
+            .any((slot) => slot['doctorTimeSlotId'] == _selectedSlotId)) {
           _selectedSlotId = null;
         }
       }
@@ -115,8 +117,10 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
         }
       });
 
-  Future<void> _send({String? declinedRequirementId}) async {
-    final text = declinedRequirementId == null ? _input.text.trim() : 'Prefer not to answer';
+  Future<void> _send({String? customText, String? declinedRequirementId}) async {
+    final text = customText ?? (declinedRequirementId == null
+        ? _input.text.trim()
+        : 'Prefer not to answer');
     if (_busy || _initializing || _uncertainAction || text.isEmpty) return;
     if (text.length > 4000) {
       setState(
@@ -132,8 +136,10 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
       _error = null;
       _outgoing = text;
     });
-    _input.clear();
-    _focus.unfocus();
+    if (customText == null) {
+      _input.clear();
+      _focus.unfocus();
+    }
     _scrollToLatest();
     try {
       final result = await ApiService.sendAssistantMessage(
@@ -148,10 +154,11 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
       _retryRequestId = null;
     } catch (error) {
       if (!mounted) return;
-      if (declinedRequirementId == null) _input.text = text;
+      if (declinedRequirementId == null && customText == null) _input.text = text;
       _retryMessage = retryKey;
       _retryRequestId = requestId;
-      setState(() => _error = error is http.ClientException || error is TimeoutException
+      setState(() => _error = error is http.ClientException ||
+              error is TimeoutException
           ? 'Cannot reach the hospital server. Check your connection and make sure the API is running, then try again.'
           : 'Your message could not be completed. Try sending it again, or refresh the conversation.');
     } finally {
@@ -284,43 +291,63 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
       if (!mounted) return;
       final entries = <({String title, String text})>[
         ...workflows.map((workflow) => (
-          title: '${_date(workflow.createdAt?.toIso8601String())} · ${workflow.triageLevel}',
-          text: [workflow.patientReportedSymptoms, workflow.patientMessage,
-            workflow.guidance?.summary ?? '', 'Review: ${workflow.approvalStatus}']
-              .where((part) => part.isNotEmpty).join('\n\n'),
-        )),
+              title:
+                  '${_date(workflow.createdAt?.toIso8601String())} · ${workflow.triageLevel}',
+              text: [
+                workflow.patientReportedSymptoms,
+                workflow.patientMessage,
+                workflow.guidance?.summary ?? '',
+                'Review: ${workflow.approvalStatus}'
+              ].where((part) => part.isNotEmpty).join('\n\n'),
+            )),
         ...care.map((assessment) {
           final clinical = assessment['clinical'] as Map?;
           final extracted = clinical?['extractedFacts'] as Map?;
           final guidance = extracted?['guidance'] as Map?;
           return (
-            title: '${_date(assessment['createdAt'])} · ${assessment['triageLevel'] ?? 'Saved assessment'}',
-            text: [assessment['symptoms'], guidance?['summary'], clinical?['proposedRoute']]
-                .where((part) => part != null && part.toString().isNotEmpty).join('\n\n'),
+            title:
+                '${_date(assessment['createdAt'])} · ${assessment['triageLevel'] ?? 'Saved assessment'}',
+            text: [
+              assessment['symptoms'],
+              guidance?['summary'],
+              clinical?['proposedRoute']
+            ]
+                .where((part) => part != null && part.toString().isNotEmpty)
+                .join('\n\n'),
           );
         }),
       ];
       await showModalBottomSheet<void>(
         context: context,
         showDragHandle: true,
-        builder: (context) => SafeArea(child: ListView(
+        builder: (context) => SafeArea(
+            child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           children: [
-            Text('Earlier assessments', style: Theme.of(context).textTheme.titleLarge),
+            Text('Earlier assessments',
+                style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),
-            const Text('Saved guidance reflects the information provided at that time.'),
-            if (entries.isEmpty) const Padding(
-              padding: EdgeInsets.all(16), child: Text('No earlier assessments.')),
+            const Text(
+                'Saved guidance reflects the information provided at that time.'),
+            if (entries.isEmpty)
+              const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No earlier assessments.')),
             ...entries.map((entry) => ExpansionTile(
-              title: Text(entry.title),
-              children: [Padding(padding: const EdgeInsets.all(12), child: SelectableText(entry.text))],
-            )),
+                  title: Text(entry.title),
+                  children: [
+                    Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: SelectableText(entry.text))
+                  ],
+                )),
           ],
         )),
       );
     } catch (_) {
       if (mounted) {
-        setState(() => _error = 'Could not load earlier assessments. Please try again.');
+        setState(() =>
+            _error = 'Could not load earlier assessments. Please try again.');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -385,50 +412,48 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
-                      children: _capabilities
-                          .map((capability) {
-                            IconData icon;
-                            switch (capability.id) {
-                              case 'medical-reports':
-                                icon = Icons.description_outlined;
-                                break;
-                              case 'patient-help':
-                                icon = Icons.healing_outlined;
-                                break;
-                              case 'find-doctor':
-                                icon = Icons.person_search_outlined;
-                                break;
-                              case 'appointments':
-                                icon = Icons.calendar_month_outlined;
-                                break;
-                              default:
-                                icon = Icons.auto_awesome_outlined;
-                            }
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: ActionChip(
-                                avatar: Icon(
-                                  icon,
-                                  size: 16,
-                                  color: capability.enabled
-                                      ? Theme.of(context).colorScheme.primary
-                                      : Theme.of(context).colorScheme.outline,
-                                ),
-                                label: Text(capability.enabled
-                                    ? capability.label
-                                    : '${capability.label} · Coming soon'),
-                                onPressed: !capability.enabled ||
-                                        disabled ||
-                                        _uncertainAction
-                                    ? null
-                                    : () {
-                                        _input.text = capability.prompt;
-                                        _focus.requestFocus();
-                                      },
-                              ),
-                            );
-                          })
-                          .toList(),
+                      children: _capabilities.map((capability) {
+                        IconData icon;
+                        switch (capability.id) {
+                          case 'medical-reports':
+                            icon = Icons.description_outlined;
+                            break;
+                          case 'patient-help':
+                            icon = Icons.healing_outlined;
+                            break;
+                          case 'find-doctor':
+                            icon = Icons.person_search_outlined;
+                            break;
+                          case 'appointments':
+                            icon = Icons.calendar_month_outlined;
+                            break;
+                          default:
+                            icon = Icons.auto_awesome_outlined;
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ActionChip(
+                            avatar: Icon(
+                              icon,
+                              size: 16,
+                              color: capability.enabled
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context).colorScheme.outline,
+                            ),
+                            label: Text(capability.enabled
+                                ? capability.label
+                                : '${capability.label} · Coming soon'),
+                            onPressed: !capability.enabled ||
+                                    disabled ||
+                                    _uncertainAction
+                                ? null
+                                : () {
+                                    _input.text = capability.prompt;
+                                    _focus.requestFocus();
+                                  },
+                          ),
+                        );
+                      }).toList(),
                     ),
                   )),
             ),
@@ -489,43 +514,59 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                           if (_conversation!.assessmentInputActive &&
                               _conversation!.clinicalReviews.isNotEmpty)
                             ExpansionTile(
-                              title: const Text('Pending clinical reviews / assessment input'),
-                              subtitle: const Text('You can still check appointments and doctor availability.'),
-                              children: _conversation!.clinicalReviews.map((review) => ListTile(
-                                title: Text('Assessment #${review['workflowId']}'),
-                                subtitle: Text(review['status'] == 'PendingPatientInput'
-                                    ? 'Waiting for your assessment answers'
-                                    : 'Waiting for clinical review\n${review['message'] ?? ''}'),
-                              )).toList(),
+                              title: const Text(
+                                  'Pending clinical reviews / assessment input'),
+                              subtitle: const Text(
+                                  'You can still check appointments and doctor availability.'),
+                              children: _conversation!.clinicalReviews
+                                  .map((review) => ListTile(
+                                        title: Text(
+                                            'Assessment #${review['workflowId']}'),
+                                        subtitle: Text(review['status'] ==
+                                                'PendingPatientInput'
+                                            ? 'Waiting for your assessment answers'
+                                            : 'Waiting for clinical review\n${review['message'] ?? ''}'),
+                                      ))
+                                  .toList(),
                             ),
                           if (_conversation!.assessmentInputActive)
-                            ..._conversation!.questions.take(1).map((question) => _bubble(
-                                _questionText(question),
-                                user: false)),
-                          if (_conversation!.assessmentInputActive && _conversation!.questions.isNotEmpty)
+                            ..._conversation!.questions.take(1).map(
+                                (question) => _bubble(_questionText(question),
+                                    user: false)),
+                          if (_conversation!.assessmentInputActive &&
+                              _conversation!.questions.isNotEmpty)
                             Align(
                               alignment: Alignment.centerLeft,
                               child: TextButton(
-                                onPressed: disabled || _uncertainAction ? null : () => _send(
-                                    declinedRequirementId: _conversation!.questions.first['id']?.toString()),
+                                onPressed: disabled || _uncertainAction
+                                    ? null
+                                    : () => _send(
+                                        declinedRequirementId: _conversation!
+                                            .questions.first['id']
+                                            ?.toString()),
                                 child: const Text('Prefer not to answer'),
                               ),
                             ),
-                          if (!_hasResultHistory && _conversation!.pendingAction == null) ..._conversation!.doctors.map((doctor) => ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading:
-                                    const Icon(Icons.medical_services_outlined),
-                                title: Text(doctor['name']?.toString() ?? ''),
-                                subtitle: Text(_doctorSubtitle(
-                                    doctor, _conversation!.availabilityChecked,
-                                    _conversation!.slots.isNotEmpty)),
-                              )),
-                          if (!_hasResultHistory && _conversation!.pendingAction == null)
+                          if (!_hasResultHistory &&
+                              _conversation!.pendingAction == null)
+                            ..._conversation!.doctors.map((doctor) => ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: const Icon(
+                                      Icons.medical_services_outlined),
+                                  title: Text(doctor['name']?.toString() ?? ''),
+                                  subtitle: Text(_doctorSubtitle(
+                                      doctor,
+                                      _conversation!.availabilityChecked,
+                                      _conversation!.slots.isNotEmpty)),
+                                )),
+                          if (!_hasResultHistory &&
+                              _conversation!.pendingAction == null)
                             ..._conversation!.slots.map(
                                 (slot) => _detailsCard(slot, isSlot: true)),
-                          if (!_hasResultHistory && _conversation!.pendingAction == null)
-                            ..._conversation!.appointments.map(
-                                _confirmedAppointmentCard),
+                          if (!_hasResultHistory &&
+                              _conversation!.pendingAction == null)
+                            ..._conversation!.appointments
+                                .map(_confirmedAppointmentCard),
                           if (_conversation!.pendingAction != null)
                             const Text('Choose an appointment to confirm'),
                           if (_conversation!.pendingAction != null)
@@ -549,19 +590,21 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                     maxLength: 4000,
                     textCapitalization: TextCapitalization.sentences,
                     decoration: const InputDecoration(
-                      hintText: 'Ask about care, appointments, or medical records…',
+                      hintText:
+                          'Ask about care, appointments, or medical records…',
                       counterText: '',
                       border: OutlineInputBorder(),
                     ),
                   )),
                   const SizedBox(width: 8),
                   Tooltip(
-                    message: 'Send message',
-                    child: FilledButton.icon(
-                    onPressed: disabled || _uncertainAction ? null : () => _send(),
-                    icon: const Icon(Icons.send_rounded),
-                    label: const Text('Send'),
-                  )),
+                      message: 'Send message',
+                      child: FilledButton.icon(
+                        onPressed:
+                            disabled || _uncertainAction ? null : () => _send(),
+                        icon: const Icon(Icons.send_rounded),
+                        label: const Text('Send'),
+                      )),
                 ]),
               )),
         ]),
@@ -593,12 +636,16 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
         ]),
       );
 
-  bool get _hasResultHistory => _conversation?.messages.any((message) =>
-      message.doctors.isNotEmpty || message.slots.isNotEmpty ||
-      message.appointments.isNotEmpty || message.proposedAction != null) ?? false;
+  bool get _hasResultHistory =>
+      _conversation?.messages.any((message) =>
+          message.doctors.isNotEmpty ||
+          message.slots.isNotEmpty ||
+          message.appointments.isNotEmpty ||
+          message.proposedAction != null) ??
+      false;
 
-  String _doctorSubtitle(AssistantJson doctor, bool availabilityChecked,
-      bool hasMatchingSlots) {
+  String _doctorSubtitle(
+      AssistantJson doctor, bool availabilityChecked, bool hasMatchingSlots) {
     final specialty = doctor['specialty']?.toString() ?? '';
     if (availabilityChecked && !hasMatchingSlots) {
       return '$specialty\nNo matching availability for the requested date.';
@@ -612,22 +659,133 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
           if (message.followUpQuestion != null)
             _bubble(_questionText(message.followUpQuestion!), user: false),
           _bubble(message.text, user: message.role == 'user'),
+          if (message.role != 'user' && message.text.contains('CRITICAL EMERGENCY ALERT'))
+            Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 12),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.red.shade400, width: 1.5),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.emergency, color: Colors.red, size: 24),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Emergency Actions Required',
+                          style: TextStyle(
+                            color: Colors.red.shade800,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: () => launchUrl(Uri.parse('tel:1990')),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.red.shade700,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.phone_in_talk, size: 18),
+                          label: const Text('Call 1990 Ambulance'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const EmergencyClinicScreen(),
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red.shade800,
+                            side: BorderSide(color: Colors.red.shade600),
+                          ),
+                          icon: const Icon(Icons.local_hospital, size: 18),
+                          label: const Text('Nearest 24/7 ER Clinics'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (message.role != 'user' &&
+              message.text.contains('Next Available Doctor') &&
+              message.text.contains('Select a Specific Doctor'))
+            Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 12),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.25),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Quick Review Choice:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.primary,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ActionChip(
+                          avatar: const Icon(Icons.bolt, size: 16, color: Colors.amber),
+                          label: const Text('⚡ Next Available Doctor'),
+                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '1'),
+                        ),
+                        ActionChip(
+                          avatar: const Icon(Icons.person_search, size: 16),
+                          label: const Text('🩺 Choose Doctor'),
+                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '2'),
+                        ),
+                        ActionChip(
+                          avatar: const Icon(Icons.close, size: 16),
+                          label: const Text('✕ Not right now'),
+                          onPressed: (_busy || _initializing) ? null : () => _send(customText: '3'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
           if (message.followUpQuestion != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: Text(switch (message.followUpState) {
-                'Declined' => 'Declined — recorded',
-                'Unknown' => 'Unsure — recorded',
-                'NotApplicable' => 'Not applicable — recorded',
-                _ => '✓ Answer recorded',
-              }, style: Theme.of(context).textTheme.bodySmall),
+              child: Text(
+                  switch (message.followUpState) {
+                    'Declined' => 'Declined — recorded',
+                    'Unknown' => 'Unsure — recorded',
+                    'NotApplicable' => 'Not applicable — recorded',
+                    _ => '✓ Answer recorded',
+                  },
+                  style: Theme.of(context).textTheme.bodySmall),
             ),
           if (message.proposedAction == null && message.slots.isEmpty)
-          ...message.doctors.map((doctor) => ListTile(
-            title: Text(doctor['name']?.toString() ?? ''),
-            subtitle: Text(_doctorSubtitle(doctor, message.availabilityChecked,
-                message.slots.isNotEmpty)),
-          )),
+            ...message.doctors.map((doctor) => ListTile(
+                  title: Text(doctor['name']?.toString() ?? ''),
+                  subtitle: Text(_doctorSubtitle(doctor,
+                      message.availabilityChecked, message.slots.isNotEmpty)),
+                )),
           if (message.proposedAction == null)
             ...message.slots.map((slot) => _detailsCard(slot, isSlot: true)),
           ...message.appointments.map(_confirmedAppointmentCard),
@@ -635,10 +793,13 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
               message.proposedAction?.id != _conversation?.pendingAction?.id)
             ExpansionTile(
               title: Text(message.proposedAction!.title),
-              subtitle: Text('Proposal ${message.proposedAction!.status.toLowerCase()} — details as originally shown'),
+              subtitle: Text(
+                  'Proposal ${message.proposedAction!.status.toLowerCase()} — details as originally shown'),
               children: [
-                ...message.proposedAction!.slots.map((slot) => _detailsCard(slot, isSlot: true)),
-                ...message.proposedAction!.appointments.map(_confirmedAppointmentCard),
+                ...message.proposedAction!.slots
+                    .map((slot) => _detailsCard(slot, isSlot: true)),
+                ...message.proposedAction!.appointments
+                    .map(_confirmedAppointmentCard),
               ],
             ),
           if (message.progress.isNotEmpty)
@@ -690,7 +851,10 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
 
   String _questionText(Map<String, dynamic> question) {
     final parts = <String>[question['prompt']?.toString() ?? ''];
-    final options = (question['options'] as List?)?.map((item) => item.toString()).toList() ?? [];
+    final options = (question['options'] as List?)
+            ?.map((item) => item.toString())
+            .toList() ??
+        [];
     if (options.isNotEmpty) parts.add('Options: ${options.join('; ')}');
     final hint = question['hint']?.toString();
     if (hint != null && hint.isNotEmpty) parts.add(hint);
@@ -699,7 +863,8 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
       final maximum = question['maximum'];
       final unit = question['unit']?.toString();
       if (minimum != null && maximum != null) {
-        parts.add('Enter a number from $minimum to $maximum${unit == null ? '' : ' $unit'}.');
+        parts.add(
+            'Enter a number from $minimum to $maximum${unit == null ? '' : ' $unit'}.');
       }
     }
     return parts.join('\n\n');
@@ -707,11 +872,13 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
 
   Widget _approval(AssistantAction action) {
     final expired = action.expiresAt?.isBefore(DateTime.now()) ?? false;
-    final isBooking = action.type == 'book';
+    final isSlotAction = action.type == 'book' || action.type == 'reschedule';
     final canConfirm = !_busy &&
         !_uncertainAction &&
         !expired &&
-        (isBooking ? _selectedSlotId != null : _selectedAppointmentId != null);
+        (isSlotAction
+            ? _selectedSlotId != null
+            : _selectedAppointmentId != null);
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8),
       child: Padding(
@@ -724,12 +891,13 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
               const SizedBox(height: 8),
               Text(action.description),
               const SizedBox(height: 8),
-              ...(isBooking ? action.slots : action.appointments).map((item) {
+              ...(isSlotAction ? action.slots : action.appointments)
+                  .map((item) {
                 final id =
-                    (item[isBooking ? 'doctorTimeSlotId' : 'appointmentId']
+                    (item[isSlotAction ? 'doctorTimeSlotId' : 'appointmentId']
                             as num)
                         .toInt();
-                final selected = isBooking
+                final selected = isSlotAction
                     ? _selectedSlotId == id
                     : _selectedAppointmentId == id;
                 return Semantics(
@@ -740,7 +908,7 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                     onTap: _busy || _uncertainAction || expired
                         ? null
                         : () => setState(() {
-                              if (isBooking) {
+                              if (isSlotAction) {
                                 _selectedSlotId = id;
                               } else {
                                 _selectedAppointmentId = id;
@@ -767,7 +935,8 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                                     : Icons.radio_button_off,
                                 color: Theme.of(context).colorScheme.primary),
                             const SizedBox(width: 10),
-                            Expanded(child: _details(item, isSlot: isBooking)),
+                            Expanded(
+                                child: _details(item, isSlot: isSlotAction)),
                           ]),
                     ),
                   ),
@@ -777,7 +946,7 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
               if (expired)
                 const Text(
                     'This option has expired. Choose another to search again.'),
-              if (isBooking)
+              if (isSlotAction)
                 const Text(
                     'The appointment number is assigned when booking is confirmed. '
                     'Options are not reserved.',
@@ -787,9 +956,13 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
                   width: double.infinity,
                   child: FilledButton(
                     onPressed: canConfirm ? () => _decide('confirm') : null,
-                    child: Text(isBooking
+                    child: Text(action.type == 'book'
                         ? 'Confirm appointment'
-                        : 'Confirm cancellation'),
+                        : action.type == 'reschedule'
+                            ? 'Confirm reschedule'
+                            : action.type == 'reschedule-source'
+                                ? 'Use this appointment'
+                                : 'Confirm cancellation'),
                   )),
               Wrap(spacing: 8, children: [
                 TextButton(
@@ -833,14 +1006,33 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
         Row(children: [
           Container(
             padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: tone.withValues(alpha: .14), shape: BoxShape.circle),
-            child: Icon(cancelled ? Icons.cancel_outlined : Icons.check_circle_outline_rounded, color: tone),
+            decoration: BoxDecoration(
+                color: tone.withValues(alpha: .14), shape: BoxShape.circle),
+            child: Icon(
+                cancelled
+                    ? Icons.cancel_outlined
+                    : Icons.check_circle_outline_rounded,
+                color: tone),
           ),
           const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(cancelled ? 'Appointment cancelled' : 'Appointment confirmed', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: tone)),
-            Text(cancelled ? 'This appointment is no longer active.' : 'Your hospital visit has been saved.', style: const TextStyle(fontSize: 12)),
-          ])),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(
+                    cancelled
+                        ? 'Appointment cancelled'
+                        : 'Appointment confirmed',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: tone)),
+                Text(
+                    cancelled
+                        ? 'This appointment is no longer active.'
+                        : 'Your hospital visit has been saved.',
+                    style: const TextStyle(fontSize: 12)),
+              ])),
         ]),
         const SizedBox(height: 16),
         _details(appointment, isSlot: false),
@@ -849,8 +1041,12 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(12)),
-            child: Text('Please arrive before your session. Keep Appointment No. $number for check-in.', style: const TextStyle(fontWeight: FontWeight.w600, height: 1.35)),
+            decoration: BoxDecoration(
+                color: colors.surface, borderRadius: BorderRadius.circular(12)),
+            child: Text(
+                'Please arrive before your session. Keep Appointment No. $number for check-in.',
+                style:
+                    const TextStyle(fontWeight: FontWeight.w600, height: 1.35)),
           ),
         ],
       ]),
@@ -874,8 +1070,7 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
       if (!isSlot && number is num && number > 0)
         Padding(
           padding: const EdgeInsets.only(top: 6),
-          child: Text(
-              'Appointment No: $number',
+          child: Text('Appointment No: $number',
               style: const TextStyle(fontWeight: FontWeight.w600)),
         ),
       if (location.isNotEmpty) Text(location),
@@ -906,7 +1101,9 @@ class _HospitalAssistantScreenState extends State<HospitalAssistantScreen> {
     final text = value?.toString() ?? '';
     if (text.isEmpty) return null;
     // Legacy PostgreSQL timestamp columns can serialize UTC without a suffix.
-    return DateTime.tryParse(RegExp(r'(Z|[+-]\d{2}:\d{2})$', caseSensitive: false)
-        .hasMatch(text) ? text : '${text}Z');
+    return DateTime.tryParse(
+        RegExp(r'(Z|[+-]\d{2}:\d{2})$', caseSensitive: false).hasMatch(text)
+            ? text
+            : '${text}Z');
   }
 }
