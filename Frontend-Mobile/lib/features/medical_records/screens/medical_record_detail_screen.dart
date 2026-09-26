@@ -1,11 +1,14 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:smartcare_mobile/core/constants/app_colors.dart';
-import 'package:smartcare_mobile/core/services/api_service.dart';
-import 'package:smartcare_mobile/features/medical_records/screens/add_medical_record_dialog.dart';
-import 'package:smartcare_mobile/models/medical_record.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:medicore_mobile/core/constants/app_colors.dart';
+import 'package:medicore_mobile/core/services/api_service.dart';
+import 'package:medicore_mobile/features/medical_records/screens/add_medical_record_dialog.dart';
+import 'package:medicore_mobile/models/medical_record.dart';
 
 class MedicalRecordDetailScreen extends StatefulWidget {
   final MedicalRecord record;
@@ -63,17 +66,13 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
       final fileName = pickedFile.name.isNotEmpty
           ? pickedFile.name
           : 'report_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final fileSize = await pickedFile.length();
+      final fileBytes = await pickedFile.readAsBytes();
 
-      // Simulated local path url for mobile upload attachment
-      final mockFileUrl = '/uploads/mobile-scans/$fileName';
-
-      final attachment = await ApiService.addMedicalRecordAttachment(
+      final attachment = await ApiService.uploadMedicalRecordAttachment(
         _record.medicalRecordId,
+        fileBytes: fileBytes,
         fileName: fileName,
-        fileType: 'image/jpeg',
-        fileUrl: mockFileUrl,
-        fileSize: fileSize,
+        fileType: pickedFile.mimeType ?? (fileName.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'),
       );
 
       if (!mounted) return;
@@ -108,7 +107,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Document / Scan uploaded successfully!'),
+          content: Text('Document / Scan uploaded successfully to Cloud!'),
           backgroundColor: AppColors.success,
           behavior: SnackBarBehavior.floating,
         ),
@@ -119,6 +118,180 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Upload failed: $e'),
+          backgroundColor: AppColors.danger,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _pickAndUploadPdf() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+
+      setState(() => _uploading = true);
+
+      List<int>? bytes = file.bytes;
+      if (bytes == null && file.path != null && file.path!.isNotEmpty) {
+        bytes = await File(file.path!).readAsBytes();
+      }
+      if (bytes == null) {
+        setState(() => _uploading = false);
+        return;
+      }
+
+      final fileName = file.name.isNotEmpty
+          ? file.name
+          : 'report_${DateTime.now().millisecondsSinceEpoch}.pdf';
+
+      final attachment = await ApiService.uploadMedicalRecordAttachment(
+        _record.medicalRecordId,
+        fileBytes: bytes,
+        fileName: fileName,
+        fileType: 'application/pdf',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _record = MedicalRecord(
+          medicalRecordId: _record.medicalRecordId,
+          patientId: _record.patientId,
+          patientName: _record.patientName,
+          patientEmail: _record.patientEmail,
+          doctorId: _record.doctorId,
+          doctorName: _record.doctorName,
+          doctorSpecialization: _record.doctorSpecialization,
+          appointmentId: _record.appointmentId,
+          recordDate: _record.recordDate,
+          recordType: _record.recordType,
+          diagnosis: _record.diagnosis,
+          symptoms: _record.symptoms,
+          treatmentPlan: _record.treatmentPlan,
+          prescriptionNotes: _record.prescriptionNotes,
+          labNotes: _record.labNotes,
+          followUpDate: _record.followUpDate,
+          status: _record.status,
+          createdAt: _record.createdAt,
+          updatedAt: _record.updatedAt,
+          attachments: [..._record.attachments, attachment],
+        );
+        _uploading = false;
+      });
+
+      widget.onRecordUpdated?.call();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('PDF Report uploaded successfully to Cloud!'),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _uploading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Upload failed: $e'),
+          backgroundColor: AppColors.danger,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openAttachment(MedicalRecordAttachment att) async {
+    final fullUrl = att.fileUrl.startsWith('http')
+        ? att.fileUrl
+        : '${ApiService.baseUrl.replaceAll('/api', '')}${att.fileUrl.startsWith('/') ? '' : '/'}${att.fileUrl}';
+
+    try {
+      final uri = Uri.parse(fullUrl);
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open file in external app')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error opening file: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteAttachment(MedicalRecordAttachment att) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Attachment'),
+        content: Text('Are you sure you want to remove "${att.fileName}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await ApiService.deleteMedicalRecordAttachment(_record.medicalRecordId, att.attachmentId);
+      if (!mounted) return;
+      setState(() {
+        _record = MedicalRecord(
+          medicalRecordId: _record.medicalRecordId,
+          patientId: _record.patientId,
+          patientName: _record.patientName,
+          patientEmail: _record.patientEmail,
+          doctorId: _record.doctorId,
+          doctorName: _record.doctorName,
+          doctorSpecialization: _record.doctorSpecialization,
+          appointmentId: _record.appointmentId,
+          recordDate: _record.recordDate,
+          recordType: _record.recordType,
+          diagnosis: _record.diagnosis,
+          symptoms: _record.symptoms,
+          treatmentPlan: _record.treatmentPlan,
+          prescriptionNotes: _record.prescriptionNotes,
+          labNotes: _record.labNotes,
+          followUpDate: _record.followUpDate,
+          status: _record.status,
+          createdAt: _record.createdAt,
+          updatedAt: _record.updatedAt,
+          attachments: _record.attachments.where((a) => a.attachmentId != att.attachmentId).toList(),
+        );
+      });
+      widget.onRecordUpdated?.call();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Attachment deleted successfully'),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete attachment: $e'),
           backgroundColor: AppColors.danger,
           behavior: SnackBarBehavior.floating,
         ),
@@ -145,7 +318,7 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Take a photo of your paper report or choose from gallery',
+                'Take a photo of paper report, choose an image, or upload a PDF',
                 style: TextStyle(color: Colors.grey, fontSize: 13),
               ),
               const SizedBox(height: 16),
@@ -174,11 +347,27 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                   ),
                   child: const Icon(Icons.photo_library_rounded, color: AppColors.accent),
                 ),
-                title: const Text('Choose from Photo Gallery / Storage', style: TextStyle(fontWeight: FontWeight.w600)),
-                subtitle: const Text('Select saved report image from device'),
+                title: const Text('Choose Photos from Gallery', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Select saved PNG/JPEG image from device'),
                 onTap: () {
                   Navigator.pop(ctx);
                   _pickAndUploadImage(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent),
+                ),
+                title: const Text('Upload PDF Document', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Select digital lab report or clinical prescription PDF'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndUploadPdf();
                 },
               ),
             ],
@@ -476,6 +665,13 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final att = _record.attachments[index];
+                        final isPdf = att.fileName.toLowerCase().endsWith('.pdf') ||
+                            att.fileType.toLowerCase().contains('pdf');
+                        final isImage = att.fileType.toLowerCase().contains('image') ||
+                            att.fileName.toLowerCase().endsWith('.jpg') ||
+                            att.fileName.toLowerCase().endsWith('.jpeg') ||
+                            att.fileName.toLowerCase().endsWith('.png');
+
                         return Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
@@ -488,10 +684,16 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: AppColors.primary.withValues(alpha: 0.1),
+                                  color: (isPdf ? Colors.red : AppColors.primary).withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: const Icon(Icons.description_outlined, color: AppColors.primary, size: 20),
+                                child: Icon(
+                                  isPdf
+                                      ? Icons.picture_as_pdf_rounded
+                                      : (isImage ? Icons.image_rounded : Icons.description_outlined),
+                                  color: isPdf ? Colors.redAccent : AppColors.primary,
+                                  size: 20,
+                                ),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
@@ -511,11 +713,24 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                                 ),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.visibility_outlined, size: 18),
+                                icon: const Icon(Icons.visibility_outlined, size: 20),
                                 color: AppColors.primary,
-                                tooltip: 'View File',
+                                tooltip: 'Preview',
                                 onPressed: () => _previewAttachment(att),
                               ),
+                              IconButton(
+                                icon: const Icon(Icons.download_rounded, size: 20),
+                                color: Colors.teal,
+                                tooltip: 'Download / Open',
+                                onPressed: () => _openAttachment(att),
+                              ),
+                              if (_isAdminOrDoctor)
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, size: 20),
+                                  color: AppColors.danger,
+                                  tooltip: 'Delete',
+                                  onPressed: () => _deleteAttachment(att),
+                                ),
                             ],
                           ),
                         );
@@ -532,6 +747,8 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
   }
 
   void _previewAttachment(MedicalRecordAttachment att) {
+    final isPdf = att.fileName.toLowerCase().endsWith('.pdf') ||
+        att.fileType.toLowerCase().contains('pdf');
     final isImage = att.fileType.toLowerCase().contains('image') ||
         att.fileName.toLowerCase().endsWith('.jpg') ||
         att.fileName.toLowerCase().endsWith('.jpeg') ||
@@ -594,14 +811,19 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                 )
               else
                 Container(
+                  width: double.infinity,
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.08),
+                    color: (isPdf ? Colors.red : AppColors.primary).withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Column(
                     children: [
-                      const Icon(Icons.picture_as_pdf_rounded, size: 48, color: AppColors.primary),
+                      Icon(
+                        isPdf ? Icons.picture_as_pdf_rounded : Icons.description_outlined,
+                        size: 48,
+                        color: isPdf ? Colors.redAccent : AppColors.primary,
+                      ),
                       const SizedBox(height: 12),
                       Text(
                         att.fileName,
@@ -610,12 +832,46 @@ class _MedicalRecordDetailScreenState extends State<MedicalRecordDetailScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${(att.fileSize / 1024).toStringAsFixed(1)} KB • Document',
+                        '${(att.fileSize / 1024).toStringAsFixed(1)} KB • ${isPdf ? 'PDF Document' : 'Document'}',
                         style: const TextStyle(color: Colors.grey, fontSize: 12),
                       ),
                     ],
                   ),
                 ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close, size: 16),
+                      label: const Text('Close'),
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _openAttachment(att);
+                      },
+                      icon: const Icon(Icons.download_rounded, size: 16),
+                      label: Text(
+                        isPdf ? 'Download PDF' : (isImage ? 'Download / View' : 'Download'),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isPdf ? Colors.redAccent : AppColors.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),

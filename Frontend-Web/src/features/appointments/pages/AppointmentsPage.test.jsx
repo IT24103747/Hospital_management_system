@@ -21,8 +21,8 @@ const appointment = {
   patientEmail: 'ravi@example.com',
   doctorName: 'Dr. Ada Lovelace',
   specialty: 'Cardiology',
-  startAt: '2026-09-10T08:00:00Z',
-  endAt: '2026-09-10T09:00:00Z',
+  startAt: '2027-09-10T08:00:00Z',
+  endAt: '2027-09-10T09:00:00Z',
   appointmentType: 'Consultation',
   status: 'Confirmed',
   consultationFee: 4500,
@@ -33,8 +33,8 @@ const slot = {
   doctorId: 1,
   doctorName: 'Dr. Ada Lovelace',
   specialty: 'Cardiology',
-  startAt: '2026-09-10T08:00:00Z',
-  endAt: '2026-09-10T09:00:00Z',
+  startAt: '2027-09-10T08:00:00Z',
+  endAt: '2027-09-10T09:00:00Z',
   capacity: 2,
   bookedCount: 1,
   availableCount: 1,
@@ -141,7 +141,7 @@ describe('AppointmentsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /new appointment/i }))
     fireEvent.change(screen.getByLabelText('Specialization'), { target: { value: 'Cardiology' } })
     fireEvent.change(screen.getByLabelText('Doctor Name'), { target: { value: doctor.doctorName } })
-    fireEvent.change(screen.getByLabelText('Appointment date'), { target: { value: '2026-09-10' } })
+    fireEvent.change(screen.getByLabelText('Appointment date'), { target: { value: '2027-09-10' } })
     fireEvent.change(screen.getByLabelText('Appointment session'), { target: { value: '7' } })
     fireEvent.change(screen.getByPlaceholderText('Select existing patient or type a new name'), { target: { value: patient.fullName } })
     expect(screen.getByText('Next available appointment number: #2')).toBeInTheDocument()
@@ -156,14 +156,14 @@ describe('AppointmentsPage', () => {
   })
 
   it('clears the selected session when the date changes', () => {
-    mockAppointments({ slots: [slot, { ...slot, doctorTimeSlotId: 8, startAt: '2026-09-11T08:00:00Z', endAt: '2026-09-11T09:00:00Z' }] })
+    mockAppointments({ slots: [slot, { ...slot, doctorTimeSlotId: 8, startAt: '2027-09-11T08:00:00Z', endAt: '2027-09-11T09:00:00Z' }] })
     render(<AppointmentsPage />)
     fireEvent.click(screen.getByRole('button', { name: /new appointment/i }))
     fireEvent.change(screen.getByLabelText('Specialization'), { target: { value: 'Cardiology' } })
     fireEvent.change(screen.getByLabelText('Doctor Name'), { target: { value: doctor.doctorName } })
-    fireEvent.change(screen.getByLabelText('Appointment date'), { target: { value: '2026-09-10' } })
+    fireEvent.change(screen.getByLabelText('Appointment date'), { target: { value: '2027-09-10' } })
     fireEvent.change(screen.getByLabelText('Appointment session'), { target: { value: '7' } })
-    fireEvent.change(screen.getByLabelText('Appointment date'), { target: { value: '2026-09-11' } })
+    fireEvent.change(screen.getByLabelText('Appointment date'), { target: { value: '2027-09-11' } })
     expect(screen.getByLabelText('Appointment session')).toHaveValue('')
     expect(screen.queryByText(/Next available appointment number:/)).not.toBeInTheDocument()
   })
@@ -197,7 +197,7 @@ describe('AppointmentsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /add slot/i }))
     fireEvent.change(screen.getByLabelText(/doctor name/i), { target: { value: '1' } })
-    fireEvent.change(screen.getByLabelText(/^date$/i), { target: { value: '2026-09-12' } })
+    fireEvent.change(screen.getByLabelText(/^date$/i), { target: { value: '2027-09-12' } })
     fireEvent.change(screen.getByLabelText(/start time/i), { target: { value: '09:00' } })
     fireEvent.change(screen.getByLabelText(/end time/i), { target: { value: '10:00' } })
     fireEvent.click(screen.getByRole('button', { name: /check available rooms/i }))

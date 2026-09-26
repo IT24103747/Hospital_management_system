@@ -57,9 +57,25 @@ public sealed class TriageWorkflowController : ControllerBase
     }
 
     [HttpGet("notifications")]
-    [Authorize(Roles = "Patient")]
+    [Authorize]
     public async Task<IActionResult> GetClinicalReviewNotifications()
     {
+        var role = User.FindFirstValue(ClaimTypes.Role);
+        if (role is "Doctor" or "Admin")
+        {
+            int? userId = int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var parsedId) ? parsedId : null;
+            var pendingReviews = await _workflows.GetPendingClinicalReviewsAsync(userId);
+            var doctorNotifications = pendingReviews.Take(30).Select(workflow => new {
+                triageWorkflowId = workflow.WorkflowId,
+                message = (workflow.PriorityLevel == "Critical" || workflow.TriageLevel == "Emergency" ? "🚨 CRITICAL EMERGENCY: " : "📋 Clinical Review: ") +
+                          (!string.IsNullOrWhiteSpace(workflow.OriginalComplaint) ? workflow.OriginalComplaint : workflow.PatientMessage),
+                priorityLevel = workflow.PriorityLevel,
+                isEmergency = workflow.PriorityLevel == "Critical" || workflow.TriageLevel == "Emergency",
+                createdAt = workflow.CreatedAt
+            }).ToList();
+            return Ok(doctorNotifications);
+        }
+
         var patient = await CurrentPatient();
         if (patient is null) return NotFound(new { message = "No patient profile found for this account." });
         var notifications = await _db.TriageWorkflows.AsNoTracking()
@@ -69,6 +85,8 @@ public sealed class TriageWorkflowController : ControllerBase
             .Select(workflow => new {
                 workflow.TriageWorkflowId,
                 message = workflow.FinalOutcome,
+                priorityLevel = workflow.PriorityLevel,
+                isEmergency = false,
                 createdAt = workflow.ReviewedAt
             }).ToListAsync();
         return Ok(notifications);
@@ -106,7 +124,11 @@ public sealed class TriageWorkflowController : ControllerBase
     [HttpGet("clinical-review/pending")]
     [Authorize(Roles = "Admin,Doctor")]
     [ProducesResponseType(typeof(IReadOnlyList<TriageWorkflowDto>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetPendingReviews() => Ok(await _workflows.GetPendingClinicalReviewsAsync());
+    public async Task<IActionResult> GetPendingReviews()
+    {
+        int? userId = int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var parsedId) ? parsedId : null;
+        return Ok(await _workflows.GetPendingClinicalReviewsAsync(userId));
+    }
 
     [HttpGet("{id:int}/audit-events")]
     [Authorize(Roles = "Admin,Doctor")]

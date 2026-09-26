@@ -88,6 +88,7 @@ public sealed class AssistantState
     public bool WantsAppointment { get; set; }
     public string? Awaiting { get; set; }
     public string? CancellationReason { get; set; }
+    public int? RescheduleAppointmentId { get; set; }
     public IReadOnlyList<AssistantClinicalReview> ClinicalReviews { get; set; } = [];
     public string? ReadSearchMode { get; set; }
     public string? ActiveTask { get; set; }

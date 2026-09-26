@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:smartcare_mobile/core/constants/app_colors.dart';
+import 'package:medicore_mobile/core/constants/app_colors.dart';
 
 class EmergencyClinicScreen extends StatefulWidget {
   const EmergencyClinicScreen({super.key});

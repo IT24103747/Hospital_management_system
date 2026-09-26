@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:smartcare_mobile/core/constants/app_colors.dart';
-import 'package:smartcare_mobile/core/services/api_service.dart';
-import 'package:smartcare_mobile/models/doctor.dart';
-import 'package:smartcare_mobile/models/patient.dart';
-import 'package:smartcare_mobile/models/medical_record.dart';
+import 'package:medicore_mobile/core/constants/app_colors.dart';
+import 'package:medicore_mobile/core/services/api_service.dart';
+import 'package:medicore_mobile/models/doctor.dart';
+import 'package:medicore_mobile/models/patient.dart';
+import 'package:medicore_mobile/models/medical_record.dart';
 
 class AddMedicalRecordDialog extends StatefulWidget {
   final VoidCallback onRecordCreated;
@@ -238,6 +239,39 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
     }
   }
 
+  Future<void> _pickPdfAttachment() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        withData: true,
+      );
+      if (result != null && result.files.isNotEmpty && mounted) {
+        final file = result.files.single;
+        XFile xFile;
+        if (file.bytes != null) {
+          xFile = XFile.fromData(file.bytes!, name: file.name, mimeType: 'application/pdf');
+        } else if (file.path != null && file.path!.isNotEmpty) {
+          xFile = XFile(file.path!, name: file.name, mimeType: 'application/pdf');
+        } else {
+          return;
+        }
+        setState(() {
+          _selectedAttachment = xFile;
+          _selectedAttachmentSize = file.size;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not pick PDF file: $e'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
+  }
+
   void _showAttachmentOptions() {
     showModalBottomSheet(
       context: context,
@@ -286,11 +320,27 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
                   ),
                   child: const Icon(Icons.photo_library_rounded, color: AppColors.accent),
                 ),
-                title: const Text('Choose from Photo Gallery / Storage', style: TextStyle(fontWeight: FontWeight.w600)),
-                subtitle: const Text('Select existing medical image or PDF scan'),
+                title: const Text('Choose Photos from Gallery', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Select saved medical image from device'),
                 onTap: () {
                   Navigator.pop(ctx);
                   _pickAttachment(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent),
+                ),
+                title: const Text('Choose PDF Document', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Select digital lab report or clinical prescription PDF'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickPdfAttachment();
                 },
               ),
             ],
@@ -411,7 +461,7 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
               widget.recordToEdit!.medicalRecordId,
               fileBytes: fileBytes,
               fileName: fileName,
-              fileType: _selectedAttachment!.mimeType ?? 'image/jpeg',
+              fileType: _selectedAttachment!.mimeType ?? (fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
             );
           } catch (_) {}
         }
@@ -432,7 +482,7 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
 
       final created = await ApiService.createMedicalRecord(data);
 
-      // If user selected an image attachment, upload it immediately
+      // If user selected an attachment (PDF or image), upload it immediately
       if (_selectedAttachment != null) {
         try {
           final fileName = _selectedAttachment!.name.isNotEmpty
@@ -444,7 +494,7 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
             created.medicalRecordId,
             fileBytes: fileBytes,
             fileName: fileName,
-            fileType: _selectedAttachment!.mimeType ?? 'image/jpeg',
+            fileType: _selectedAttachment!.mimeType ?? (fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
           );
         } catch (_) {
           // Record created, attachment upload issue shouldn't block modal dismissal
@@ -1743,58 +1793,69 @@ class _AddMedicalRecordDialogState extends State<AddMedicalRecordDialog> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Capture document with camera or select from local storage / gallery (JPEG, PNG, Scan)',
+            'Capture document with camera, choose an image, or upload a PDF report (PDF, JPEG, PNG)',
             style: TextStyle(color: Colors.grey, fontSize: 11),
           ),
           if (_selectedAttachment != null) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: isDark ? Colors.black26 : Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
+            Builder(
+              builder: (ctx) {
+                final isPdf = _selectedAttachment!.name.toLowerCase().endsWith('.pdf');
+                return Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(6),
+                      color: isDark ? Colors.black26 : Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: (isPdf ? Colors.redAccent : AppColors.primary).withValues(alpha: 0.3)),
                     ),
-                    child: const Icon(Icons.image_outlined, color: AppColors.primary, size: 20),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        Text(
-                          _selectedAttachment!.name,
-                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (_selectedAttachmentSize != null)
-                          Text(
-                            '${(_selectedAttachmentSize! / 1024).toStringAsFixed(1)} KB • Ready to upload',
-                            style: const TextStyle(color: AppColors.success, fontSize: 11, fontWeight: FontWeight.bold),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: (isPdf ? Colors.redAccent : AppColors.primary).withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
                           ),
+                          child: Icon(
+                            isPdf ? Icons.picture_as_pdf_rounded : Icons.image_outlined,
+                            color: isPdf ? Colors.redAccent : AppColors.primary,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _selectedAttachment!.name,
+                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (_selectedAttachmentSize != null)
+                                Text(
+                                  '${(_selectedAttachmentSize! / 1024).toStringAsFixed(1)} KB • ${isPdf ? "PDF Document • Ready to upload" : "Ready to upload"}',
+                                  style: const TextStyle(color: AppColors.success, fontSize: 11, fontWeight: FontWeight.bold),
+                                ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded, color: AppColors.danger, size: 18),
+                          onPressed: () {
+                            setState(() {
+                              _selectedAttachment = null;
+                              _selectedAttachmentSize = null;
+                            });
+                          },
+                          tooltip: 'Remove Attachment',
+                        ),
                       ],
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline_rounded, color: AppColors.danger, size: 18),
-                    onPressed: () {
-                      setState(() {
-                        _selectedAttachment = null;
-                        _selectedAttachmentSize = null;
-                      });
-                    },
-                    tooltip: 'Remove Attachment',
-                  ),
-                ],
-              ),
+                );
+              },
             ),
           ],
         ],

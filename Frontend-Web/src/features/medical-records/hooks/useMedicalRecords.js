@@ -22,6 +22,8 @@ export function useMedicalRecords({
   doctorId = undefined,
   fromDate = '',
   toDate = '',
+  sortBy = 'date',
+  sortDirection = 'desc',
   page = 1,
   pageSize = 10,
 } = {}) {
@@ -45,6 +47,8 @@ export function useMedicalRecords({
           doctorId: doctorId || undefined,
           fromDate: fromDate || undefined,
           toDate: toDate || undefined,
+          sortBy: sortBy || 'date',
+          sortDirection: sortDirection || 'desc',
           page,
           pageSize,
         }),
@@ -61,7 +65,7 @@ export function useMedicalRecords({
     } finally {
       setLoading(false)
     }
-  }, [search, recordType, status, fromDate, toDate, page, pageSize])
+  }, [search, recordType, status, doctorId, fromDate, toDate, sortBy, sortDirection, page, pageSize])
 
   useEffect(() => {
     load()

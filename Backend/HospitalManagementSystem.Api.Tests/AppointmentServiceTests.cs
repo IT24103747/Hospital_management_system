@@ -283,6 +283,57 @@ public class AppointmentServiceTests
     }
 
     [Fact]
+    public async Task CreateSlot_RejectsCapacityExceeding50()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedAppointmentDataAsync(db);
+        var service = CreateService(db);
+        var start = DateTime.UtcNow.AddDays(5);
+        var dto = SlotDto(setup.FirstDoctorId, setup.RoomId, start, start.AddHours(1));
+        dto.Capacity = 51;
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateSlotAsync(dto));
+
+        Assert.Equal("Slot capacity must be between 1 and 50.", exception.Message);
+    }
+
+    [Fact]
+    public async Task CreateSlot_RejectsWhenActiveSlotsLimitReached()
+    {
+        await using var db = CreateContext();
+        var setup = await SeedAppointmentDataAsync(db);
+        var service = CreateService(db);
+        var doctor = await db.Doctors.FindAsync(setup.FirstDoctorId);
+
+        var baseDate = DateTime.UtcNow.AddDays(10);
+        for (int i = 0; i < 50; i++)
+        {
+            var dummyRoom = new Room { RoomNumber = $"A-{i + 100}", RoomName = $"Room {i}", Floor = "1", IsConfirmed = true };
+            db.Rooms.Add(dummyRoom);
+            db.DoctorTimeSlots.Add(new DoctorTimeSlot
+            {
+                DoctorId = doctor!.DoctorId,
+                Room = dummyRoom,
+                DoctorName = $"Dr. {doctor.FirstName} {doctor.LastName}",
+                Specialty = doctor.Specialization,
+                StartAt = baseDate.AddDays(i),
+                EndAt = baseDate.AddDays(i).AddHours(1),
+                Capacity = 10,
+                ConsultationFee = 2000m,
+                IsActive = true
+            });
+        }
+        await db.SaveChangesAsync();
+
+        var newSlot = SlotDto(setup.FirstDoctorId, setup.RoomId, baseDate.AddDays(60), baseDate.AddDays(60).AddHours(1));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateSlotAsync(newSlot));
+
+        Assert.Contains("maximum limit of 50 active appointment schedules", exception.Message);
+    }
+
+    [Fact]
     public async Task CreateEndpoint_UsesPatientClaimsAndPersistsAppointment()
     {
         await using var db = CreateContext();

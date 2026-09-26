@@ -36,9 +36,10 @@ public sealed record SafeTriageRequirement(
 
 public sealed class SafeTriageOptions
 {
-    public const int HardFollowUpLimit = 10;
+    public const int MinimumFollowUpQuestions = 3;
+    public const int HardFollowUpLimit = 5;
     public int MaxFollowUpQuestions { get; set; } = HardFollowUpLimit;
-    public int EffectiveMaxFollowUpQuestions => Math.Clamp(MaxFollowUpQuestions, 1, HardFollowUpLimit);
+    public int EffectiveMaxFollowUpQuestions => Math.Clamp(MaxFollowUpQuestions, MinimumFollowUpQuestions, HardFollowUpLimit);
 }
 
 public static class SafeTriageRequirementRules
@@ -261,7 +262,7 @@ public sealed class AdaptiveQuestionPlanningAgent(ISafeTriageQuestionPlanningAge
             ? new SafeTriageQuestionPlan([], "Completed")
             : await planner.PlanAsync(context.Extraction ?? new ClinicalExtractionResult([], [], null, "FailedSafely"), excluded, cancellationToken);
         context.PlannedQuestions.AddRange(plan.Questions.Where(q => missing.Contains(SafeTriageRequirementRules.CanonicalKey(q.Id)))
-            .Take(Math.Min(4, Math.Max(0, context.MaxFollowUpQuestions - context.FollowUpCount)))
+            .Take(Math.Min(1, Math.Max(0, context.MaxFollowUpQuestions - context.FollowUpCount)))
             .Select(q => { q.Id = SafeTriageRequirementRules.CanonicalKey(q.Id); return q; }));
         context.PlannedInformationNeeds.AddRange(context.PlannedQuestions.Select(item => item.Prompt));
         watch.Stop();

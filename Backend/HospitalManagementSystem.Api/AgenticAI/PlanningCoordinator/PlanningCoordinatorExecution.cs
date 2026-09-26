@@ -252,6 +252,7 @@ public sealed partial class PlanningCoordinatorAgent
                     if (current?.PatientId != patient.PatientId || current.Status is "Cancelled" or "Completed" || current.EndAt <= DateTime.UtcNow)
                         throw new InvalidOperationException("That appointment is no longer available to cancel. Refresh your appointments.");
                     state.State = "EXECUTING";
+                    await DispatchAsync(state, PlanningWorkflowType.AppointmentCancellation, "Safety Validation & Approval", token);
                     var cancelled = await appointments.CancelAppointmentAsync(current.AppointmentId, state.CancellationReason ?? "Patient confirmed cancellation through Hospital AI Assistant.");
                     if (cancelled == null) throw new InvalidOperationException("The appointment could not be found.");
                     await InvalidateAsync(state, "Confirmed", token);
@@ -259,6 +260,40 @@ public sealed partial class PlanningCoordinatorAgent
                     state.Appointments = [cancelled];
                     Reply(state, $"Appointment No. {cancelled.AppointmentNumber} with {cancelled.DoctorName} was cancelled.", "COMPLETED",
                         ["Your cancellation was explicitly confirmed.", "Appointment ownership and status were checked.", "The cancellation was saved."]);
+                }
+                else if (action.Type == "reschedule-source")
+                {
+                    if (!request.AppointmentId.HasValue || !action.Appointments.Any(a => a.AppointmentId == request.AppointmentId))
+                        throw new ArgumentException("Select one of your upcoming appointments.");
+                    var current = await appointments.GetAppointmentByIdAsync(request.AppointmentId.Value);
+                    if (current?.PatientId != patient.PatientId || current.Status is "Cancelled" or "Completed" || current.EndAt <= DateTime.UtcNow)
+                        throw new InvalidOperationException("That appointment is no longer available to reschedule. Refresh your appointments.");
+                    await InvalidateAsync(state, "Confirmed", token);
+                    state.RescheduleAppointmentId = current.AppointmentId;
+                    state.SearchQuery = current.DoctorName;
+                    state.ExcludedDoctorTimeSlotIds = [current.DoctorTimeSlotId];
+                    state.WantsAppointment = true;
+                    state.ActiveTask = "reschedule";
+                    state.Awaiting = "preferences";
+                    await SearchAsync(patient, state, token);
+                }
+                else if (action.Type == "reschedule")
+                {
+                    if (!state.RescheduleAppointmentId.HasValue || !request.DoctorTimeSlotId.HasValue ||
+                        !action.Slots.Any(s => s.DoctorTimeSlotId == request.DoctorTimeSlotId))
+                        throw new ArgumentException("Select one of the replacement appointment options shown.");
+                    var current = await appointments.GetAppointmentByIdAsync(state.RescheduleAppointmentId.Value);
+                    if (current?.PatientId != patient.PatientId || current.Status is "Cancelled" or "Completed" || current.EndAt <= DateTime.UtcNow)
+                        throw new InvalidOperationException("That appointment is no longer available to reschedule. Refresh your appointments.");
+                    state.State = "EXECUTING";
+                    await DispatchAsync(state, PlanningWorkflowType.AppointmentReschedule, "Safety Validation & Approval", token);
+                    var moved = await appointments.RescheduleAppointmentAsync(current.AppointmentId, request.DoctorTimeSlotId.Value);
+                    if (moved?.PatientId != patient.PatientId) throw new InvalidOperationException("Could not verify the rescheduling result.");
+                    await InvalidateAsync(state, "Confirmed", token);
+                    ClearAppointmentTask(state);
+                    state.Appointments = [moved];
+                    Reply(state, $"Appointment No. {moved.AppointmentNumber} with {moved.DoctorName} was rescheduled to {Local(moved.StartAt):ddd, d MMM yyyy h:mm tt}.",
+                        "COMPLETED", ["Your confirmation was validated.", "The replacement session was checked again.", "The rescheduled appointment was saved."]);
                 }
                 else throw new ArgumentException("This action is not supported.");
             }
@@ -365,7 +400,7 @@ public sealed partial class PlanningCoordinatorAgent
         // A fresh symptom report or independent appointment request is itself a
         // safe retry. Do not force the patient to know a reset command or keep
         // replaying a stale technical-failure notice.
-        if (isFailedSafelyBlock && (symptoms || appointmentIntent))
+        if (isFailedSafelyBlock && symptoms)
         {
             await InvalidateAsync(state, "Superseded", token);
             state.WorkflowId = null;
@@ -392,7 +427,10 @@ public sealed partial class PlanningCoordinatorAgent
         }
         // For FailedSafely-blocked patients (non-urgent), allow read-only actions (view appointments)
         // and cancellations. Only Emergency/Urgent blocks are fully impenetrable.
-        if (!symptoms && (!state.SafetyBlocked || isFailedSafelyBlock) && await TryReadAsync(patient, state, text, token)) return;
+        // Read-only doctor, availability and appointment-history requests remain
+        // available during a safety block. TryReadAsync rejects all mutation verbs,
+        // so this cannot create, reschedule or cancel an appointment.
+        if (!symptoms && await TryReadAsync(patient, state, text, token)) return;
         // Allow cancellation even when FailedSafely-blocked — the patient already has a confirmed slot
         // and stopping that booking is safe and is never a clinical decision.
         if (isFailedSafelyBlock && askingCancel)
@@ -411,7 +449,7 @@ public sealed partial class PlanningCoordinatorAgent
         }
         if (state.Awaiting == "clinical-review-choice" && state.WorkflowId.HasValue)
         {
-            if (Has(text, @"^(yes|y|please|request (?:a )?clinical review)[.! ]*$"))
+            if (Has(text, @"^(yes|y|please|request (?:a )?clinical review|1|fastest|next available|next)[.! ]*$"))
             {
                 var workflow = await workflows.SetPatientClinicalReviewChoiceAsync(state.WorkflowId.Value, patient.PatientId, requested: true);
                 if (workflow is null) throw new InvalidOperationException("The optional clinical-review request is no longer available.");
@@ -419,7 +457,7 @@ public sealed partial class PlanningCoordinatorAgent
                 ClinicalReply(state, workflow);
                 return;
             }
-            if (Has(text, @"^(no|n|no thanks|not now)[.! ]*$"))
+            if (Has(text, @"^(no|n|no thanks|not now|3|cancel|decline)[.! ]*$"))
             {
                 var workflow = await workflows.SetPatientClinicalReviewChoiceAsync(state.WorkflowId.Value, patient.PatientId, requested: false);
                 if (workflow is null) throw new InvalidOperationException("The optional clinical-review choice is no longer available.");
@@ -427,7 +465,44 @@ public sealed partial class PlanningCoordinatorAgent
                 Reply(state, "No Clinical Review was requested. You can ask for it later if you change your mind. Seek urgent care if symptoms become severe or rapidly worsen.", "COMPLETED");
                 return;
             }
-            Reply(state, "Would you like to request Clinical Review? Reply yes or no.", "GATHERING_INFORMATION");
+
+            var query = text.Trim();
+
+            // If user typed '2' or 'doctor' without specifying a name, list approved specialists
+            if (Has(query, @"^(2|doctor|select doctor|choose doctor|specialist|specialists)[.! ]*$"))
+            {
+                var approvedDocs = await db.Doctors.AsNoTracking()
+                    .Where(d => d.RegistrationStatus == DoctorRegistrationStatuses.Approved)
+                    .OrderBy(d => d.FirstName)
+                    .Take(5)
+                    .ToListAsync();
+                var docListText = string.Join("\n", approvedDocs.Select(d => $"• Dr. {d.FirstName} {d.LastName} ({d.Specialization})"));
+                Reply(state, $"Please reply with the name of your preferred doctor or specialty:\n\n{docListText}\n\nOr reply '1' for the next available on-duty doctor.", "GATHERING_INFORMATION");
+                return;
+            }
+
+            // Check if patient provided a doctor name or specialty
+            var searchClean = query.Replace("Dr.", "").Replace("Dr", "").Trim();
+            var matchedDoctor = await db.Doctors.AsNoTracking()
+                .Where(d => d.RegistrationStatus == DoctorRegistrationStatuses.Approved &&
+                    (EF.Functions.ILike(d.FirstName, $"%{searchClean}%") ||
+                     EF.Functions.ILike(d.LastName, $"%{searchClean}%") ||
+                     EF.Functions.ILike(d.Specialization, $"%{searchClean}%")))
+                .FirstOrDefaultAsync();
+
+            if (matchedDoctor != null)
+            {
+                var workflow = await workflows.SetPatientClinicalReviewChoiceAsync(state.WorkflowId.Value, patient.PatientId, requested: true, preferredDoctorId: matchedDoctor.DoctorId);
+                if (workflow is null) throw new InvalidOperationException("The optional clinical-review request is no longer available.");
+                ApplyWorkflow(state, workflow);
+                ClinicalReply(state, workflow);
+                return;
+            }
+
+            Reply(state, "How would you like to proceed with your clinical review?\n\n" +
+                "1. ⚡ Next Available Doctor (Fastest - on-duty clinician)\n" +
+                "2. 🩺 Select a Specific Doctor (Reply with doctor's name or specialty, e.g. Dr. Silva or Cardiologist)\n" +
+                "3. ✕ Not right now (I will monitor my symptoms)", "GATHERING_INFORMATION");
             return;
         }
         if (state.Awaiting == "clinical-answer" && state.WorkflowId.HasValue && appointmentIntent)
@@ -510,7 +585,7 @@ public sealed partial class PlanningCoordinatorAgent
         if (Has(text, @"\b(reschedule|rescheduling)\b"))
         {
             await InvalidateAsync(state, "Superseded", token);
-            Reply(state, "Rescheduling is not available in the mobile assistant. I can find another appointment, or help you cancel an existing one with your explicit confirmation. These are separate actions.", "COMPLETED");
+            await RescheduleSelectionAsync(patient, state, token);
             return;
         }
         if (symptoms || state.Awaiting == "symptoms")
@@ -553,10 +628,18 @@ public sealed partial class PlanningCoordinatorAgent
             await CancellationAsync(patient, state, token);
             return;
         }
-        var extension = registry.AdditionalAgents.FirstOrDefault(agent => agent.Capability.Enabled && agent.CanHandle(text));
+        // An explicit appointment action can mention a medical report or follow-up.
+        // It must remain in the appointment workflow; otherwise the read-only
+        // medical-report agent would receive the booking request and decline it.
+        var appointmentMutation = Has(text, @"\b(book|booking|schedule|reschedule|reserve|make\s+(an\s+)?appointment|create|confirm|proceed)\b");
+        var extension = appointmentMutation
+            ? null
+            : registry.AdditionalAgents.FirstOrDefault(agent => agent.Capability.Enabled && agent.CanHandle(text));
         if (extension != null)
         {
             await InvalidateAsync(state, "Superseded", token);
+            if (extension.Capability.Id == "medical-reports")
+                await DispatchAsync(state, PlanningWorkflowType.MedicalRecords, "Medical Records", token);
             Reply(state, await extension.ReadAsync(text, patient, token), "COMPLETED");
             return;
         }
@@ -694,7 +777,7 @@ public sealed partial class PlanningCoordinatorAgent
             ? (workflow.Guidance?.FollowUpItems ?? []).Select(q => new AssistantQuestion(q.Id, q.Prompt, q.Required) {
                 Type = q.Type, Options = q.Options, Hint = q.Hint, Unit = q.Unit,
                 Minimum = q.Minimum, Maximum = q.Maximum
-            }).ToList() : [];
+            }).Take(1).ToList() : [];
         state.Awaiting = state.Questions.Count > 0 ? "clinical-answer" : needsReview ? "clinical-review" : optionalReview ? "clinical-review-choice" : null;
     }
 
@@ -705,6 +788,17 @@ public sealed partial class PlanningCoordinatorAgent
             Reply(state, "Clinical review completed\n\n" + workflow.ReviewedResponse, "COMPLETED");
             return;
         }
+        if (workflow.TriageLevel == TriageLevels.Emergency)
+        {
+            var emergencyMessage = "🚨 CRITICAL EMERGENCY ALERT\n\n" +
+                "Immediate emergency care is required. Your symptoms match critical medical warning signs.\n\n" +
+                "• Call 1990 (National Emergency Ambulance) or 911 immediately.\n" +
+                "• Proceed to the nearest 24/7 Hospital Emergency Room (ER).\n" +
+                "• Our Emergency Department has been automatically alerted of your case.\n\n" +
+                "Do not wait for an online chat or message reply.";
+            Reply(state, emergencyMessage, "WAITING_FOR_HUMAN_APPROVAL");
+            return;
+        }
         if (state.Awaiting == "clinical-review")
         {
             Reply(state, workflow.PatientMessage, "WAITING_FOR_HUMAN_APPROVAL");
@@ -712,7 +806,14 @@ public sealed partial class PlanningCoordinatorAgent
         }
         if (state.Awaiting == "clinical-review-choice")
         {
-            Reply(state, workflow.PatientMessage + "\n\nWould you like to request Clinical Review? Reply yes or no.", "GATHERING_INFORMATION");
+            var prompt = (string.IsNullOrWhiteSpace(workflow.PatientMessage)
+                ? "Based on the symptoms you reported, we recommend having a medical professional review this assessment."
+                : workflow.PatientMessage) +
+                "\n\nHow would you like to proceed with your clinical review?" +
+                "\n1. ⚡ Next Available Doctor (Fastest - on-duty clinician)" +
+                "\n2. 🩺 Select a Specific Doctor (Reply with doctor's name or specialty, e.g. Dr. Silva or Cardiologist)" +
+                "\n3. ✕ Not right now (I will monitor my symptoms)";
+            Reply(state, prompt, "GATHERING_INFORMATION");
             return;
         }
         var guidance = workflow.Guidance;
@@ -746,7 +847,9 @@ public sealed partial class PlanningCoordinatorAgent
         // A doctor or specialty is enough to query real upcoming availability. Date
         // and daypart are optional filters, not prerequisites for seeing slots.
         state.State = "PROPOSING_ACTION";
-        await DispatchAsync(state, PlanningWorkflowType.AppointmentProposal, "Appointment Proposal", token);
+        await DispatchAsync(state,
+            state.RescheduleAppointmentId.HasValue ? PlanningWorkflowType.AppointmentReschedule : PlanningWorkflowType.AppointmentProposal,
+            "Appointment Proposal", token);
         var proposal = await proposals.CreateAsync(new(patient.PatientId, state.Clinical, state.SearchQuery,
             state.PreferredDate, state.Period, state.ThroughDate, state.ExcludedDoctorTimeSlotIds), token);
         if (state.ExecutionWorkflowId != null)
@@ -766,9 +869,15 @@ public sealed partial class PlanningCoordinatorAgent
         state.Awaiting = "preferences";
         if (proposal.ProposalId.HasValue && proposal.Slots.Count > 0)
         {
+            var rescheduling = state.RescheduleAppointmentId.HasValue;
             state.PendingAction = new() {
-                Type = "book", Title = "Confirm an appointment", ProposalId = proposal.ProposalId,
-                Description = "Select an option, then confirm. The hospital will assign the final appointment number.", Slots = proposal.Slots
+                Type = rescheduling ? "reschedule" : "book",
+                Title = rescheduling ? "Confirm replacement session" : "Confirm an appointment",
+                ProposalId = proposal.ProposalId,
+                Description = rescheduling
+                    ? "Select a replacement session, then confirm. Your existing appointment is unchanged until confirmation succeeds."
+                    : "Select an option, then confirm. The hospital will assign the final appointment number.",
+                Slots = proposal.Slots
             };
             var preference = state.PreferredDate.HasValue ? $" for {state.PreferredDate:yyyy-MM-dd}" : "";
             if (state.ThroughDate.HasValue) preference += $" through {state.ThroughDate:yyyy-MM-dd}";
@@ -782,6 +891,7 @@ public sealed partial class PlanningCoordinatorAgent
 
     private async Task CancellationAsync(PatientDto patient, AssistantState state, CancellationToken token)
     {
+        await DispatchAsync(state, PlanningWorkflowType.AppointmentCancellation, "Planning & Coordination", token);
         var available = (await MyAppointmentsAsync(patient)).Where(a => a.Status is not ("Cancelled" or "Completed") && a.EndAt > DateTime.UtcNow).ToArray();
         if (available.Length == 0) { Reply(state, "You have no upcoming appointments available to cancel.", "COMPLETED"); return; }
         state.PendingAction = new() { Type = "cancel", Title = "Confirm cancellation",
@@ -791,18 +901,40 @@ public sealed partial class PlanningCoordinatorAgent
             ["Your upcoming appointments were checked."]);
     }
 
+    private async Task RescheduleSelectionAsync(PatientDto patient, AssistantState state, CancellationToken token)
+    {
+        await DispatchAsync(state, PlanningWorkflowType.AppointmentReschedule, "Planning & Coordination", token);
+        var available = (await MyAppointmentsAsync(patient))
+            .Where(a => a.Status is not ("Cancelled" or "Completed") && a.EndAt > DateTime.UtcNow).ToArray();
+        if (available.Length == 0)
+        {
+            Reply(state, "You have no upcoming appointments available to reschedule.", "COMPLETED");
+            return;
+        }
+        ClearAppointmentTask(state);
+        state.PendingAction = new() {
+            Type = "reschedule-source", Title = "Choose appointment to reschedule",
+            Description = "Select the existing appointment and confirm. Nothing will be changed until you later choose and confirm a replacement session.",
+            Appointments = available
+        };
+        Reply(state, "Select the appointment you want to reschedule. This step will not change it.", "WAITING_FOR_HUMAN_APPROVAL",
+            ["Your upcoming appointments were checked."]);
+    }
+
     private async Task CheckPatientSafetyAsync(int patientId, AssistantState state)
     {
         // Opening a new conversation must not bypass an unresolved safety assessment.
         var history = await workflows.GetHistoryForPatientAsync(patientId);
-        // Only emergency and urgent workflows are globally blocking. FailedSafely
-        // represents a technical recovery path, not a clinical restriction.
+        // Emergency/urgent results and incomplete failed-safe assessments block
+        // appointment mutations. A technical failure must not silently become
+        // permission to book without a trustworthy safety result.
         // ClinicalReview-level pending workflows are informational: the patient
         // acknowledged the notice and the care team will respond independently.
         // Overwriting state.WorkflowId with a different conversation's ClinicalReview
         // workflow corrupts the current conversation's awaiting state and locks it
         // permanently in WAITING_FOR_HUMAN_APPROVAL — that is the bug being fixed here.
         var blocking = history.FirstOrDefault(w =>
+            w.Status == TriageWorkflowStatuses.FailedSafely ||
             (w.ApprovalStatus is TriageApprovalStatuses.Pending or TriageApprovalStatuses.RevisionRequested &&
              w.TriageLevel is TriageLevels.Emergency or TriageLevels.Urgent));
         if (blocking != null)
@@ -849,7 +981,7 @@ public sealed partial class PlanningCoordinatorAgent
         else if (failedSafely)
         {
             // Technical failure — give the patient a clear, actionable message
-            message = "Your previous assessment could not be completed automatically due to a technical issue — it was not caused by anything dangerous in your message.\n\n" +
+            message = "Your previous assessment could not be completed safely because of a technical issue — this does not mean that anything dangerous was found in your message.\n\n" +
                       "**What you can still do:**\n" +
                       "• View or cancel your existing appointments\n" +
                       "• Say \"start new assessment\" to clear this and try again\n\n" +
@@ -859,7 +991,7 @@ public sealed partial class PlanningCoordinatorAgent
         {
             message = "Appointment booking is paused because your safety assessment could not be completed safely. Contact the care team to review the assessment.";
         }
-        if (!failedSafely && workflow != null)
+        if (workflow != null)
         {
             var guidance = workflow.Guidance;
             var parts = new List<string> { message, workflow.PatientMessage, guidance?.Summary ?? "" };
@@ -915,6 +1047,7 @@ public sealed partial class PlanningCoordinatorAgent
     {
         if (state.Awaiting is "preferences" or "cancellation-reason") state.Awaiting = null;
         state.CancellationReason = null;
+        state.RescheduleAppointmentId = null;
         state.ActiveTask = null;
         state.ReadSearchMode = null;
         state.SearchQuery = null;
@@ -929,9 +1062,11 @@ public sealed partial class PlanningCoordinatorAgent
         state.Appointments = [];
     }
 
-    private static string DismissalReply(string? type) => type == "cancel"
-        ? "Okay, your appointment will stay booked."
-        : "Okay, I've cancelled this appointment request.";
+    private static string DismissalReply(string? type) => type switch {
+        "cancel" => "Okay, your appointment will stay booked.",
+        "reschedule" or "reschedule-source" => "Okay, your existing appointment has not been changed.",
+        _ => "Okay, I've cancelled this appointment request."
+    };
 
     private static void RecordFollowUp(AssistantState state, SafeTriageRequirementState status)
     {

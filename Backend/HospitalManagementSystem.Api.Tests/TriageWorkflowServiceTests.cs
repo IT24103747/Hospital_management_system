@@ -507,8 +507,9 @@ public class TriageWorkflowServiceTests
     }
 
     [Theory]
-    [InlineData(10, 10)]
-    [InlineData(100, 10)]
+    [InlineData(1, 3)]
+    [InlineData(10, 5)]
+    [InlineData(100, 5)]
     [InlineData(4, 4)]
     public async Task CeilingCountsOnlyIssuedQuestionsAndEscalates(int configured, int expected)
     {
@@ -644,7 +645,7 @@ public class TriageWorkflowServiceTests
     }
 
     [Fact]
-    public async Task GeminiPlannerReturnsMultipleValidatedQuestionsWhenRelevant()
+    public async Task GeminiPlannerReturnsOnlyTheHighestPriorityQuestionPerTurn()
     {
         using var http = GeminiHttp(new { questions = new[] {
             new { id = "onset", question = "When did this begin?" },
@@ -652,7 +653,20 @@ public class TriageWorkflowServiceTests
         } });
         var planner = new GeminiSafeTriageQuestionPlanningAgent(http, GeminiSettings(), NullLogger<GeminiSafeTriageQuestionPlanningAgent>.Instance);
         var plan = await planner.PlanAsync(new([], [], null, "Completed", Requirements: [new("onset"), new("progression")]), []);
-        Assert.Equal(["onset", "progression"], plan.Questions.Select(question => question.Id));
+        Assert.Equal("onset", Assert.Single(plan.Questions).Id);
+    }
+
+    [Theory]
+    [InlineData(1, 3)]
+    [InlineData(3, 3)]
+    [InlineData(4, 4)]
+    [InlineData(5, 5)]
+    [InlineData(20, 5)]
+    public void FollowUpBudgetIsClampedBetweenThreeAndFive(int configured, int expected)
+    {
+        Assert.Equal(expected, new SafeTriageOptions {
+            MaxFollowUpQuestions = configured
+        }.EffectiveMaxFollowUpQuestions);
     }
 
     [Fact]

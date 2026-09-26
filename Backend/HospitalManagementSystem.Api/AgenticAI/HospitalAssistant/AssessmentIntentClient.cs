@@ -26,7 +26,7 @@ public sealed class GeminiAssessmentIntentClient(HttpClient http, IConfiguration
             guidance.Heading, guidance.Summary, guidance.Actions, guidance.SeekHelpIf, guidance.EvidenceSource
         }, previousAnswers = answers, previousReply };
         var instruction = """
-        You are the SafeTriage Follow-Up Response Classifier for the SmartCare Hospital Management System.
+        You are the SafeTriage Follow-Up Response Classifier for the MediCore Hospital Management System.
 
         ROLE
         Classify the patient's LATEST message only in relation to the CURRENT question.

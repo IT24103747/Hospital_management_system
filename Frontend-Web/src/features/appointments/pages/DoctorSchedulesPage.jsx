@@ -76,15 +76,24 @@ export default function DoctorSchedulesPage() {
     finally { setChecking(false) }
   }
 
+  const activeSchedulesCount = schedules.filter(s => s.isActive && new Date(s.endAt) > new Date()).length
+
   const submit = async event => {
     event.preventDefault(); setError(''); setSuccess('')
     const validationError = validateDateTime()
     if (validationError) return setError(validationError)
     if (!form.roomId) return setError('Check availability and select a room.')
+    const capacity = Number(form.capacity)
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 50) {
+      return setError('Patient capacity must be between 1 and 50.')
+    }
+    if (!editingId && activeSchedulesCount >= 50) {
+      return setError('You have reached the maximum limit of 50 active appointment schedules. Please complete or cancel existing schedules before creating new ones.')
+    }
     const consultationFee = Number(form.consultationFee)
     if (!Number.isFinite(consultationFee) || consultationFee <= 0 || consultationFee > 1000000) return setError('Enter a valid consulting fee between LKR 0.01 and LKR 1,000,000.00.')
     if (!/^\d+(?:\.\d{1,2})?$/.test(String(form.consultationFee))) return setError('Consulting fee can contain a maximum of two decimal places.')
-    const payload = { roomId: Number(form.roomId), startAt: combineDateAndTime(form.appointmentDate, form.startTime), endAt: combineDateAndTime(form.appointmentDate, form.endTime), capacity: Number(form.capacity), consultationFee }
+    const payload = { roomId: Number(form.roomId), startAt: combineDateAndTime(form.appointmentDate, form.startTime), endAt: combineDateAndTime(form.appointmentDate, form.endTime), capacity, consultationFee }
     setSaving(true)
     try {
       if (editingId) await doctorScheduleApi.update(editingId, payload)
@@ -124,13 +133,13 @@ export default function DoctorSchedulesPage() {
       <label>Appointment Date<input type="date" min={today()} required value={form.appointmentDate} onChange={e=>setForm({...form,appointmentDate:e.target.value,roomId:''})}/></label>
       <label>Start Time<input type="time" required value={form.startTime} onChange={e=>setForm({...form,startTime:e.target.value,roomId:''})}/></label>
       <label>End Time<input type="time" required value={form.endTime} onChange={e=>setForm({...form,endTime:e.target.value,roomId:''})}/></label>
-      <label>Patient Capacity<input type="number" min="1" max="100" required value={form.capacity} onChange={e=>setForm({...form,capacity:e.target.value})}/></label>
+      <label>Patient Capacity (Max 50)<input type="number" min="1" max="50" required value={form.capacity} onChange={e=>setForm({...form,capacity:e.target.value})}/></label>
       <label>Consulting Fee (LKR)<input type="number" min="0.01" max="1000000" step="0.01" required value={form.consultationFee} onChange={e=>setForm({...form,consultationFee:e.target.value})} placeholder="2500.00"/></label>
       <label className="room-form__wide">Available Room<select required value={form.roomId} onChange={e=>setForm({...form,roomId:e.target.value})}><option value="">{rooms.length ? 'Select an available room' : 'Check availability first'}</option>{rooms.map(room=><option key={room.roomId} value={room.roomId}>{room.roomNumber} — {room.roomName} ({room.floor})</option>)}</select></label>
       <div className="room-form__actions room-form__wide"><Button type="button" variant="outline" icon={RefreshCw} loading={checking} onClick={checkRooms}>Check Available Rooms</Button><Button type="submit" icon={editingId ? Save : CalendarPlus} loading={saving}>{editingId ? 'Save Changes' : 'Confirm Schedule'}</Button>{editingId && <Button type="button" variant="outline" icon={X} onClick={clearForm}>Cancel Editing</Button>}</div>
     </form>
     {error && <p className="room-message room-message--error">{error}</p>}{success && <p className="room-message room-message--success">{success}</p>}
-    <h2 className="schedule-heading">My Schedules</h2>
+    <h2 className="schedule-heading">My Schedules <span style={{ fontSize: '0.875rem', fontWeight: 500, color: activeSchedulesCount >= 50 ? 'var(--color-danger, #ef4444)' : 'var(--color-text-muted, #64748b)', marginLeft: '10px' }}>({activeSchedulesCount}/50 Active)</span></h2>
     {loading ? (
       <div className="schedules-grid">
         {Array.from({ length: 4 }).map((_, i) => (

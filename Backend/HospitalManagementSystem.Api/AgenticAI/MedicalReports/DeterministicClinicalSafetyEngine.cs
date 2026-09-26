@@ -8,67 +8,15 @@ namespace HospitalManagementSystem.Api.AgenticAI.MedicalReports;
 
 public static class DeterministicClinicalSafetyEngine
 {
-    private static readonly string[] CommonAntibiotics =
-    [
-        "amoxicillin", "ampicillin", "ciprofloxacin", "azithromycin", "cephalexin",
-        "doxycycline", "clarithromycin", "metronidazole", "co-amoxiclav", "erythromycin"
-    ];
-
-    private static readonly string[] CommonNsaids =
-    [
-        "ibuprofen", "aspirin", "diclofenac", "naproxen", "meloxicam", "celecoxib", "mefenamic"
-    ];
-
     public static IReadOnlyList<MedicationAlert> EvaluateSafety(IEnumerable<MedicalRecord> records)
     {
         var alerts = new List<MedicationAlert>();
-        var detectedDrugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var record in records)
         {
-            var text = $"{record.PrescriptionNotes} {record.TreatmentPlan}".ToLowerInvariant();
-
-            // Detect antibiotics
-            foreach (var abx in CommonAntibiotics)
-            {
-                if (Regex.IsMatch(text, $@"\b{abx}\b"))
-                {
-                    detectedDrugs.Add(abx);
-                    alerts.Add(new MedicationAlert(
-                        "Advisory",
-                        Capitalize(abx),
-                        "Complete the full antibiotic course as prescribed even if symptoms improve to prevent bacterial resistance."
-                    ));
-                }
-            }
-
-            // Detect NSAIDs
-            var nsaidsInRecord = CommonNsaids.Where(n => Regex.IsMatch(text, $@"\b{n}\b")).ToList();
-            if (nsaidsInRecord.Count > 1)
-            {
-                alerts.Add(new MedicationAlert(
-                    "Warning",
-                    string.Join(" + ", nsaidsInRecord.Select(Capitalize)),
-                    "Multiple anti-inflammatory (NSAID) pain medications detected together. Take with food and consult your doctor to prevent stomach irritation."
-                ));
-            }
-            foreach (var nsaid in nsaidsInRecord)
-            {
-                detectedDrugs.Add(nsaid);
-            }
-
-            // Paracetamol check
-            if (Regex.IsMatch(text, @"\b(paracetamol|panadol|acetaminophen)\b"))
-            {
-                detectedDrugs.Add("Paracetamol");
-                alerts.Add(new MedicationAlert(
-                    "Info",
-                    "Paracetamol",
-                    "Do not exceed 4,000 mg (8 x 500mg tablets) within any 24-hour window. Maintain at least 4-6 hours between doses."
-                ));
-            }
-
-            // Follow-up alert check
+            // Only dates explicitly recorded by a clinician are safe to surface
+            // deterministically. Medication advice must never be inferred from a
+            // drug name or supplied from a hardcoded rule.
             if (record.FollowUpDate.HasValue)
             {
                 var daysUntil = (record.FollowUpDate.Value.Date - DateTime.UtcNow.Date).TotalDays;
@@ -85,7 +33,7 @@ public static class DeterministicClinicalSafetyEngine
                     alerts.Add(new MedicationAlert(
                         "Advisory",
                         "Overdue Follow-up",
-                        $"Your follow-up date was scheduled for {record.FollowUpDate.Value:MMM dd, yyyy}. Consider contacting your clinic if symptoms persist."
+                        $"The follow-up date recorded by your clinician was {record.FollowUpDate.Value:MMM dd, yyyy}, and that date has passed."
                     ));
                 }
             }
@@ -102,7 +50,11 @@ public static class DeterministicClinicalSafetyEngine
         string patientName,
         string? userQuery)
     {
-        var recordList = records.OrderByDescending(r => r.RecordDate).ToList();
+        var recordList = records
+            .OrderByDescending(r => r.RecordDate.Date)
+            .ThenByDescending(r => r.CreatedAt)
+            .ThenByDescending(r => r.MedicalRecordId)
+            .ToList();
         if (recordList.Count == 0)
         {
             return new MedicalReportAnalysisResult(
@@ -124,6 +76,19 @@ public static class DeterministicClinicalSafetyEngine
         var labNotes = recordList.Select(r => r.LabNotes).Where(l => !string.IsNullOrWhiteSpace(l)).Select(l => l!).Distinct().Take(5).ToList();
         var safetyAlerts = EvaluateSafety(recordList);
 
+        var focused = FocusedAnswer(recordList, userQuery);
+        if (focused is not null)
+            return new MedicalReportAnalysisResult(
+                Overview: $"Verified medical-record answer ({latest.RecordDate:MMM dd, yyyy})",
+                KeyDiagnoses: diagnoses,
+                PrescribedMedications: meds,
+                LabFindings: labNotes,
+                SafetyAlerts: safetyAlerts,
+                FollowUpInstructions: latest.FollowUpDate?.ToString("MMMM dd, yyyy"),
+                PlainLanguageSummary: focused,
+                AgentTrajectoryDescription: "Answered from finalized structured medical-record fields using the deterministic grounded fallback.",
+                UsedGemini: false);
+
         var doctorText = latest.Doctor != null ? $"Dr. {latest.Doctor.FirstName} {latest.Doctor.LastName}" : "Hospital Clinician";
         var followUpText = latest.FollowUpDate.HasValue
             ? $"Scheduled for {latest.FollowUpDate.Value:MMMM dd, yyyy}"
@@ -144,7 +109,7 @@ public static class DeterministicClinicalSafetyEngine
         if (meds.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine("💊 Prescriptions & Medication Advice");
+            sb.AppendLine("Prescriptions recorded by your clinician");
             foreach (var med in meds)
             {
                 sb.AppendLine($"• {med}");
@@ -154,7 +119,7 @@ public static class DeterministicClinicalSafetyEngine
         if (labNotes.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine("🔬 Lab & Diagnostic Notes");
+            sb.AppendLine("Lab and diagnostic notes");
             foreach (var lab in labNotes)
             {
                 sb.AppendLine($"• {lab}");
@@ -164,7 +129,7 @@ public static class DeterministicClinicalSafetyEngine
         if (safetyAlerts.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine("⚠️ Important Safety Precautions");
+            sb.AppendLine("Recorded follow-up reminders");
             foreach (var alert in safetyAlerts)
             {
                 sb.AppendLine($"• [{alert.DrugName}] {alert.Message}");
@@ -172,9 +137,9 @@ public static class DeterministicClinicalSafetyEngine
         }
 
         sb.AppendLine();
-        sb.AppendLine($"📅 Follow-up Status: {followUpText}");
+        sb.AppendLine($"Follow-up status: {followUpText}");
         sb.AppendLine();
-        sb.AppendLine("ℹ️ Guidance Disclaimer: This summary is generated to help you understand your clinical record. Always follow the direct instructions on your physical prescription or contact your doctor with any questions.");
+        sb.AppendLine("Guidance disclaimer: This explains finalized information already in your record. It is not a diagnosis or a new treatment plan. Follow the instructions recorded by your doctor or pharmacist.");
 
         return new MedicalReportAnalysisResult(
             Overview: $"Visit on {latest.RecordDate:MMM dd, yyyy} - {latest.Diagnosis}",
@@ -184,11 +149,42 @@ public static class DeterministicClinicalSafetyEngine
             SafetyAlerts: safetyAlerts,
             FollowUpInstructions: followUpText,
             PlainLanguageSummary: sb.ToString().Trim(),
-            AgentTrajectoryDescription: "Executed Deterministic Clinical Safety Engine (Entity extraction + Drug safety validator + Follow-up scheduler).",
+                AgentTrajectoryDescription: "Generated a finalized-record summary with deterministic follow-up-date checks.",
             UsedGemini: false
         );
     }
 
-    private static string Capitalize(string text) =>
-        string.IsNullOrEmpty(text) ? text : char.ToUpper(text[0]) + text[1..];
+    private static string? FocusedAnswer(IReadOnlyList<MedicalRecord> records, string? userQuery)
+    {
+        if (string.IsNullOrWhiteSpace(userQuery)) return null;
+        var query = userQuery.ToLowerInvariant();
+        var latest = records[0];
+        const string disclaimer = " This is an explanation of the finalized record, not a diagnosis or a new prescription.";
+
+        if (Regex.IsMatch(query, @"\b(medicine|medicines|medication|medications|prescription|prescribed)\b"))
+        {
+            var entries = records.Where(record => !string.IsNullOrWhiteSpace(record.PrescriptionNotes))
+                .Select(record => $"{record.RecordDate:yyyy-MM-dd}: {record.PrescriptionNotes}").Take(5).ToArray();
+            return entries.Length == 0
+                ? "No prescription details are recorded in your finalized medical records. Please confirm medication instructions with your doctor or pharmacist."
+                : "The following prescription information is recorded:\n- " + string.Join("\n- ", entries) + disclaimer;
+        }
+        if (Regex.IsMatch(query, @"\b(lab|laboratory|blood test|test result|results)\b"))
+        {
+            var entries = records.Where(record => !string.IsNullOrWhiteSpace(record.LabNotes))
+                .Select(record => $"{record.RecordDate:yyyy-MM-dd}: {record.LabNotes}").Take(5).ToArray();
+            return entries.Length == 0
+                ? "No lab result details or reference ranges are recorded in your finalized medical records."
+                : "The following lab information is recorded:\n- " + string.Join("\n- ", entries) + disclaimer;
+        }
+        if (Regex.IsMatch(query, @"\b(diagnosis|diagnoses|diagnosed)\b"))
+            return string.IsNullOrWhiteSpace(latest.Diagnosis)
+                ? $"No specific diagnosis was recorded for the finalized visit on {latest.RecordDate:yyyy-MM-dd}."
+                : $"The finalized record dated {latest.RecordDate:yyyy-MM-dd} lists the diagnosis as: {latest.Diagnosis}.{disclaimer}";
+        if (Regex.IsMatch(query, @"\b(follow-up|follow up|return|next visit)\b"))
+            return latest.FollowUpDate.HasValue
+                ? $"The latest finalized record lists a follow-up date of {latest.FollowUpDate.Value:MMMM dd, yyyy}.{disclaimer}"
+                : "No follow-up date is recorded in the latest finalized medical record.";
+        return null;
+    }
 }

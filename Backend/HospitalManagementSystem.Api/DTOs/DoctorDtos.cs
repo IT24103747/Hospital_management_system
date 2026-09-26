@@ -45,6 +45,11 @@ public class DeclineDoctorDto
     [MaxLength(500)] public string? Reason { get; set; }
 }
 
+public class RequestDoctorDeletionDto
+{
+    [MaxLength(500)] public string? Reason { get; set; }
+}
+
 public class DoctorRegistrationResponseDto
 {
     public string Message { get; set; } = string.Empty;

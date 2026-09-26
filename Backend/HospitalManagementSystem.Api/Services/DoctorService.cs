@@ -182,15 +182,127 @@ public partial class DoctorService : IDoctorService
             })
             .SingleOrDefaultAsync();
 
+    public async Task<DoctorDto?> RequestDeletionAsync(int userId, string? reason)
+    {
+        var doctor = await _db.Doctors.Include(d => d.User).SingleOrDefaultAsync(d => d.UserId == userId);
+        if (doctor is null) return null;
+        if (doctor.RegistrationStatus != DoctorRegistrationStatuses.Approved)
+            throw new InvalidOperationException("Only active approved doctors can request account deletion.");
+
+        var now = DateTime.UtcNow;
+        var hasActiveBookings = await _db.Appointments
+            .Include(a => a.DoctorTimeSlot)
+            .AnyAsync(a =>
+                (a.DoctorTimeSlot!.DoctorId == doctor.DoctorId ||
+                 a.DoctorTimeSlot.DoctorName.ToLower() == (doctor.FirstName + " " + doctor.LastName).ToLower() ||
+                 a.DoctorTimeSlot.DoctorName.ToLower() == ("Dr. " + doctor.FirstName + " " + doctor.LastName).ToLower()) &&
+                a.Status == "Confirmed" &&
+                a.DoctorTimeSlot.StartAt > now);
+
+        if (hasActiveBookings)
+        {
+            throw new InvalidOperationException("Cannot request account deletion while you have upcoming confirmed patient appointments. Please cancel or reassign scheduled appointments first.");
+        }
+
+        var hasUpcomingSlots = await _db.DoctorTimeSlots
+            .AnyAsync(s =>
+                (s.DoctorId == doctor.DoctorId ||
+                 s.DoctorName.ToLower() == (doctor.FirstName + " " + doctor.LastName).ToLower() ||
+                 s.DoctorName.ToLower() == ("Dr. " + doctor.FirstName + " " + doctor.LastName).ToLower()) &&
+                s.IsActive &&
+                s.StartAt > now);
+
+        if (hasUpcomingSlots)
+        {
+            throw new InvalidOperationException("Cannot request account deletion while you have active upcoming appointment slots. Please remove or cancel your scheduled slots first.");
+        }
+
+        doctor.RegistrationStatus = DoctorRegistrationStatuses.DeletionPending;
+        doctor.DeclineReason = string.IsNullOrWhiteSpace(reason) ? "Doctor requested account removal." : reason.Trim();
+        doctor.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Map(doctor);
+    }
+
+    public async Task<bool> ApproveDeletionAsync(int doctorId, int adminUserId)
+    {
+        var doctor = await _db.Doctors.Include(d => d.User).SingleOrDefaultAsync(d => d.DoctorId == doctorId);
+        if (doctor is null) return false;
+        if (doctor.RegistrationStatus != DoctorRegistrationStatuses.DeletionPending)
+            throw new InvalidOperationException("Only doctors with pending deletion requests can be deleted.");
+
+        var now = DateTime.UtcNow;
+        var hasActiveBookings = await _db.Appointments
+            .Include(a => a.DoctorTimeSlot)
+            .AnyAsync(a =>
+                (a.DoctorTimeSlot!.DoctorId == doctor.DoctorId ||
+                 a.DoctorTimeSlot.DoctorName.ToLower() == (doctor.FirstName + " " + doctor.LastName).ToLower() ||
+                 a.DoctorTimeSlot.DoctorName.ToLower() == ("Dr. " + doctor.FirstName + " " + doctor.LastName).ToLower()) &&
+                a.Status == "Confirmed" &&
+                a.DoctorTimeSlot.StartAt > now);
+
+        if (hasActiveBookings)
+        {
+            throw new InvalidOperationException("Cannot approve deletion: Doctor has upcoming confirmed patient appointments.");
+        }
+
+        var hasUpcomingSlots = await _db.DoctorTimeSlots
+            .AnyAsync(s =>
+                (s.DoctorId == doctor.DoctorId ||
+                 s.DoctorName.ToLower() == (doctor.FirstName + " " + doctor.LastName).ToLower() ||
+                 s.DoctorName.ToLower() == ("Dr. " + doctor.FirstName + " " + doctor.LastName).ToLower()) &&
+                s.IsActive &&
+                s.StartAt > now);
+
+        if (hasUpcomingSlots)
+        {
+            throw new InvalidOperationException("Cannot approve deletion: Doctor has active upcoming appointment slots.");
+        }
+
+        _db.Users.Remove(doctor.User);
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<DoctorDto?> CancelDeletionByDoctorAsync(int userId)
+    {
+        var doctor = await _db.Doctors.Include(d => d.User).SingleOrDefaultAsync(d => d.UserId == userId);
+        if (doctor is null) return null;
+        if (doctor.RegistrationStatus != DoctorRegistrationStatuses.DeletionPending)
+            throw new InvalidOperationException("Doctor does not have a pending deletion request.");
+
+        doctor.RegistrationStatus = DoctorRegistrationStatuses.Approved;
+        doctor.DeclineReason = null;
+        doctor.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Map(doctor);
+    }
+
+    public async Task<DoctorDto?> CancelDeletionAsync(int doctorId, int adminUserId, string? reason = null)
+    {
+        var doctor = await _db.Doctors.Include(d => d.User).SingleOrDefaultAsync(d => d.DoctorId == doctorId);
+        if (doctor is null) return null;
+        if (doctor.RegistrationStatus != DoctorRegistrationStatuses.DeletionPending)
+            throw new InvalidOperationException("Only doctors with pending deletion requests can have deletion cancelled.");
+
+        doctor.RegistrationStatus = DoctorRegistrationStatuses.Approved;
+        doctor.DeclineReason = null;
+        doctor.ReviewedByUserId = adminUserId;
+        doctor.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Map(doctor);
+    }
+
     private static string NormalizeStatus(string status)
     {
         var value = status.Trim();
         return value.ToLowerInvariant() switch
         {
-            "pending" => DoctorRegistrationStatuses.Pending,
+            "pending" or "pendingapproval" or "pending_approval" => DoctorRegistrationStatuses.Pending,
             "approved" => DoctorRegistrationStatuses.Approved,
             "declined" => DoctorRegistrationStatuses.Declined,
-            _ => throw new ArgumentException("Registration status must be Pending, Approved, or Declined.")
+            "deletionpending" or "deletion_pending" or "deletion" => DoctorRegistrationStatuses.DeletionPending,
+            _ => throw new ArgumentException("Registration status must be Pending, Approved, Declined, or DeletionPending.")
         };
     }
 

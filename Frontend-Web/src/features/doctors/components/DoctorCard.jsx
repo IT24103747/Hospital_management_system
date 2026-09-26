@@ -3,7 +3,7 @@ import Button from '../../../components/Button'
 import { formatDate, getInitials, nameToGradient } from '../../../lib/utils'
 import './DoctorCard.css'
 
-export default function DoctorCard({ doctor, onReview }) {
+export default function DoctorCard({ doctor, onReview, onApproveDeletion, onRejectDeletion }) {
   const gradient = nameToGradient(doctor.firstName || doctor.fullName)
   const fullName = `Dr. ${doctor.fullName || `${doctor.firstName} ${doctor.lastName}`}`
   const initials = getInitials(doctor.firstName || doctor.fullName, doctor.lastName || '')
@@ -32,7 +32,7 @@ export default function DoctorCard({ doctor, onReview }) {
 
         <div className="doctor-card-item__status-wrap">
           <span className={`doctor-status-badge status-${statusClass}`}>
-            {doctor.registrationStatus}
+            {doctor.registrationStatus === 'DeletionPending' ? 'Deletion Requested' : doctor.registrationStatus}
           </span>
         </div>
       </header>
@@ -49,10 +49,17 @@ export default function DoctorCard({ doctor, onReview }) {
         <Detail icon={CalendarDays} label="Submitted" value={formatDate(doctor.createdAt)} />
       </div>
 
-      {doctor.declineReason && (
+      {doctor.declineReason && doctor.registrationStatus !== 'DeletionPending' && (
         <div className="doctor-card-item__decline-box">
           <AlertCircle size={15} />
           <span><strong>Reason:</strong> {doctor.declineReason}</span>
+        </div>
+      )}
+
+      {doctor.registrationStatus === 'DeletionPending' && doctor.declineReason && (
+        <div className="doctor-card-item__decline-box">
+          <AlertCircle size={15} />
+          <span><strong>Deletion Reason:</strong> {doctor.declineReason}</span>
         </div>
       )}
 
@@ -76,6 +83,29 @@ export default function DoctorCard({ doctor, onReview }) {
               id={`decline-doctor-${doctor.doctorId}`}
             >
               Decline
+            </Button>
+          </div>
+        )}
+
+        {doctor.registrationStatus === 'DeletionPending' && (
+          <div className="doctor-card-item__actions">
+            <Button
+              variant="danger"
+              size="sm"
+              icon={UserX}
+              onClick={() => onApproveDeletion && onApproveDeletion(doctor)}
+              id={`approve-deletion-doctor-${doctor.doctorId}`}
+            >
+              Approve Deletion
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Check}
+              onClick={() => onRejectDeletion && onRejectDeletion(doctor)}
+              id={`reject-deletion-doctor-${doctor.doctorId}`}
+            >
+              Cancel Deletion
             </Button>
           </div>
         )}

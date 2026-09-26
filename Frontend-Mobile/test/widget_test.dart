@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:smartcare_mobile/features/auth/screens/login_screen.dart';
-import 'package:smartcare_mobile/main.dart';
+import 'package:medicore_mobile/features/auth/screens/login_screen.dart';
+import 'package:medicore_mobile/main.dart';
 
 void main() {
   testWidgets('App loads widget test', (WidgetTester tester) async {

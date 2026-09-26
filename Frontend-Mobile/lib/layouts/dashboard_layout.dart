@@ -1,19 +1,21 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:smartcare_mobile/core/constants/app_colors.dart';
-import 'package:smartcare_mobile/core/services/api_service.dart';
-import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
-import 'package:smartcare_mobile/core/theme/theme_controller.dart';
-import 'package:smartcare_mobile/core/widgets/medicore_logo.dart';
-import 'package:smartcare_mobile/features/auth/screens/login_screen.dart';
-import 'package:smartcare_mobile/features/doctors/screens/doctor_search_screen.dart';
-import 'package:smartcare_mobile/features/medical_records/screens/medical_records_screen.dart';
-import 'package:smartcare_mobile/features/profile/screens/profile_screen.dart';
-import 'package:smartcare_mobile/features/assistant/screens/hospital_assistant_screen.dart';
-import 'package:smartcare_mobile/models/appointment.dart';
-import 'package:smartcare_mobile/models/doctor.dart';
-import 'package:smartcare_mobile/models/patient.dart';
+import 'package:medicore_mobile/core/constants/app_colors.dart';
+import 'package:medicore_mobile/core/services/api_service.dart';
+import 'package:medicore_mobile/core/services/session_manager.dart';
+import 'package:medicore_mobile/core/theme/theme_controller.dart';
+import 'package:medicore_mobile/core/widgets/medicore_logo.dart';
+import 'package:medicore_mobile/features/doctors/screens/doctor_search_screen.dart';
+import 'package:medicore_mobile/features/medical_records/screens/medical_records_screen.dart';
+import 'package:medicore_mobile/features/profile/screens/profile_screen.dart';
+import 'package:medicore_mobile/features/assistant/screens/hospital_assistant_screen.dart';
+import 'package:medicore_mobile/models/appointment.dart';
+import 'package:medicore_mobile/models/doctor.dart';
+import 'package:medicore_mobile/models/patient.dart';
 
 enum _PatientSection {
   home,
@@ -57,12 +59,36 @@ class _DashboardLayoutState extends State<DashboardLayout> {
   bool _loadingNextAppointment = true;
   String? _nextAppointmentError;
 
+  Timer? _notificationTimer;
+  List<Map<String, dynamic>> _notifications = [];
+  Set<String> _readNotificationIds = {};
+  bool _loadingNotifications = false;
+  String? _notificationError;
+
+  bool get _isTesting {
+    if (kIsWeb) return false;
+    return Platform.environment.containsKey('FLUTTER_TEST');
+  }
+
   @override
   void initState() {
     super.initState();
     _activeSection = _sectionFromTitle(widget.title);
     _loadUserSession();
     _loadNextAppointment();
+    _loadNotifications();
+    if (!_isTesting) {
+      _notificationTimer = Timer.periodic(
+        const Duration(seconds: 2),
+        (_) => _loadNotifications(background: true),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _notificationTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadUserSession() async {
@@ -122,8 +148,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
   String get _subtitle => switch (_activeSection) {
         _PatientSection.home => 'Your patient dashboard',
         _PatientSection.profile => 'Personal and emergency information',
-        _PatientSection.appointments =>
-          'Book, cancel, and view visits',
+        _PatientSection.appointments => 'Book, cancel, and view visits',
         _PatientSection.doctors => 'Find specialists and available schedules',
         _PatientSection.records => 'History, reports, prescriptions, and notes',
         _PatientSection.assistant =>
@@ -155,14 +180,24 @@ class _DashboardLayoutState extends State<DashboardLayout> {
             onBookAppointment: _openDoctorBooking,
           ),
         _PatientSection.records => const MedicalRecordsScreen(embedded: true),
-        _PatientSection.assistant => const HospitalAssistantScreen(embedded: true),
-        _PatientSection.notifications => const _NotificationsSection(),
+        _PatientSection.assistant =>
+          const HospitalAssistantScreen(embedded: true),
+        _PatientSection.notifications => _NotificationsSection(
+            notifications: _notifications,
+            loading: _loadingNotifications,
+            error: _notificationError,
+            onRefresh: _loadNotifications,
+            onClearAll: _clearNotifications,
+          ),
         _PatientSection.settings => const _SettingsSection(),
         _PatientSection.support => const _SupportSection(),
       };
 
   void _selectSection(_PatientSection section, {bool closeDrawer = false}) {
     setState(() => _activeSection = section);
+    if (section == _PatientSection.notifications) {
+      _markNotificationsRead();
+    }
     if (closeDrawer) {
       Navigator.maybePop(context);
     }
@@ -183,6 +218,121 @@ class _DashboardLayoutState extends State<DashboardLayout> {
       _appointmentAction = 'book';
       _appointmentDoctorId = doctor.doctorId;
       _appointmentActionVersion++;
+    });
+  }
+
+  int get _unreadNotificationCount => _notifications
+      .where((item) => !_readNotificationIds.contains(item['_notificationId']))
+      .length;
+
+  Future<String> _notificationReadKey() async {
+    final prefs = await SharedPreferences.getInstance();
+    return 'patient_read_notifications_${prefs.getInt('patient_user_id') ?? 'current'}';
+  }
+
+  Future<String> _notificationDismissedKey() async {
+    final prefs = await SharedPreferences.getInstance();
+    return 'patient_dismissed_notifications_${prefs.getInt('patient_user_id') ?? 'current'}';
+  }
+
+  Future<void> _loadNotifications({bool background = false}) async {
+    if (!background && mounted) setState(() => _loadingNotifications = true);
+    try {
+      final results = await Future.wait([
+        ApiService.getAppointmentNotifications(),
+        ApiService.getClinicalReviewNotifications(),
+      ]);
+      final items = <Map<String, dynamic>>[
+        ...results[0].map((item) => <String, dynamic>{
+              ...item,
+              '_notificationId':
+                  'appointment:${item['appointmentNotificationId']}',
+              '_title': 'Appointment Update',
+              '_icon': Icons.event_available_outlined,
+            }),
+        ...results[1].map((item) {
+              final isEmergency = item['isEmergency'] == true ||
+                  item['priorityLevel'] == 'Critical' ||
+                  (item['message']?.toString().contains('🚨') ?? false);
+              return <String, dynamic>{
+                ...item,
+                '_notificationId':
+                    'clinical:${item['triageWorkflowId']}',
+                '_title': isEmergency ? '🚨 CRITICAL EMERGENCY ALERT' : 'Clinical Review Update',
+                '_icon': isEmergency ? Icons.warning_amber_rounded : Icons.medical_information_outlined,
+                '_isEmergency': isEmergency,
+              };
+            }),
+      ];
+
+      items.sort((a, b) {
+        final dateA = DateTime.tryParse(a['createdAt']?.toString() ?? '') ??
+            DateTime.now();
+        final dateB = DateTime.tryParse(b['createdAt']?.toString() ?? '') ??
+            DateTime.now();
+        return dateB.compareTo(dateA);
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      final key = await _notificationReadKey();
+      final bool isFirstLoad = !prefs.containsKey(key);
+      List<String> readList = prefs.getStringList(key) ?? [];
+      
+      final dismissedKey = await _notificationDismissedKey();
+      final dismissedIds = prefs.getStringList(dismissedKey)?.toSet() ?? {};
+
+      if (!mounted) return;
+      
+      final filteredItems = items
+          .where((item) => !dismissedIds.contains(item['_notificationId']))
+          .toList();
+
+      if (isFirstLoad && filteredItems.isNotEmpty) {
+        readList = filteredItems.map((item) => item['_notificationId'] as String).toList();
+        await prefs.setStringList(key, readList);
+      }
+
+      setState(() {
+        _notifications = filteredItems;
+        _readNotificationIds = readList.toSet();
+        _loadingNotifications = false;
+        _notificationError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _notificationError = 'Unable to load notifications right now.';
+        _loadingNotifications = false;
+      });
+    }
+  }
+
+  Future<void> _markNotificationsRead() async {
+    if (_notifications.isEmpty) return;
+    final ids =
+        _notifications.map((n) => n['_notificationId'] as String).toList();
+    final prefs = await SharedPreferences.getInstance();
+    final key = await _notificationReadKey();
+    await prefs.setStringList(key, ids);
+    if (!mounted) return;
+    setState(() {
+      _readNotificationIds = ids.toSet();
+    });
+  }
+
+  Future<void> _clearNotifications() async {
+    if (_notifications.isEmpty) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final key = await _notificationDismissedKey();
+    final dismissedIds = (prefs.getStringList(key) ?? []).toSet()
+      ..addAll(_notifications.map((item) => item['_notificationId'] as String));
+    await prefs.setStringList(key, dismissedIds.toList());
+
+    if (!mounted) return;
+    setState(() {
+      _notifications = [];
+      _readNotificationIds = {};
     });
   }
 
@@ -237,16 +387,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
   }
 
   Future<void> _logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('patient_user_id');
-    await prefs.remove('patient_full_name');
-    await prefs.remove('patient_email');
-    await SecureTokenStorage.clearToken();
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginScreen()),
-    );
+    await SessionManager.logout();
   }
 
   @override
@@ -302,33 +443,47 @@ class _DashboardLayoutState extends State<DashboardLayout> {
             ),
           if (!isDesktop) const SizedBox(width: 10),
           Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                Text(
-                  _title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isDark
-                        ? AppColors.textPrimaryDark
-                        : AppColors.textPrimaryLight,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
+                if (!isDesktop) ...[
+                  const MediCoreLogo(
+                    size: 32,
+                    borderRadius: 8,
+                    showText: false,
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isDark
-                        ? AppColors.textMutedDark
-                        : AppColors.textMutedLight,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isDark
+                              ? AppColors.textPrimaryDark
+                              : AppColors.textPrimaryLight,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isDark
+                              ? AppColors.textMutedDark
+                              : AppColors.textMutedLight,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -336,6 +491,7 @@ class _DashboardLayoutState extends State<DashboardLayout> {
           ),
           _HeaderIconButton(
             icon: Icons.notifications_none_rounded,
+            badgeCount: _unreadNotificationCount,
             onTap: () => _selectSection(_PatientSection.notifications),
           ),
           const SizedBox(width: 8),
@@ -409,8 +565,8 @@ class _DashboardLayoutState extends State<DashboardLayout> {
                       _PatientSection.doctors),
                   _navItem(Icons.folder_copy_outlined, 'Medical Records',
                       _PatientSection.records),
-                  _navItem(Icons.psychology_alt_outlined, 'Hospital AI Assistant',
-                      _PatientSection.assistant),
+                  _navItem(Icons.psychology_alt_outlined,
+                      'Hospital AI Assistant', _PatientSection.assistant),
                   const SizedBox(height: 12),
                   _sectionLabel('Account'),
                   _navItem(Icons.settings_outlined, 'Settings',
@@ -637,8 +793,7 @@ class _HomeSection extends StatelessWidget {
     final textMuted =
         isDark ? AppColors.textMutedDark : AppColors.textMutedLight;
     final surfaceColor = isDark ? AppColors.surfaceDark : AppColors.bgLightCard;
-    final borderColor =
-        isDark ? AppColors.borderDark : AppColors.borderLight;
+    final borderColor = isDark ? AppColors.borderDark : AppColors.borderLight;
 
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
@@ -652,7 +807,11 @@ class _HomeSection extends StatelessWidget {
                 padding: const EdgeInsets.all(22),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF0369A1), Color(0xFF0284C7), Color(0xFF4F46E5)],
+                    colors: [
+                      Color(0xFF0369A1),
+                      Color(0xFF0284C7),
+                      Color(0xFF4F46E5)
+                    ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
@@ -803,7 +962,8 @@ class _HomeSection extends StatelessWidget {
               _ServiceCard(
                 icon: Icons.smart_toy_outlined,
                 title: 'Hospital AI Assistant',
-                subtitle: 'Describe symptoms, get triage guidance, and book appointments with AI support.',
+                subtitle:
+                    'Describe symptoms, get triage guidance, and book appointments with AI support.',
                 actionLabel: 'Open Assistant',
                 color: const Color(0xFF4F46E5),
                 isDark: isDark,
@@ -815,7 +975,8 @@ class _HomeSection extends StatelessWidget {
               _ServiceCard(
                 icon: Icons.medical_information_outlined,
                 title: 'My Medical Records',
-                subtitle: 'Access your full medical history, lab results, prescriptions, and clinical notes.',
+                subtitle:
+                    'Access your full medical history, lab results, prescriptions, and clinical notes.',
                 actionLabel: 'View Records',
                 color: const Color(0xFF059669),
                 isDark: isDark,
@@ -831,7 +992,8 @@ class _HomeSection extends StatelessWidget {
               _ServiceCard(
                 icon: Icons.add_task_rounded,
                 title: 'Book an Appointment',
-                subtitle: 'Schedule consultations with specialists and find available time slots.',
+                subtitle:
+                    'Schedule consultations with specialists and find available time slots.',
                 actionLabel: 'Book Now',
                 color: const Color(0xFF0284C7),
                 isDark: isDark,
@@ -844,7 +1006,8 @@ class _HomeSection extends StatelessWidget {
 
               // ── Disclaimer ───────────────────────────────────────────
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
                   color: isDark
                       ? Colors.white.withValues(alpha: 0.04)
@@ -1105,9 +1268,7 @@ class _ServiceCard extends StatelessWidget {
                 child: Text(
                   actionLabel,
                   style: TextStyle(
-                      color: color,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700),
+                      color: color, fontSize: 11, fontWeight: FontWeight.w700),
                 ),
               ),
             ],
@@ -1117,7 +1278,6 @@ class _ServiceCard extends StatelessWidget {
     );
   }
 }
-
 
 class _AppointmentsSection extends StatefulWidget {
   final String? action;
@@ -1221,7 +1381,8 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
       final doctors = results[3] as List<DoctorLookup>;
       final specializations = _specialties(results[4] as List<String>, doctors);
       final futureSlots = slots
-          .where((slot) => _isFutureSlot(slot) && slot.isActive && slot.availableCount > 0)
+          .where((slot) =>
+              _isFutureSlot(slot) && slot.isActive && slot.availableCount > 0)
           .toList();
       if (!mounted) return;
       setState(() {
@@ -1280,7 +1441,10 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   Future<void> _bookAppointment() async {
     if (!_formKey.currentState!.validate()) return;
     final slot = _selectedSlot;
-    if (slot == null || !slot.isActive || slot.availableCount <= 0 || !_isFutureSlot(slot)) {
+    if (slot == null ||
+        !slot.isActive ||
+        slot.availableCount <= 0 ||
+        !_isFutureSlot(slot)) {
       setState(() => _error = 'Select an upcoming appointment slot.');
       return;
     }
@@ -1388,9 +1552,19 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   @override
   Widget build(BuildContext context) {
     final upcomingAppointments =
-        _appointments.where(_isUpcomingAppointment).toList();
+        _appointments.where(_isUpcomingAppointment).toList()
+          ..sort((a, b) {
+            final dateComparison = a.startAt.compareTo(b.startAt);
+            if (dateComparison != 0) return dateComparison;
+            return a.appointmentNumber.compareTo(b.appointmentNumber);
+          });
     final historicalAppointments =
-        _appointments.where(_isHistoricalAppointment).toList();
+        _appointments.where(_isHistoricalAppointment).toList()
+          ..sort((a, b) {
+            final dateComparison = b.startAt.compareTo(a.startAt);
+            if (dateComparison != 0) return dateComparison;
+            return b.appointmentNumber.compareTo(a.appointmentNumber);
+          });
     final showingHistory = _listMode == _AppointmentListMode.history;
     final visibleAppointments =
         showingHistory ? historicalAppointments : upcomingAppointments;
@@ -1442,8 +1616,7 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
               saving: _saving,
               onSpecialtyChanged: _selectSpecialty,
               onDoctorChanged: _selectDoctor,
-              onSlotChanged: (value) =>
-                  setState(() => _selectedSlotId = value),
+              onSlotChanged: (value) => setState(() => _selectedSlotId = value),
               onTypeChanged: (value) =>
                   setState(() => _appointmentType = value ?? 'Consultation'),
               onClose: () => setState(() => _showBookingForm = false),
@@ -1515,19 +1688,32 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
   void _selectSpecialty(String? specialty) {
     setState(() {
       _selectedSpecialty = specialty;
-      _selectedDoctorId = null;
-      _selectedDoctorName = null;
-      _selectedSlotId = null;
+      if (_selectedDoctorName != null) {
+        final currentDoctor = _doctors
+            .where((doctor) =>
+                doctor.doctorId == _selectedDoctorId ||
+                doctor.doctorName == _selectedDoctorName)
+            .firstOrNull;
+        if (currentDoctor == null ||
+            !_sameText(currentDoctor.specialty, specialty)) {
+          _selectedDoctorId = null;
+          _selectedDoctorName = null;
+          _selectedSlotId = null;
+        }
+      }
     });
   }
 
   void _selectDoctor(String? doctorName) {
     setState(() {
       _selectedDoctorName = doctorName;
-      _selectedDoctorId = _doctors
+      final matchedDoctor = _doctors
           .where((doctor) => doctor.doctorName == doctorName)
-          .map((doctor) => doctor.doctorId)
           .firstOrNull;
+      _selectedDoctorId = matchedDoctor?.doctorId;
+      if (matchedDoctor != null && matchedDoctor.specialty.trim().isNotEmpty) {
+        _selectedSpecialty = matchedDoctor.specialty;
+      }
       _selectedSlotId = null;
     });
   }
@@ -1587,6 +1773,214 @@ class _AppointmentsSectionState extends State<_AppointmentsSection> {
 
   bool _isFutureSlot(DoctorTimeSlot slot) =>
       slot.startAt.isAfter(DateTime.now());
+}
+
+class _SearchableDoctorDropdown extends StatefulWidget {
+  final List<DoctorLookup> doctors;
+  final String? selectedSpecialty;
+  final String? selectedDoctorName;
+  final bool enabled;
+  final ValueChanged<String?> onDoctorChanged;
+
+  const _SearchableDoctorDropdown({
+    super.key,
+    required this.doctors,
+    required this.selectedSpecialty,
+    required this.selectedDoctorName,
+    required this.enabled,
+    required this.onDoctorChanged,
+  });
+
+  @override
+  State<_SearchableDoctorDropdown> createState() =>
+      _SearchableDoctorDropdownState();
+}
+
+class _SearchableDoctorDropdownState extends State<_SearchableDoctorDropdown> {
+  late TextEditingController _controller;
+  late FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller =
+        TextEditingController(text: widget.selectedDoctorName ?? '');
+    _focusNode = FocusNode();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SearchableDoctorDropdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selectedDoctorName != oldWidget.selectedDoctorName) {
+      final newText = widget.selectedDoctorName ?? '';
+      if (_controller.text != newText) {
+        _controller.text = newText;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final availableDoctors = widget.selectedSpecialty == null
+        ? widget.doctors
+        : widget.doctors
+            .where((d) => _sameText(d.specialty, widget.selectedSpecialty))
+            .toList();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return RawAutocomplete<DoctorLookup>(
+          textEditingController: _controller,
+          focusNode: _focusNode,
+          displayStringForOption: (doctor) => doctor.doctorName,
+          optionsBuilder: (TextEditingValue textEditingValue) {
+            final query = textEditingValue.text.trim().toLowerCase();
+            if (query.isEmpty) {
+              return availableDoctors;
+            }
+            return availableDoctors.where((doctor) {
+              return doctor.doctorName.toLowerCase().contains(query) ||
+                  doctor.specialty.toLowerCase().contains(query);
+            });
+          },
+          onSelected: (doctor) {
+            _focusNode.unfocus();
+            widget.onDoctorChanged(doctor.doctorName);
+          },
+          fieldViewBuilder:
+              (context, textController, focusNode, onFieldSubmitted) {
+            return TextFormField(
+              controller: textController,
+              focusNode: focusNode,
+              enabled: widget.enabled,
+              decoration: InputDecoration(
+                labelText: 'Search or Select Doctor',
+                hintText: 'Type doctor name or specialty...',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: textController.text.isNotEmpty && widget.enabled
+                    ? IconButton(
+                        icon: const Icon(Icons.clear_rounded, size: 18),
+                        onPressed: () {
+                          textController.clear();
+                          widget.onDoctorChanged(null);
+                        },
+                      )
+                    : const Icon(Icons.arrow_drop_down_rounded, size: 28),
+              ),
+              validator: (value) {
+                if (widget.selectedDoctorName == null ||
+                    widget.selectedDoctorName!.trim().isEmpty) {
+                  return 'Choose a doctor.';
+                }
+                return null;
+              },
+            );
+          },
+          optionsViewBuilder: (context, onSelected, options) {
+            return Align(
+              alignment: Alignment.topLeft,
+              child: Material(
+                elevation: 6,
+                borderRadius: BorderRadius.circular(12),
+                color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: 220,
+                    maxWidth: constraints.maxWidth,
+                  ),
+                  child: options.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Text(
+                            'No matching doctors found.',
+                            style: TextStyle(fontSize: 13, color: Colors.grey),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          shrinkWrap: true,
+                          itemCount: options.length,
+                          separatorBuilder: (_, __) => Divider(
+                            height: 1,
+                            color: isDark
+                                ? AppColors.borderDark
+                                : AppColors.borderLight,
+                          ),
+                          itemBuilder: (context, index) {
+                            final doctor = options.elementAt(index);
+                            final isSelected =
+                                doctor.doctorName == widget.selectedDoctorName;
+                            return ListTile(
+                              dense: true,
+                              visualDensity: VisualDensity.compact,
+                              leading: CircleAvatar(
+                                radius: 14,
+                                backgroundColor: isSelected
+                                    ? AppColors.primary
+                                    : (isDark
+                                        ? Colors.white12
+                                        : const Color(0xFFE2E8F0)),
+                                child: Text(
+                                  doctor.doctorName.isNotEmpty
+                                      ? doctor.doctorName
+                                          .replaceAll('Dr. ', '')
+                                          .trim()
+                                          .substring(0, 1)
+                                          .toUpperCase()
+                                      : 'D',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: isSelected
+                                        ? Colors.white
+                                        : (isDark
+                                            ? Colors.white70
+                                            : Colors.black87),
+                                  ),
+                                ),
+                              ),
+                              title: Text(
+                                doctor.doctorName,
+                                style: TextStyle(
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              subtitle: Text(
+                                doctor.specialty,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isDark
+                                      ? Colors.white60
+                                      : Colors.black54,
+                                ),
+                              ),
+                              trailing: isSelected
+                                  ? const Icon(Icons.check_rounded,
+                                      color: AppColors.primary, size: 18)
+                                  : null,
+                              onTap: () => onSelected(doctor),
+                            );
+                          },
+                        ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
 class _BookingFormCard extends StatelessWidget {
@@ -1659,6 +2053,7 @@ class _BookingFormCard extends StatelessWidget {
         break;
       }
     }
+    final hasNoUpcomingSlots = selectedDoctorName != null && doctorSlots.isEmpty;
     return _SurfaceCard(
       child: Form(
         key: formKey,
@@ -1713,63 +2108,67 @@ class _BookingFormCard extends StatelessWidget {
                     'No approved doctors are available for this specialization.',
               )
             else
-              DropdownButtonFormField<String>(
-                initialValue: selectedDoctorName,
-                isExpanded: true,
-                decoration:
-                    const InputDecoration(labelText: 'Search or Select Doctor'),
-                items: filteredDoctors
-                    .map((doctor) => DropdownMenuItem(
-                          value: doctor.doctorName,
-                          child: Text(doctor.doctorName,
-                              overflow: TextOverflow.ellipsis),
-                        ))
-                    .toList(),
-                validator: (value) => value == null ? 'Choose a doctor.' : null,
-                onChanged: saving || selectedSpecialty == null
-                    ? null
-                    : onDoctorChanged,
+              _SearchableDoctorDropdown(
+                key: ValueKey(
+                    'doctor-picker-$selectedSpecialty-$selectedDoctorId-$selectedDoctorName'),
+                doctors: doctors,
+                selectedSpecialty: selectedSpecialty,
+                selectedDoctorName: selectedDoctorName,
+                enabled: !saving,
+                onDoctorChanged: onDoctorChanged,
               ),
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
-              key: ValueKey('$selectedSpecialty-$selectedDoctorId-$selectedSlotId'),
-              initialValue: doctorSlots.any((slot) =>
-                      slot.doctorTimeSlotId == selectedSlotId)
+              key: ValueKey(
+                  'slot-picker-$selectedSpecialty-$selectedDoctorId-$selectedSlotId'),
+              initialValue: doctorSlots
+                      .any((slot) => slot.doctorTimeSlotId == selectedSlotId)
                   ? selectedSlotId
                   : null,
               isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Appointment date and time'),
+              decoration: InputDecoration(
+                labelText: hasNoUpcomingSlots
+                    ? 'No upcoming appointment slots'
+                    : 'Appointment date and time',
+              ),
               itemHeight: 64,
               isDense: false,
-              items: doctorSlots.map((slot) => DropdownMenuItem(
-                value: slot.doctorTimeSlotId,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      DateFormat('EEE, d MMM yyyy').format(slot.startAt.toLocal()),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${DateFormat('h:mm a').format(slot.startAt.toLocal())} – ${DateFormat('h:mm a').format(slot.endAt.toLocal())}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              )).toList(),
-              validator: (value) => value == null ? 'Choose an appointment slot.' : null,
-              onChanged: saving || doctorSlots.isEmpty ? null : onSlotChanged,
+              items: doctorSlots
+                  .map((slot) => DropdownMenuItem(
+                        value: slot.doctorTimeSlotId,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              DateFormat('EEE, d MMM yyyy')
+                                  .format(slot.startAt.toLocal()),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${DateFormat('h:mm a').format(slot.startAt.toLocal())} – ${DateFormat('h:mm a').format(slot.endAt.toLocal())}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant),
+                            ),
+                          ],
+                        ),
+                      ))
+                  .toList(),
+              validator: (value) =>
+                  value == null ? 'Choose an appointment slot.' : null,
+              onChanged:
+                  saving || hasNoUpcomingSlots ? null : onSlotChanged,
             ),
-            if (selectedDoctorName != null && doctorSlots.isEmpty) ...[
+            if (hasNoUpcomingSlots) ...[
               const SizedBox(height: 10),
               const _InlineNotice(
                 icon: Icons.event_busy_outlined,
@@ -1789,7 +2188,13 @@ class _BookingFormCard extends StatelessWidget {
             const SizedBox(height: 12),
             TextFormField(
               controller: nameController,
-              decoration: const InputDecoration(labelText: 'Patient name'),
+              enabled: !saving && !hasNoUpcomingSlots,
+              decoration: InputDecoration(
+                labelText: 'Patient name',
+                hintText: hasNoUpcomingSlots
+                    ? 'Doctor has no upcoming sessions'
+                    : null,
+              ),
               textInputAction: TextInputAction.next,
               validator: (value) => value == null || value.trim().length < 2
                   ? 'Enter the patient name.'
@@ -1798,6 +2203,7 @@ class _BookingFormCard extends StatelessWidget {
             const SizedBox(height: 12),
             TextFormField(
               controller: ageController,
+              enabled: !saving && !hasNoUpcomingSlots,
               decoration: const InputDecoration(labelText: 'Patient age'),
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.next,
@@ -1812,6 +2218,7 @@ class _BookingFormCard extends StatelessWidget {
             const SizedBox(height: 12),
             TextFormField(
               controller: phoneController,
+              enabled: !saving && !hasNoUpcomingSlots,
               decoration: const InputDecoration(labelText: 'Phone number'),
               keyboardType: TextInputType.phone,
               textInputAction: TextInputAction.next,
@@ -1822,6 +2229,7 @@ class _BookingFormCard extends StatelessWidget {
             const SizedBox(height: 12),
             TextFormField(
               controller: emailController,
+              enabled: !saving && !hasNoUpcomingSlots,
               decoration: const InputDecoration(labelText: 'Email'),
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
@@ -1841,7 +2249,8 @@ class _BookingFormCard extends StatelessWidget {
                 DropdownMenuItem(value: 'Follow-up', child: Text('Follow-up')),
                 DropdownMenuItem(value: 'Review', child: Text('Review')),
               ],
-              onChanged: saving ? null : onTypeChanged,
+              onChanged:
+                  saving || hasNoUpcomingSlots ? null : onTypeChanged,
             ),
             const SizedBox(height: 14),
             Row(
@@ -1856,7 +2265,9 @@ class _BookingFormCard extends StatelessWidget {
                 Expanded(
                   child: FilledButton.icon(
                     onPressed:
-                        saving || selectedSlotId == null ? null : onSubmit,
+                        saving || selectedSlotId == null || hasNoUpcomingSlots
+                            ? null
+                            : onSubmit,
                     icon: saving
                         ? const SizedBox(
                             width: 16,
@@ -1874,7 +2285,6 @@ class _BookingFormCard extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _AppointmentLoadingState extends StatelessWidget {
@@ -2049,8 +2459,7 @@ String _formatAppointmentDate(Appointment appointment) =>
     DateFormat('MMM d, yyyy').format(appointment.startAt.toLocal());
 
 String _formatAppointmentTime(Appointment appointment) {
-  final start =
-      DateFormat('h:mm a').format(appointment.startAt.toLocal());
+  final start = DateFormat('h:mm a').format(appointment.startAt.toLocal());
   final end = DateFormat('h:mm a').format(appointment.endAt.toLocal());
   return '$start - $end';
 }
@@ -2063,58 +2472,73 @@ String _formatFee(double value) {
 bool _sameText(String? a, String? b) =>
     (a ?? '').trim().toLowerCase() == (b ?? '').trim().toLowerCase();
 
-class _NotificationsSection extends StatefulWidget {
-  const _NotificationsSection();
+class _NotificationsSection extends StatelessWidget {
+  final List<Map<String, dynamic>> notifications;
+  final bool loading;
+  final String? error;
+  final VoidCallback onRefresh;
+  final VoidCallback onClearAll;
 
-  @override
-  State<_NotificationsSection> createState() => _NotificationsSectionState();
-}
-
-class _NotificationsSectionState extends State<_NotificationsSection> {
-  late final Future<List<Map<String, dynamic>>> _clinicalReviews;
-
-  @override
-  void initState() {
-    super.initState();
-    _clinicalReviews = ApiService.getClinicalReviewNotifications();
-  }
+  const _NotificationsSection({
+    required this.notifications,
+    required this.loading,
+    this.error,
+    required this.onRefresh,
+    required this.onClearAll,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _clinicalReviews,
-      builder: (context, snapshot) {
-        final reviews = snapshot.data ?? const <Map<String, dynamic>>[];
-        return _PageScaffold(children: [
-          ...reviews.map((review) => _NotificationTile(
-              Icons.medical_information_outlined,
-              'Clinical Review Available',
-              (review['message'] as String?) ?? 'A clinician has reviewed your assessment.',
-              'New')),
-          if (snapshot.connectionState == ConnectionState.waiting)
-            const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator())),
-          if (reviews.isEmpty && snapshot.connectionState != ConnectionState.waiting)
-            const _NotificationTile(Icons.notifications_none_rounded,
-                'No clinical reviews yet', 'Clinical review responses will appear here.', 'Info'),
-        _NotificationTile(
-            Icons.alarm_on_outlined,
-            'Appointment Reminder',
-            'You have an appointment with Dr. Silva tomorrow at 10:30 AM.',
-            'New'),
-        _NotificationTile(
-            Icons.check_circle_outline_rounded,
-            'Appointment Confirmed',
-            'Your cardiology visit has been confirmed.',
-            'Today'),
-        _NotificationTile(
-            Icons.science_outlined,
-            'New Lab Report',
-            'A blood test report is available in Medical Records.',
-            'Yesterday'),
-        _NotificationTile(Icons.campaign_outlined, 'Hospital Announcement',
-            'The outpatient desk closes early on public holidays.', 'Info'),
-        ]);
-      },
+    if (loading && notifications.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (error != null && notifications.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(error!),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: onRefresh,
+              child: const Text('Try Again'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return _PageScaffold(
+      children: [
+        if (notifications.isNotEmpty)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onClearAll,
+              icon: const Icon(Icons.clear_all_rounded),
+              label: const Text('Clear all'),
+            ),
+          ),
+        if (notifications.isEmpty)
+          const _NotificationTile(
+              Icons.notifications_none_rounded,
+              'No notifications',
+              'You have no new updates from the hospital.',
+              ''),
+        ...notifications.map((item) {
+          final date = DateTime.tryParse(item['createdAt']?.toString() ?? '') ??
+              DateTime.now();
+          final formattedDate =
+              DateFormat('MMM d, h:mm a').format(date.toLocal());
+          return _NotificationTile(
+            item['_icon'] as IconData? ?? Icons.notifications_none_rounded,
+            item['_title'] as String? ?? 'Notification',
+            item['message'] as String? ?? '',
+            formattedDate,
+          );
+        }),
+      ],
     );
   }
 }
@@ -2740,7 +3164,8 @@ class _FeatureTileData {
   final Color color;
   final VoidCallback? onTap;
 
-  const _FeatureTileData(this.icon, this.title, this.subtitle, this.color, {this.onTap});
+  const _FeatureTileData(this.icon, this.title, this.subtitle, this.color,
+      {this.onTap});
 }
 
 class _FeatureGrid extends StatelessWidget {
@@ -2757,11 +3182,13 @@ class _FeatureGrid extends StatelessWidget {
       crossAxisSpacing: 12,
       mainAxisSpacing: 12,
       childAspectRatio: 1.06,
-      children: tiles.map((tile) => InkWell(
-        onTap: tile.onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: _FeatureTile(tile: tile),
-      )).toList(),
+      children: tiles
+          .map((tile) => InkWell(
+                onTap: tile.onTap,
+                borderRadius: BorderRadius.circular(18),
+                child: _FeatureTile(tile: tile),
+              ))
+          .toList(),
     );
   }
 }
@@ -3353,9 +3780,14 @@ class _SettingsTile extends StatelessWidget {
 
 class _HeaderIconButton extends StatelessWidget {
   final IconData icon;
+  final int badgeCount;
   final VoidCallback onTap;
 
-  const _HeaderIconButton({required this.icon, required this.onTap});
+  const _HeaderIconButton({
+    required this.icon,
+    this.badgeCount = 0,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -3369,7 +3801,27 @@ class _HeaderIconButton extends StatelessWidget {
           color: AppColors.primary.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Icon(icon, color: AppColors.primary, size: 21),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Icon(icon, color: AppColors.primary, size: 21),
+            if (badgeCount > 0)
+              Positioned(
+                right: 6,
+                top: 6,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                  constraints:
+                      const BoxConstraints(minWidth: 10, minHeight: 10),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

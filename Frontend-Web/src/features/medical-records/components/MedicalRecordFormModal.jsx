@@ -347,7 +347,9 @@ export default function MedicalRecordFormModal({
       doctorId: formData.doctorId ? parseInt(formData.doctorId, 10) : null,
       appointmentId: formData.appointmentId ? parseInt(formData.appointmentId, 10) : null,
       followUpDate: formData.followUpDate ? new Date(formData.followUpDate).toISOString() : null,
-      recordDate: formData.recordDate ? new Date(formData.recordDate).toISOString() : new Date().toISOString(),
+      recordDate: formData.recordDate
+        ? (formData.recordDate.includes('T') ? formData.recordDate.split('T')[0] + 'T00:00:00.000Z' : `${formData.recordDate}T00:00:00.000Z`)
+        : `${new Date().toISOString().split('T')[0]}T00:00:00.000Z`,
       diagnosis: formData.diagnosis.trim(),
       symptoms: finalSymptoms,
       treatmentPlan: finalTreatmentPlan,
@@ -540,7 +542,20 @@ export default function MedicalRecordFormModal({
               )}
             </div>
 
-            {/* Searchable Doctor Selector */}
+            {/* A doctor's identity is derived from their signed-in account. Only admins may assign a different clinician. */}
+            {currentDoctorId ? (
+              <div className="field">
+                <label className="field__label">Authoring Doctor</label>
+                <div
+                  className="field__input"
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', cursor: 'not-allowed' }}
+                  aria-label="Authoring doctor is assigned from the signed-in account"
+                >
+                  <Stethoscope size={16} color="var(--clr-primary)" />
+                  {doctorSearch || 'Your signed-in doctor profile'}
+                </div>
+              </div>
+            ) : (
             <div className="field" ref={doctorDropdownRef} style={{ position: 'relative' }}>
               <label className="field__label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span>
@@ -706,6 +721,7 @@ export default function MedicalRecordFormModal({
                 )}
               </div>
             </div>
+            )}
 
             <div className="field">
               <label className="field__label">

@@ -30,7 +30,7 @@ public class CreateDoctorScheduleDto
     [Required] public int RoomId { get; set; }
     [Required] public DateTime StartAt { get; set; }
     [Required] public DateTime EndAt { get; set; }
-    [Range(1, 100)] public int Capacity { get; set; } = 1;
+    [Range(1, 50, ErrorMessage = "Slot capacity must be between 1 and 50.")] public int Capacity { get; set; } = 1;
     [Range(typeof(decimal), "0.01", "1000000.00")] public decimal ConsultationFee { get; set; }
 }
 

@@ -33,7 +33,15 @@ public class DoctorScheduleService : IDoctorScheduleService
 
     public async Task<DoctorScheduleDto> CreateAsync(int userId, CreateDoctorScheduleDto dto)
     {
+        if (dto.Capacity < 1 || dto.Capacity > 50)
+            throw new ArgumentException("Slot capacity must be between 1 and 50.");
+
         var doctor = await ApprovedDoctorAsync(userId);
+        var activeSchedulesCount = await _db.DoctorTimeSlots
+            .CountAsync(s => s.DoctorId == doctor.DoctorId && s.IsActive && s.EndAt > DateTime.UtcNow);
+        if (activeSchedulesCount >= 50)
+            throw new InvalidOperationException("You have reached the maximum limit of 50 active appointment schedules. Please complete or cancel existing schedules before creating new ones.");
+
         var room = await ValidRoomAsync(dto.RoomId);
         var startAt = Utc(dto.StartAt); var endAt = Utc(dto.EndAt);
         RoomService.ValidateRange(startAt, endAt);
@@ -54,6 +62,9 @@ public class DoctorScheduleService : IDoctorScheduleService
 
     public async Task<DoctorScheduleDto?> UpdateAsync(int userId, int slotId, UpdateDoctorScheduleDto dto)
     {
+        if (dto.Capacity < 1 || dto.Capacity > 50)
+            throw new ArgumentException("Slot capacity must be between 1 and 50.");
+
         var doctor = await ApprovedDoctorAsync(userId);
         var slot = await ScheduleQuery().SingleOrDefaultAsync(value => value.DoctorTimeSlotId == slotId && value.DoctorId == doctor.DoctorId);
         if (slot is null) return null;

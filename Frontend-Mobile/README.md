@@ -1,4 +1,4 @@
-# smartcare_mobile
+# medicore_mobile
 
 A new Flutter project.
 

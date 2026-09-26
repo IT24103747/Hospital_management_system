@@ -79,6 +79,65 @@ public class DoctorSearchServiceTests
         Assert.Equal("Cardiology", slot.Specialty);
     }
 
+    [Fact]
+    public async Task RequestDeletionAsync_ThrowsWhenDoctorHasUpcomingBookingsOrSlots()
+    {
+        await using var db = CreateContext();
+        var ids = await SeedDoctors(db);
+        var doctor = await db.Doctors.SingleAsync(d => d.DoctorId == ids.ApprovedId);
+
+        var slot = new DoctorTimeSlot
+        {
+            DoctorId = doctor.DoctorId,
+            DoctorName = "Dr. Nimal Perera",
+            Specialty = "Cardiology",
+            StartAt = DateTime.UtcNow.AddDays(2),
+            EndAt = DateTime.UtcNow.AddDays(2).AddHours(2),
+            Capacity = 5,
+            IsActive = true
+        };
+        db.DoctorTimeSlots.Add(slot);
+        await db.SaveChangesAsync();
+
+        var appointment = new Appointment
+        {
+            DoctorTimeSlotId = slot.DoctorTimeSlotId,
+            AppointmentNumber = 1,
+            PatientName = "Test Patient",
+            PatientPhone = "0770000000",
+            AppointmentType = "Consultation",
+            Reason = "Checkup",
+            Status = "Confirmed"
+        };
+        db.Appointments.Add(appointment);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RequestDeletionAsync(doctor.UserId, "Leaving hospital"));
+
+        Assert.Contains("upcoming confirmed patient appointments", ex.Message);
+    }
+
+    [Fact]
+    public async Task CancelDeletionAsync_RevertsDoctorStatusToApproved()
+    {
+        await using var db = CreateContext();
+        var ids = await SeedDoctors(db);
+        var doctor = await db.Doctors.SingleAsync(d => d.DoctorId == ids.ApprovedId);
+        doctor.RegistrationStatus = DoctorRegistrationStatuses.DeletionPending;
+        doctor.DeclineReason = "Want to leave";
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var updated = await service.CancelDeletionAsync(doctor.DoctorId, 999, "Admin decided to keep doctor");
+
+        Assert.NotNull(updated);
+        Assert.Equal("Approved", updated!.RegistrationStatus);
+        Assert.Null(doctor.DeclineReason);
+        Assert.Equal(999, doctor.ReviewedByUserId);
+    }
+
     private static DoctorService CreateService(ApplicationDbContext db) =>
         new(db, new PasswordHasher<User>());
 

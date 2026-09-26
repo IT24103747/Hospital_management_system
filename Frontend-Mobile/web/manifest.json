@@ -1,11 +1,11 @@
 {
-    "name": "smartcare_mobile",
-    "short_name": "smartcare_mobile",
+    "name": "MediCore",
+    "short_name": "MediCore",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#2563EB",
+    "theme_color": "#2563EB",
+    "description": "MediCore Hospital Management System",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

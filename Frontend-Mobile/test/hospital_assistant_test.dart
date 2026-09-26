@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:smartcare_mobile/core/services/api_service.dart';
-import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
-import 'package:smartcare_mobile/features/assistant/screens/hospital_assistant_screen.dart';
+import 'package:medicore_mobile/core/services/api_service.dart';
+import 'package:medicore_mobile/core/services/secure_token_storage.dart';
+import 'package:medicore_mobile/features/assistant/screens/hospital_assistant_screen.dart';
 
 const capabilities = [
   {

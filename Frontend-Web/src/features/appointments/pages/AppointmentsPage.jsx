@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { AlertTriangle, CalendarClock, CheckCircle, Clock, LayoutGrid, MapPin, Pencil, Plus, RefreshCw, Search, Stethoscope, Table2, X, XCircle } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, CalendarClock, CheckCircle, ChevronDown, Clock, LayoutGrid, MapPin, Pencil, Plus, RefreshCw, Search, Stethoscope, Table2, X, XCircle } from 'lucide-react'
 import Button from '../../../components/Button'
 import Modal from '../../../components/Modal'
 import Table from '../../../components/Table'
@@ -7,6 +7,251 @@ import { useDebounce } from '../../../hooks/useDebounce'
 import { useAppointments } from '../hooks/useAppointments'
 import { roomApi } from '../../rooms/services/roomApi'
 import './AppointmentsPage.css'
+
+function SearchableDoctorSelect({
+  id,
+  doctors,
+  selectedSpecialty,
+  selectedDoctorName,
+  onSelectDoctor,
+  disabled = false,
+  placeholder = 'Type to search or select doctor...',
+  required = false,
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState(selectedDoctorName || '')
+  const [isTyping, setIsTyping] = useState(false)
+  const containerRef = useRef(null)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    setSearchQuery(selectedDoctorName || '')
+    setIsTyping(false)
+  }, [selectedDoctorName])
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setIsOpen(false)
+        setIsTyping(false)
+        setSearchQuery(selectedDoctorName || '')
+      }
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isOpen, selectedDoctorName])
+
+  const availableDoctors = useMemo(() => {
+    return doctors.filter(doctor => {
+      const matchesSpecialty = !selectedSpecialty || sameText(doctor.specialty, selectedSpecialty)
+      if (!matchesSpecialty) return false
+
+      if (!isTyping && searchQuery === selectedDoctorName) {
+        return true
+      }
+
+      const q = searchQuery.toLowerCase().trim()
+      if (!q) return true
+
+      return (
+        (doctor.doctorName && doctor.doctorName.toLowerCase().includes(q)) ||
+        (doctor.specialty && doctor.specialty.toLowerCase().includes(q)) ||
+        (doctor.doctorId && String(doctor.doctorId).includes(q))
+      )
+    })
+  }, [doctors, selectedSpecialty, searchQuery, selectedDoctorName, isTyping])
+
+  const handleInputChange = (e) => {
+    const val = e.target.value
+    setSearchQuery(val)
+    setIsTyping(true)
+    setIsOpen(true)
+    const exactMatch = doctors.find(
+      (d) => (d.doctorName || d.fullName || '').toLowerCase() === val.trim().toLowerCase()
+    )
+    if (exactMatch) {
+      onSelectDoctor(exactMatch)
+    } else if (!val.trim()) {
+      onSelectDoctor(null)
+    }
+  }
+
+  const handleSelect = (doctor) => {
+    onSelectDoctor(doctor)
+    setSearchQuery(doctor ? (doctor.doctorName || doctor.fullName || '') : '')
+    setIsTyping(false)
+    setIsOpen(false)
+    if (inputRef.current) {
+      inputRef.current.blur()
+    }
+  }
+
+  const handleClear = (e) => {
+    e.stopPropagation()
+    onSelectDoctor(null)
+    setSearchQuery('')
+    setIsTyping(false)
+    setIsOpen(true)
+    if (inputRef.current) {
+      inputRef.current.focus()
+    }
+  }
+
+  return (
+    <div className="searchable-doctor-select" ref={containerRef} style={{ position: 'relative' }}>
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        <Search
+          size={15}
+          style={{
+            position: 'absolute',
+            left: '12px',
+            color: 'var(--clr-primary)',
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        />
+        <input
+          id={id}
+          ref={inputRef}
+          type="text"
+          autoComplete="off"
+          required={required && !selectedDoctorName}
+          disabled={disabled}
+          value={searchQuery}
+          placeholder={placeholder}
+          style={{
+            width: '100%',
+            paddingLeft: '34px',
+            paddingRight: selectedDoctorName && !disabled ? '54px' : '32px',
+          }}
+          onChange={handleInputChange}
+          onClick={() => {
+            if (!disabled) setIsOpen(true)
+          }}
+          onFocus={() => {
+            if (!disabled) setIsOpen(true)
+          }}
+        />
+        <div style={{ position: 'absolute', right: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {selectedDoctorName && !disabled && (
+            <button
+              type="button"
+              onClick={handleClear}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                padding: '2px',
+                display: 'flex',
+                alignItems: 'center',
+                borderRadius: '4px',
+              }}
+              title="Clear doctor"
+            >
+              <X size={14} />
+            </button>
+          )}
+          <ChevronDown
+            size={16}
+            style={{
+              color: 'var(--text-muted)',
+              pointerEvents: 'none',
+              transform: isOpen ? 'rotate(180deg)' : 'none',
+              transition: 'transform 0.2s ease',
+            }}
+          />
+        </div>
+      </div>
+
+      {isOpen && !disabled && (
+        <div
+          className="searchable-doctor-menu"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            maxHeight: '220px',
+            overflowY: 'auto',
+            background: 'var(--bg-surface, var(--bg-card))',
+            border: '1px solid var(--border-default)',
+            borderRadius: '10px',
+            boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+            zIndex: 100,
+          }}
+        >
+          {availableDoctors.length === 0 ? (
+            <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              No matching doctors found
+            </div>
+          ) : (
+            availableDoctors.map((doc) => {
+              const isSelected = selectedDoctorName && doc.doctorName.toLowerCase() === selectedDoctorName.toLowerCase()
+              return (
+                <div
+                  key={doc.doctorId || doc.doctorName}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    handleSelect(doc)
+                  }}
+                  onClick={() => handleSelect(doc)}
+                  style={{
+                    padding: '8px 12px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: isSelected ? 'rgba(14, 165, 233, 0.12)' : 'transparent',
+                    borderBottom: '1px solid var(--border-subtle, rgba(255,255,255,0.05))',
+                    transition: 'background 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isSelected) e.currentTarget.style.background = 'var(--bg-base, rgba(255,255,255,0.04))'
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isSelected) e.currentTarget.style.background = 'transparent'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div
+                      style={{
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: '50%',
+                        background: isSelected ? 'var(--clr-primary)' : 'rgba(14, 165, 233, 0.15)',
+                        color: isSelected ? '#fff' : 'var(--clr-primary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.75rem',
+                        fontWeight: 'bold',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {doc.doctorName ? doc.doctorName.replace('Dr. ', '').trim().charAt(0).toUpperCase() : 'D'}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: isSelected ? 700 : 600, fontSize: '0.86rem', color: 'var(--text-primary)' }}>
+                        {doc.doctorName}
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                        {doc.specialty} {doc.doctorId ? `• ID: #${doc.doctorId}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  {isSelected && <CheckCircle size={15} color="var(--clr-primary)" />}
+                </div>
+              )
+            })
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 const STATUS_FILTERS = ['Confirmed', 'Completed', 'Cancelled']
 const SLOT_STATUS_FILTERS = ['Upcoming', 'Completed', 'Cancelled']
@@ -129,6 +374,7 @@ export default function AppointmentsPage() {
       ))
   }, [appointmentForm.doctorName, appointmentForm.doctorTimeSlotId, appointmentForm.specialty, slots])
   const selectedSlot = selectedDoctorSlots.find(slot => String(slot.doctorTimeSlotId) === String(appointmentForm.doctorTimeSlotId))
+  const hasNoUpcomingSessions = Boolean(appointmentForm.doctorName && selectedDoctorSlots.length === 0)
   const selectedPatient = patients.find(patient => String(patient.patientId) === String(appointmentForm.patientId))
   const selectedDoctor = doctors.find(doctor => doctor.doctorName.toLowerCase() === appointmentForm.doctorName.trim().toLowerCase())
   const slotDoctorOptions = useMemo(() => doctors.filter(doctor => doctor.doctorId), [doctors])
@@ -140,18 +386,26 @@ export default function AppointmentsPage() {
   })
   const filteredAppointments = useMemo(() => {
     const term = debouncedSearch.trim().toLowerCase()
-    return appointments.filter(appointment => {
-      const matchesSearch = !term || [
-        appointment.patientName,
-        appointment.patientPhone,
-        appointment.patientEmail,
-        appointment.doctorName,
-        appointment.specialty,
-      ].some(value => String(value || '').toLowerCase().includes(term))
-      const matchesStatus = appointment.status === status
-      const matchesDate = !date || (appointment.startAt || '').slice(0, 10) === date
-      return matchesSearch && matchesStatus && matchesDate
-    })
+    return appointments
+      .filter(appointment => {
+        const matchesSearch = !term || [
+          appointment.patientName,
+          appointment.patientPhone,
+          appointment.patientEmail,
+          appointment.doctorName,
+          appointment.specialty,
+        ].some(value => String(value || '').toLowerCase().includes(term))
+        const matchesStatus = appointment.status === status
+        const matchesDate = !date || (appointment.startAt || '').slice(0, 10) === date
+        return matchesSearch && matchesStatus && matchesDate
+      })
+      .slice()
+      .sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.startAt || 0).getTime()
+        const timeB = new Date(b.createdAt || b.startAt || 0).getTime()
+        if (timeB !== timeA) return timeB - timeA
+        return (b.appointmentId || 0) - (a.appointmentId || 0)
+      })
   }, [appointments, date, debouncedSearch, status])
   const filteredSlots = useMemo(() => {
     const term = debouncedSlotSearch.trim().toLowerCase()
@@ -274,25 +528,44 @@ export default function AppointmentsPage() {
       return
     }
 
+    const capacity = Number(slotForm.capacity)
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 50) {
+      setRoomError('Slot capacity must be between 1 and 50.')
+      return
+    }
+
+    if (!editSlotTarget) {
+      const activeDoctorSlots = (slots || []).filter(
+        s => s.doctorId === Number(resolvedDoctor.doctorId) && s.isActive && new Date(s.endAt) > new Date()
+      )
+      if (activeDoctorSlots.length >= 50) {
+        setRoomError('This doctor has reached the maximum limit of 50 active appointment schedules. Please complete or cancel existing schedules before creating new ones.')
+        return
+      }
+    }
+
     const payload = {
       doctorId: Number(resolvedDoctor.doctorId),
       doctorName: resolvedDoctor.doctorName,
       specialty: resolvedDoctor.specialty,
       startAt: new Date(`${slotForm.date}T${slotForm.startTime}`).toISOString(),
       endAt: new Date(`${slotForm.date}T${slotForm.endTime}`).toISOString(),
-      capacity: Number(slotForm.capacity),
+      capacity,
       consultationFee,
       roomId: Number(slotForm.roomId),
       isActive: true,
     }
 
-    if (editSlotTarget) {
-      await updateSlot(editSlotTarget.doctorTimeSlotId, payload)
-    } else {
-      await createSlot(payload)
+    try {
+      if (editSlotTarget) {
+        await updateSlot(editSlotTarget.doctorTimeSlotId, payload)
+      } else {
+        await createSlot(payload)
+      }
+      closeSlotModal()
+    } catch (requestError) {
+      setRoomError(requestError.response?.data?.message || requestError.message || `Unable to ${editSlotTarget ? 'update' : 'create'} slot.`)
     }
-
-    closeSlotModal()
   }
 
   const openCreateSlot = () => {
@@ -698,27 +971,29 @@ export default function AppointmentsPage() {
               </select>
             </label>
             <label>Doctor Name
-              <select
+              <SearchableDoctorSelect
+                doctors={doctors}
+                selectedSpecialty={appointmentForm.specialty}
+                selectedDoctorName={appointmentForm.doctorName}
+                disabled={Boolean(doctorError) || doctors.length === 0}
+                placeholder={appointmentForm.specialty ? 'Type to search doctor...' : 'Type to search all doctors...'}
                 required
-                value={appointmentForm.doctorName}
-                onChange={e => {
-                  setAppointmentForm({ ...appointmentForm, doctorName: e.target.value, doctorTimeSlotId: '', appointmentDate: '' })
+                onSelectDoctor={(doctor) => {
+                  setAppointmentForm(prev => ({
+                    ...prev,
+                    doctorName: doctor ? doctor.doctorName : '',
+                    specialty: doctor?.specialty || prev.specialty,
+                    doctorTimeSlotId: '',
+                    appointmentDate: '',
+                  }))
                 }}
-                disabled={!appointmentForm.specialty || appointmentDoctorOptions.length === 0}
-              >
-                <option value="">{appointmentForm.specialty ? 'Select doctor' : 'Select specialization first'}</option>
-                {appointmentDoctorOptions.map(doctor => (
-                  <option key={doctor.doctorId || doctor.doctorName} value={doctor.doctorName}>
-                    {doctor.doctorName}
-                  </option>
-                ))}
-              </select>
+              />
             </label>
             <label>Appointment date
               <select required value={appointmentForm.appointmentDate}
-                disabled={!appointmentForm.doctorName || selectedDoctorSlots.length === 0}
-                onChange={e => setAppointmentForm({ ...appointmentForm, appointmentDate: e.target.value, doctorTimeSlotId: '' })}>
-                <option value="">Select appointment date</option>
+                disabled={!appointmentForm.doctorName || hasNoUpcomingSessions}
+                onChange={e => setAppointmentForm(prev => ({ ...prev, appointmentDate: e.target.value, doctorTimeSlotId: '' }))}>
+                <option value="">{hasNoUpcomingSessions ? 'No dates available' : 'Select appointment date'}</option>
                 {Array.from(new Set(selectedDoctorSlots.map(slot => toDateInputValue(slot.startAt)))).sort().map(day => (
                   <option key={day} value={day}>{formatDateOnly(`${day}T00:00:00`)}</option>
                 ))}
@@ -726,9 +1001,9 @@ export default function AppointmentsPage() {
             </label>
             <label>Appointment session
               <select required value={appointmentForm.doctorTimeSlotId}
-                disabled={!appointmentForm.appointmentDate}
-                onChange={e => setAppointmentForm({ ...appointmentForm, doctorTimeSlotId: e.target.value })}>
-                <option value="">Select appointment session</option>
+                disabled={!appointmentForm.appointmentDate || hasNoUpcomingSessions}
+                onChange={e => setAppointmentForm(prev => ({ ...prev, doctorTimeSlotId: e.target.value }))}>
+                <option value="">{hasNoUpcomingSessions ? 'No sessions available' : 'Select appointment session'}</option>
                 {selectedDoctorSlots.filter(slot => toDateInputValue(slot.startAt) === appointmentForm.appointmentDate).map(slot => (
                   <option key={slot.doctorTimeSlotId} value={slot.doctorTimeSlotId}>
                     {formatTime(slot.startAt)} - {formatTime(slot.endAt)}
@@ -746,8 +1021,10 @@ export default function AppointmentsPage() {
           {appointmentForm.specialty && appointmentDoctorOptions.length === 0 && (
             <p className="appt-form__hint appt-form__wide">No approved doctors are available for this specialization.</p>
           )}
-          {appointmentForm.doctorName && selectedDoctorSlots.length === 0 && (
-            <p className="appt-form__hint appt-form__wide">No upcoming sessions are available for this doctor.</p>
+          {hasNoUpcomingSessions && (
+            <p className="appt-form__hint appt-form__hint--error appt-form__wide" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <AlertTriangle size={15} /> No upcoming sessions are available for this doctor.
+            </p>
           )}
           {selectedSlot && (
             <div className="appt-details appt-form__wide">
@@ -778,10 +1055,11 @@ export default function AppointmentsPage() {
           <label>Patient Name
             <input
               required
+              disabled={hasNoUpcomingSessions}
               list="appointment-patients"
               value={appointmentForm.patientName}
               onChange={e => handlePatientNameChange(e.target.value)}
-              placeholder="Select existing patient or type a new name"
+              placeholder={hasNoUpcomingSessions ? 'Doctor has no upcoming sessions' : 'Select existing patient or type a new name'}
             />
             <datalist id="appointment-patients">
               {patients.map(patient => (
@@ -795,25 +1073,46 @@ export default function AppointmentsPage() {
             <input
               type="number"
               min="0"
+              disabled={hasNoUpcomingSessions}
               value={appointmentForm.patientAge}
               onChange={e => setAppointmentForm({ ...appointmentForm, patientAge: e.target.value })}
               readOnly={Boolean(selectedPatient)}
             />
           </label>
           <label>Patient Phone
-            <input required value={appointmentForm.patientPhone} onChange={e => setAppointmentForm({ ...appointmentForm, patientPhone: e.target.value })} />
+            <input
+              required
+              disabled={hasNoUpcomingSessions}
+              value={appointmentForm.patientPhone}
+              onChange={e => setAppointmentForm({ ...appointmentForm, patientPhone: e.target.value })}
+            />
           </label>
           <label>Patient Email
-            <input type="email" value={appointmentForm.patientEmail} onChange={e => setAppointmentForm({ ...appointmentForm, patientEmail: e.target.value })} />
+            <input
+              type="email"
+              disabled={hasNoUpcomingSessions}
+              value={appointmentForm.patientEmail}
+              onChange={e => setAppointmentForm({ ...appointmentForm, patientEmail: e.target.value })}
+            />
           </label>
           <label>Appointment Type
-            <select value={appointmentForm.appointmentType} onChange={e => setAppointmentForm({ ...appointmentForm, appointmentType: e.target.value })}>
+            <select
+              disabled={hasNoUpcomingSessions}
+              value={appointmentForm.appointmentType}
+              onChange={e => setAppointmentForm({ ...appointmentForm, appointmentType: e.target.value })}
+            >
               {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </label>
           <div className="appt-form__actions">
             <Button variant="secondary" onClick={closeAppointmentModal}>Close</Button>
-            <Button type="submit" loading={saving}>{editTarget ? 'Save Changes' : 'Create Appointment'}</Button>
+            <Button
+              type="submit"
+              loading={saving}
+              disabled={hasNoUpcomingSessions || Boolean(doctorError)}
+            >
+              {editTarget ? 'Save Changes' : 'Create Appointment'}
+            </Button>
           </div>
         </form>
       </Modal>
@@ -858,8 +1157,8 @@ export default function AppointmentsPage() {
           <label>End Time
             <input required type="time" value={slotForm.endTime} onChange={e => resetRoomSelection({ endTime: e.target.value })} />
           </label>
-          <label>Appointment Capacity
-            <input required type="number" min="1" max="100" value={slotForm.capacity} onChange={e => setSlotForm({ ...slotForm, capacity: e.target.value })} />
+          <label>Appointment Capacity (Max 50)
+            <input required type="number" min="1" max="50" value={slotForm.capacity} onChange={e => setSlotForm({ ...slotForm, capacity: e.target.value })} />
           </label>
           <label>Consultation Fee (LKR)
             <input

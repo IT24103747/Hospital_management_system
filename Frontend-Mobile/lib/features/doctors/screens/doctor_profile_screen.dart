@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:smartcare_mobile/core/constants/app_colors.dart';
-import 'package:smartcare_mobile/core/services/api_service.dart';
-import 'package:smartcare_mobile/models/doctor.dart';
+import 'package:medicore_mobile/core/constants/app_colors.dart';
+import 'package:medicore_mobile/core/services/api_service.dart';
+import 'package:medicore_mobile/models/doctor.dart';
 
 class DoctorProfileScreen extends StatefulWidget {
   final int doctorId;

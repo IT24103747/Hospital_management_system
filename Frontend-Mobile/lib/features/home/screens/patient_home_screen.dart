@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:smartcare_mobile/core/constants/app_colors.dart';
-import 'package:smartcare_mobile/features/medical_records/screens/medical_records_screen.dart';
-import 'package:smartcare_mobile/features/assistant/screens/hospital_assistant_screen.dart';
+import 'package:medicore_mobile/core/constants/app_colors.dart';
+import 'package:medicore_mobile/features/medical_records/screens/medical_records_screen.dart';
+import 'package:medicore_mobile/features/assistant/screens/hospital_assistant_screen.dart';
 
 class PatientHomeScreen extends StatefulWidget {
   const PatientHomeScreen({super.key});

@@ -9,6 +9,7 @@ import Button from '../../../components/Button'
 import Modal from '../../../components/Modal'
 import { BloodGroupBadge } from '../../../components/Badge'
 import { calculateAge, formatDate, getInitials, nameToGradient } from '../../../lib/utils'
+import { useDebounce } from '../../../hooks/useDebounce'
 import './PatientListPage.css'
 
 export default function PatientListPage() {
@@ -20,6 +21,7 @@ export default function PatientListPage() {
   const [sort, setSort] = useState('createdAt:desc')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(12)
+  const debouncedSearch = useDebounce(search, 250)
 
   const [formOpen, setFormOpen] = useState(false)
   const [editPatient, setEditPatient] = useState(null)
@@ -30,7 +32,7 @@ export default function PatientListPage() {
 
   const [sortBy, sortDirection] = sort.split(':')
   const { patients, pagination, summary, loading, error, refetch, createPatient, updatePatient, deletePatient } = usePatients({
-    search,
+    search: debouncedSearch,
     gender: filterGender === 'all' ? '' : filterGender,
     bloodGroup: filterBlood === 'all' ? '' : filterBlood,
     sortBy,

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:smartcare_mobile/core/constants/app_colors.dart';
-import 'package:smartcare_mobile/core/widgets/medicore_logo.dart';
-import 'package:smartcare_mobile/layouts/dashboard_layout.dart';
-import 'package:smartcare_mobile/features/auth/screens/register_screen.dart';
-import 'package:smartcare_mobile/core/services/api_service.dart';
-import 'package:smartcare_mobile/core/services/secure_token_storage.dart';
+import 'package:medicore_mobile/core/constants/app_colors.dart';
+import 'package:medicore_mobile/core/widgets/medicore_logo.dart';
+import 'package:medicore_mobile/layouts/dashboard_layout.dart';
+import 'package:medicore_mobile/features/auth/screens/register_screen.dart';
+import 'package:medicore_mobile/core/services/api_service.dart';
+import 'package:medicore_mobile/core/services/secure_token_storage.dart';
+import 'package:medicore_mobile/core/services/session_manager.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -91,6 +92,8 @@ class _LoginScreenState extends State<LoginScreen> {
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
+
+      await SessionManager.startSession();
 
       Navigator.pushReplacement(
         context,
@@ -234,17 +237,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 Center(
                   child: Column(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                        ),
-                        child: const MediCoreLogo(
-                          size: 44.0,
-                          borderRadius: 12.0,
-                          showText: false,
-                        ),
+                      const MediCoreLogo(
+                        size: 56.0,
+                        borderRadius: 16.0,
+                        showText: false,
                       ),
                       const SizedBox(height: 10),
                       RichText(

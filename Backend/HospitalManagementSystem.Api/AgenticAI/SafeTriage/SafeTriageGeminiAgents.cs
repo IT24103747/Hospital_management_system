@@ -30,7 +30,7 @@ public sealed record SafeTriageResponseContext(string PatientText, ClinicalExtra
 public sealed class GeminiSafeTriageSemanticExtractionAgent(HttpClient http, IConfiguration configuration, ILogger<GeminiSafeTriageSemanticExtractionAgent> logger) : ISafeTriageSemanticExtractionAgent
 {
     private const string Prompt = """
-You are the SafeTriage Semantic Extraction Agent for the SmartCare Hospital Management System.
+You are the SafeTriage Semantic Extraction Agent for the MediCore Hospital Management System.
 
 ROLE
 Your ONLY responsibility is to convert the patient's untrusted free-text message into structured, evidence-grounded data for a separate clinical safety assessment stage.
@@ -222,6 +222,17 @@ SYMPTOM-AWARE FOLLOW-UP REQUIREMENTS
 Do NOT use a fixed questionnaire. In particular, do NOT automatically add
 onset, progression, and severity_score for every patient message.
 
+For an initial non-urgent symptom report that still needs clarification,
+identify 3 to 5 distinct, symptom-relevant information requirements. The
+number must vary with the reported symptoms and information already supplied:
+- use 3 when three focused gaps are sufficient;
+- use 4 or 5 only when those additional gaps are genuinely relevant;
+- never create filler, duplicate, irrelevant, or already-answered requirements.
+
+These requirements define the total assessment budget. A separate planner
+will ask them ONE AT A TIME over successive patient turns. Do not combine them
+into a fixed multi-question form.
+
 Create a Missing requirement only when that single item is both absent AND
 materially useful for understanding the symptom report or applying the
 existing safety checks. It must be tied to the symptom(s) the patient actually
@@ -361,11 +372,11 @@ Before returning the JSON, verify:
 public sealed class GeminiSafeTriageQuestionPlanningAgent(HttpClient http, IConfiguration configuration, ILogger<GeminiSafeTriageQuestionPlanningAgent> logger) : ISafeTriageQuestionPlanningAgent
 {
     private const string Prompt = """
-    You are the SafeTriage Follow-Up Question Planner for the SmartCare Hospital Management System.
+    You are the SafeTriage Follow-Up Question Planner for the MediCore Hospital Management System.
 
     ROLE
 
-    Your ONLY responsibility is to select and generate the next small set of follow-up questions using the supplied grounded structured facts and requirements.
+    Your ONLY responsibility is to select and generate the single best next follow-up question using the supplied grounded structured facts and requirements.
 
     You do NOT diagnose, assess urgency, provide treatment, give medical advice, or modify clinical facts.
 
@@ -380,9 +391,12 @@ public sealed class GeminiSafeTriageQuestionPlanningAgent(HttpClient http, IConf
        - Unknown
        - NotApplicable
 
-    3. Select two to four distinct Missing requirements when at least two are
-       genuinely relevant. If only one relevant Missing requirement remains,
-       select only that one; never invent a second question.
+    3. Select exactly ONE Missing requirement: the most clinically relevant
+       unresolved information gap for the current symptoms. The workflow asks
+       questions one at a time and may request another relevant item later,
+       up to a total of five questions. The extraction stage normally supplies
+       three to five symptom-specific requirements; do not replace them with a
+       fixed questionnaire.
 
     4. Select a requirement only when it is the highest-priority, symptom-relevant
        information gap according to the supplied context. Do not follow a fixed
@@ -538,7 +552,9 @@ public sealed class GeminiSafeTriageQuestionPlanningAgent(HttpClient http, IConf
             await GeminiRequest.EnsureSuccessAsync(response, model, timeout.Token);
             using var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
             using var result = JsonDocument.Parse(GeminiJson.ReadText(root.RootElement));
-            var questions = GeminiJson.ReadQuestions(result.RootElement, alreadyAsked, 4);
+            // The patient workflow deliberately asks one question per turn. Do not
+            // retain extra model questions that could leak through another client.
+            var questions = GeminiJson.ReadQuestions(result.RootElement, alreadyAsked, 1);
             if (questions.Count == 0 && extraction.MissingInformation.Count > 0) throw new InvalidOperationException("Question plan was empty.");
             return new SafeTriageQuestionPlan(questions, "Completed");
         }
@@ -553,7 +569,7 @@ public sealed class GeminiSafeTriageQuestionPlanningAgent(HttpClient http, IConf
 public sealed class GeminiSafeTriageResponseGenerationAgent(HttpClient http, IConfiguration configuration, ILogger<GeminiSafeTriageResponseGenerationAgent> logger) : ISafeTriageResponseGenerationAgent
 {
     private const string Prompt = """
-    You are the SafeTriage Patient Communication Agent for the SmartCare Hospital Management System.
+    You are the SafeTriage Patient Communication Agent for the MediCore Hospital Management System.
 
     ROLE
     Your responsibility is to convert supplied, validated triage context into clear, calm, patient-friendly wording.

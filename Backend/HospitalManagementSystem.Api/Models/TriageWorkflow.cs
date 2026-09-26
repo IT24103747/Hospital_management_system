@@ -28,6 +28,10 @@ public class TriageWorkflow
     public DateTime? ReviewedAt { get; set; }
     public int? ReviewedByUserId { get; set; }
     public User? ReviewedByUser { get; set; }
+    public int? AssignedDoctorId { get; set; }
+    public Doctor? AssignedDoctor { get; set; }
+    public string? TargetSpecialty { get; set; }
+    public string PriorityLevel { get; set; } = "Normal";
 }
 
 public class TriageWorkflowEvent

@@ -11,6 +11,9 @@ public enum PlanningWorkflowType
     TriageThenAppointmentProposal,
     AppointmentProposal,
     AppointmentStatus,
+    AppointmentCancellation,
+    AppointmentReschedule,
+    MedicalRecords,
     Unsupported,
     SafeTriage
 }
@@ -33,6 +36,8 @@ public static class PlanningWorkflowSteps
     public const string PatientConfirmation = "PatientConfirmation";
     public const string AppointmentLookup = "AppointmentLookup";
     public const string StatusNotification = "StatusNotification";
+    public const string MedicalRecordLookup = "MedicalRecordLookup";
+    public const string MedicalRecordExplanation = "MedicalRecordExplanation";
     public const string SafeControlledResponse = "SafeControlledResponse";
 
     public static readonly IReadOnlyDictionary<PlanningWorkflowType, IReadOnlyList<string>> DefaultStepsByWorkflow =
@@ -58,6 +63,10 @@ public static class PlanningWorkflowSteps
                 AppointmentLookup,
                 StatusNotification
             ],
+            [PlanningWorkflowType.AppointmentCancellation] = [AppointmentLookup, PatientConfirmation],
+            [PlanningWorkflowType.AppointmentReschedule] =
+            [AppointmentLookup, DoctorLookup, SlotSearch, AppointmentProposal, PatientConfirmation],
+            [PlanningWorkflowType.MedicalRecords] = [MedicalRecordLookup, MedicalRecordExplanation],
             [PlanningWorkflowType.SafeTriage] = [SafetyCheck, SymptomExtraction, TriageAssessment],
             [PlanningWorkflowType.Unsupported] =
             [
@@ -76,6 +85,8 @@ public static class PlanningWorkflowSteps
         PatientConfirmation,
         AppointmentLookup,
         StatusNotification,
+        MedicalRecordLookup,
+        MedicalRecordExplanation,
         SafeControlledResponse
         , IntakeAndInitialSafetyAgent, ClinicalUnderstandingAgent, SafetyRoutingAgent,
         GuidanceValidationAgent

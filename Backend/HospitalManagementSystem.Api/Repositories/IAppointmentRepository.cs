@@ -21,5 +21,6 @@ namespace HospitalManagementSystem.Api.Repositories
         Task<DoctorTimeSlot> UpdateSlotAsync(DoctorTimeSlot slot);
         Task<bool> SlotOverlapsAsync(string doctorName, DateTime startAt, DateTime endAt, int? excludeSlotId = null, int? doctorId = null);
         Task<bool> RoomOverlapsAsync(int roomId, DateTime startAt, DateTime endAt, int? excludeSlotId = null);
+        Task<int> GetActiveSlotsCountByDoctorIdAsync(int doctorId);
     }
 }

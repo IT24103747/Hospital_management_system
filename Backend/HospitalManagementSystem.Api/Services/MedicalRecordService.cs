@@ -139,13 +139,20 @@ namespace HospitalManagementSystem.Api.Services
 
             int? doctorId = dto.DoctorId;
 
-            // If user is Doctor and doctorId wasn't explicitly supplied, resolve their DoctorId from their user account
-            if (!doctorId.HasValue && string.Equals(userRole, "Doctor", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(userEmail))
+            // A doctor can only author records under their own profile. Never trust a
+            // client-supplied DoctorId, since it would allow assigning a record to a
+            // different doctor.
+            if (string.Equals(userRole, "Doctor", StringComparison.OrdinalIgnoreCase))
             {
+                if (string.IsNullOrWhiteSpace(userEmail))
+                    throw new UnauthorizedAccessException("Token missing user email claim.");
+
                 var docEmail = userEmail.Trim().ToLowerInvariant();
                 var doctor = await _db.Doctors.FirstOrDefaultAsync(d => d.User.Email != null && d.User.Email.ToLower() == docEmail);
-                if (doctor != null)
-                    doctorId = doctor.DoctorId;
+                if (doctor == null)
+                    throw new UnauthorizedAccessException("No doctor profile was found for this account.");
+
+                doctorId = doctor.DoctorId;
             }
 
             var symptoms = !string.IsNullOrWhiteSpace(dto.Symptoms)
@@ -161,7 +168,7 @@ namespace HospitalManagementSystem.Api.Services
                 PatientId = patient.PatientId,
                 DoctorId = doctorId,
                 AppointmentId = dto.AppointmentId,
-                RecordDate = dto.RecordDate ?? DateTime.UtcNow,
+                RecordDate = DateTime.SpecifyKind((dto.RecordDate ?? DateTime.UtcNow).Date, DateTimeKind.Utc),
                 RecordType = string.IsNullOrWhiteSpace(dto.RecordType) ? MedicalRecordTypes.Consultation : dto.RecordType,
                 Diagnosis = dto.Diagnosis.Trim(),
                 Symptoms = symptoms,

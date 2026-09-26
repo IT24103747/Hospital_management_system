@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:smartcare_mobile/core/constants/app_colors.dart';
-import 'package:smartcare_mobile/core/services/api_service.dart';
-import 'package:smartcare_mobile/features/medical_records/screens/add_medical_record_dialog.dart';
-import 'package:smartcare_mobile/features/medical_records/screens/medical_record_detail_screen.dart';
-import 'package:smartcare_mobile/models/doctor.dart';
-import 'package:smartcare_mobile/models/medical_record.dart';
+import 'package:medicore_mobile/core/constants/app_colors.dart';
+import 'package:medicore_mobile/core/services/api_service.dart';
+import 'package:medicore_mobile/features/medical_records/screens/add_medical_record_dialog.dart';
+import 'package:medicore_mobile/features/medical_records/screens/medical_record_detail_screen.dart';
+import 'package:medicore_mobile/models/doctor.dart';
+import 'package:medicore_mobile/models/medical_record.dart';
 
 class MedicalRecordsScreen extends StatefulWidget {
   final bool embedded;
@@ -276,11 +277,29 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
                   ),
                   child: const Icon(Icons.photo_library_rounded, color: Color(0xFF0891B2), size: 22),
                 ),
-                title: const Text('Choose from Gallery / Local Storage', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                title: const Text('Choose Photos from Gallery', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                 subtitle: const Text('Pick existing image, diagnostic photo, or report from phone'),
                 onTap: () {
                   Navigator.pop(ctx);
                   _handlePatientUpload(ImageSource.gallery);
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent, size: 22),
+                ),
+                title: const Text('Upload PDF Document / Lab Report', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                subtitle: const Text('Select downloaded or scanned PDF files from device storage'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _handlePatientPdfUpload();
                 },
               ),
             ],
@@ -288,6 +307,36 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _handlePatientPdfUpload() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty || !mounted) return;
+      final file = result.files.single;
+      XFile xFile;
+      if (file.bytes != null) {
+        xFile = XFile.fromData(file.bytes!, name: file.name, mimeType: 'application/pdf');
+      } else if (file.path != null && file.path!.isNotEmpty) {
+        xFile = XFile(file.path!, name: file.name, mimeType: 'application/pdf');
+      } else {
+        return;
+      }
+      final fileSize = file.size;
+      _showQuickUploadSheet(xFile, fileSize, isPdf: true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not access PDF file: $e'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
   }
 
   Future<void> _handlePatientUpload(ImageSource source) async {
@@ -300,7 +349,7 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
       if (picked == null || !mounted) return;
 
       final fileSize = await picked.length();
-      _showQuickUploadSheet(picked, fileSize);
+      _showQuickUploadSheet(picked, fileSize, isPdf: false);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -312,11 +361,15 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
     }
   }
 
-  void _showQuickUploadSheet(XFile pickedFile, int fileSize) {
-    final titleController = TextEditingController(text: 'Medical Scan Report');
+  void _showQuickUploadSheet(XFile pickedFile, int fileSize, {bool isPdf = false}) {
+    final isPdfFile = isPdf || pickedFile.name.toLowerCase().endsWith('.pdf');
+    final defaultTitle = isPdfFile
+        ? (pickedFile.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), ''))
+        : 'Medical Scan Report';
+    final titleController = TextEditingController(text: defaultTitle);
     final notesController = TextEditingController();
     final doctorSearchController = TextEditingController();
-    String uploadType = 'LabReport';
+    String uploadType = isPdfFile ? 'LabReport' : 'GeneralNote';
     bool isSaving = false;
     int? selectedDoctorId;
     String? selectedDoctorName;
@@ -372,19 +425,23 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.08),
+                      color: (isPdfFile ? Colors.redAccent : AppColors.primary).withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+                      border: Border.all(color: (isPdfFile ? Colors.redAccent : AppColors.primary).withValues(alpha: 0.25)),
                     ),
                     child: Row(
                       children: [
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.15),
+                            color: (isPdfFile ? Colors.redAccent : AppColors.primary).withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Icon(Icons.image_outlined, color: AppColors.primary, size: 24),
+                          child: Icon(
+                            isPdfFile ? Icons.picture_as_pdf_rounded : Icons.image_outlined,
+                            color: isPdfFile ? Colors.redAccent : AppColors.primary,
+                            size: 24,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -397,7 +454,7 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
-                                '${(fileSize / 1024).toStringAsFixed(1)} KB • Image captured',
+                                '${(fileSize / 1024).toStringAsFixed(1)} KB • ${isPdfFile ? "PDF Document" : "Image captured"}',
                                 style: const TextStyle(color: Colors.grey, fontSize: 11),
                               ),
                             ],
@@ -423,8 +480,8 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
                     ),
                     items: const [
                       DropdownMenuItem(value: 'LabReport', child: Text('Lab Report / Test Results', overflow: TextOverflow.ellipsis)),
+                      DropdownMenuItem(value: 'GeneralNote', child: Text('Medical Scan / General Note', overflow: TextOverflow.ellipsis)),
                       DropdownMenuItem(value: 'Prescription', child: Text('Prescription / Medication', overflow: TextOverflow.ellipsis)),
-                      DropdownMenuItem(value: 'GeneralNote', child: Text('General Health Note / Scan', overflow: TextOverflow.ellipsis)),
                       DropdownMenuItem(value: 'Consultation', child: Text('Consultation Summary', overflow: TextOverflow.ellipsis)),
                     ],
                     onChanged: (val) {
@@ -748,7 +805,7 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
                                   created.medicalRecordId,
                                   fileBytes: fileBytes,
                                   fileName: pickedFile.name,
-                                  fileType: pickedFile.mimeType ?? 'image/jpeg',
+                                  fileType: isPdfFile ? 'application/pdf' : (pickedFile.mimeType ?? 'image/jpeg'),
                                 );
 
                                 if (!mounted || !modalCtx.mounted) return;
@@ -846,7 +903,16 @@ class _MedicalRecordsScreenState extends State<MedicalRecordsScreen> {
       }
 
       return true;
-    }).toList();
+    }).toList()
+      ..sort((a, b) {
+        final aDate = DateTime(a.recordDate.year, a.recordDate.month, a.recordDate.day);
+        final bDate = DateTime(b.recordDate.year, b.recordDate.month, b.recordDate.day);
+        final dateCmp = bDate.compareTo(aDate);
+        if (dateCmp != 0) return dateCmp;
+        final createdCmp = b.createdAt.compareTo(a.createdAt);
+        if (createdCmp != 0) return createdCmp;
+        return b.medicalRecordId.compareTo(a.medicalRecordId);
+      });
   }
 
   Color _getTypeColor(String type) {

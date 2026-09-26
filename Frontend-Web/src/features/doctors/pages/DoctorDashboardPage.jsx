@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   Calendar,
   Clock,
@@ -63,6 +64,7 @@ const ChartTooltip = ({ active, payload, label }) => {
 
 export default function DoctorDashboardPage() {
   const { user } = useAuth()
+  const location = useLocation()
   const [appointments, setAppointments] = useState([])
   const [loading, setLoading] = useState(true)
   const [chartType, setChartType] = useState('bar') // 'area' | 'bar'
@@ -87,6 +89,18 @@ export default function DoctorDashboardPage() {
   useEffect(() => {
     fetchAppointments()
   }, [])
+
+  useEffect(() => {
+    if (!loading && (location.hash === '#upcoming-appointments' || window.location.hash === '#upcoming-appointments')) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById('upcoming-appointments')
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }, 80)
+      return () => clearTimeout(timer)
+    }
+  }, [loading, location.hash, location.key])
 
   const now = new Date()
   const tomorrow = new Date(now)
@@ -339,7 +353,7 @@ export default function DoctorDashboardPage() {
         </div>
 
         {/* Upcoming Appointments Section (View Only - No edit or cancel) */}
-        <div className="upcoming-section">
+        <div className="upcoming-section" id="upcoming-appointments">
           <div className="upcoming-header">
             <div>
               <h3 style={{ fontSize: '1.2rem', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>

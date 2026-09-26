@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:smartcare_mobile/core/constants/app_colors.dart';
+import 'package:medicore_mobile/core/constants/app_colors.dart';
 
 /// AppTheme mirrors the web app's design system.
 /// Light theme = web :root {}  /  Dark theme = web body.dark {}

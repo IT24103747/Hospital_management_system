@@ -1,4 +1,4 @@
-import { DoorOpen, Calendar, Clock, Users, Banknote, Edit3, XCircle, Trash2, Lock } from 'lucide-react'
+import { DoorOpen, Calendar, Clock, Users, Banknote, Edit3, XCircle, Trash2, Lock, Sparkles } from 'lucide-react'
 import Button from '../../../components/Button'
 import { formatDate } from '../../../lib/utils'
 import './DoctorScheduleCard.css'
@@ -19,8 +19,10 @@ export default function DoctorScheduleCard({ schedule, onEdit, onCancel, onDelet
     maximumFractionDigits: 2,
   })}`
 
+  const capacityPercent = Math.min(100, Math.round((schedule.bookedCount / schedule.capacity) * 100))
+
   return (
-    <article className="schedule-card-item">
+    <article className={`schedule-card-item ${!schedule.isActive ? 'schedule-card-item--cancelled' : ''}`}>
       <div
         className="schedule-card-item__accent"
         style={{
@@ -35,15 +37,17 @@ export default function DoctorScheduleCard({ schedule, onEdit, onCancel, onDelet
           className="schedule-card-item__avatar"
           style={{
             background: schedule.isActive
-              ? 'linear-gradient(135deg, #0ea5e9, #6366f1)'
+              ? 'linear-gradient(135deg, #0284c7, #4f46e5)'
               : 'linear-gradient(135deg, #64748b, #475569)',
           }}
         >
-          <DoorOpen size={24} />
+          <DoorOpen size={22} />
         </div>
 
         <div className="schedule-card-item__info">
-          <h4 className="schedule-card-item__name">Room {schedule.roomNumber}</h4>
+          <div className="flex items-center gap-2">
+            <h4 className="schedule-card-item__name">Room {schedule.roomNumber}</h4>
+          </div>
           <span className="schedule-card-item__meta">
             {schedule.roomName} • {schedule.floor}
           </span>
@@ -51,25 +55,56 @@ export default function DoctorScheduleCard({ schedule, onEdit, onCancel, onDelet
 
         <div className="schedule-card-item__status-wrap">
           <span className={`schedule-status-badge ${schedule.isActive ? 'status-active' : 'status-cancelled'}`}>
-            {schedule.isActive ? 'Active' : 'Cancelled'}
+            <span className="badge-dot" />
+            {schedule.isActive ? (isPast ? 'Completed' : 'Active') : 'Cancelled'}
           </span>
         </div>
       </header>
 
-      <div className="schedule-card-item__record">
-        <Detail icon={Users} label="Booked Capacity" value={`${schedule.bookedCount} / ${schedule.capacity}`} />
-        <Detail icon={Banknote} label="Consulting Fee" value={feeFormatted} />
+      {/* Date & Time Highlight Box */}
+      <div className="schedule-card-item__time-box">
+        <div className="time-box-item">
+          <Calendar size={15} className="text-primary" />
+          <span>{formatDate(schedule.startAt)}</span>
+        </div>
+        <div className="time-box-divider" />
+        <div className="time-box-item">
+          <Clock size={15} className="text-primary" />
+          <span>{formatTimeRange(schedule.startAt, schedule.endAt)}</span>
+        </div>
       </div>
 
-      <div className="schedule-card-item__details">
-        <Detail icon={Calendar} label="Date" value={formatDate(schedule.startAt)} />
-        <Detail icon={Clock} label="Time Slot" value={formatTimeRange(schedule.startAt, schedule.endAt)} />
+      {/* Capacity & Fee Cards */}
+      <div className="schedule-card-item__metrics">
+        <div className="schedule-metric-card">
+          <div className="metric-header">
+            <span className="metric-label">
+              <Users size={13} className="inline mr-1" />
+              Capacity
+            </span>
+            <span className="metric-value">{schedule.bookedCount} / {schedule.capacity}</span>
+          </div>
+          <div className="capacity-bar-track">
+            <div
+              className={`capacity-bar-fill ${capacityPercent >= 100 ? 'full' : ''}`}
+              style={{ width: `${capacityPercent}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="schedule-metric-card">
+          <span className="metric-label">
+            <Banknote size={13} className="inline mr-1" />
+            Consultation Fee
+          </span>
+          <span className="metric-value metric-value--fee">{feeFormatted}</span>
+        </div>
       </div>
 
       {schedule.hasPatientBookings && (
         <div className="schedule-card-item__locked-box">
-          <Lock size={15} />
-          <span>Booked schedule locked (patients registered)</span>
+          <Lock size={14} />
+          <span>Locked: {schedule.bookedCount} patient{schedule.bookedCount === 1 ? '' : 's'} registered</span>
         </div>
       )}
 

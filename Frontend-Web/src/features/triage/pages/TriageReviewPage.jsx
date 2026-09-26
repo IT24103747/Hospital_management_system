@@ -74,6 +74,15 @@ export default function TriageReviewPage() {
       <Button variant="secondary" icon={RefreshCw} loading={loading} onClick={loadQueue}>Refresh queue</Button>
     </div>
     <div className="triage-review__notice"><ShieldCheck size={18}/><span><strong>Clinical action required:</strong> these records were escalated by SafeTriage. They are decision support, not diagnoses—review the evidence and decide independently.</span></div>
+    {workflows.some(w => w.priorityLevel === 'Critical' || w.triageLevel === 'Emergency') && (
+      <div className="triage-review__emergency-banner">
+        <AlertTriangle size={20} />
+        <div>
+          <strong>🚨 IMMEDIATE EMERGENCY ESCALATION ACTIVE</strong>
+          <div>One or more patients reported critical emergency symptoms. Immediate clinical evaluation or emergency dispatch required.</div>
+        </div>
+      </div>
+    )}
     {!canMakeClinicalDecision && <div className="triage-review__readonly"><ShieldCheck size={18}/><span><strong>Read-only administrator view:</strong> only an authorised doctor can record a clinical triage decision.</span></div>}
     {error && <div className="triage-review__error"><XCircle size={17}/>{error}</div>}
     {success && <div className="triage-review__success"><CheckCircle2 size={17}/>{success}</div>}
@@ -81,11 +90,28 @@ export default function TriageReviewPage() {
       <section className="glass-card triage-review__queue">
         <div className="triage-review__section-title"><FileClock size={18}/><h3>Pending review</h3><span>{filteredWorkflows.length}{queueSearch.trim().length > 0 ? ` / ${workflows.length}` : ''}</span></div>
         <label className="triage-review__search"><Search size={15}/><input value={queueSearch} onChange={event => setQueueSearch(event.target.value)} placeholder="Search ID, urgency, or safety signal" aria-label="Search pending clinical reviews" />{queueSearch && <button type="button" onClick={() => setQueueSearch('')} aria-label="Clear search">×</button>}</label>
-        {loading ? <p className="text-muted">Loading workflows…</p> : workflows.length === 0 ? <div className="triage-review__empty"><CheckCircle2 size={30}/><p>No workflows are awaiting clinical review.</p></div> : filteredWorkflows.length === 0 ? <div className="triage-review__empty"><Search size={28}/><p>No pending workflows match this search.</p></div> : filteredWorkflows.map(workflow => <button key={workflow.workflowId} className={`triage-review__queue-item ${selected?.workflowId === workflow.workflowId ? 'triage-review__queue-item--active' : ''}`} onClick={() => selectWorkflow(workflow)}><strong>Workflow #{workflow.workflowId}</strong><span>{workflow.triageLevel} · {workflow.uncertaintyState}</span><small>{workflow.redFlags?.join(', ') || workflow.riskFactors?.join(', ') || 'Clinical review required'}</small></button>)}
+        {loading ? <p className="text-muted">Loading workflows…</p> : workflows.length === 0 ? <div className="triage-review__empty"><CheckCircle2 size={30}/><p>No workflows are awaiting clinical review.</p></div> : filteredWorkflows.length === 0 ? <div className="triage-review__empty"><Search size={28}/><p>No pending workflows match this search.</p></div> : filteredWorkflows.map(workflow => {
+          const isEmergency = workflow.priorityLevel === 'Critical' || workflow.triageLevel === 'Emergency'
+          return (
+            <button key={workflow.workflowId} className={`triage-review__queue-item ${isEmergency ? 'triage-review__queue-item--critical' : ''} ${selected?.workflowId === workflow.workflowId ? 'triage-review__queue-item--active' : ''}`} onClick={() => selectWorkflow(workflow)}>
+              <div>
+                <strong>
+                  {isEmergency && <span className="triage-review__badge-emergency">EMERGENCY</span>}
+                  Workflow #{workflow.workflowId}
+                </strong>
+              </div>
+              <span>{workflow.triageLevel} · {workflow.uncertaintyState}</span>
+              {workflow.assignedDoctorName && <span className="triage-review__badge-assigned">👤 {workflow.assignedDoctorName}</span>}
+              {workflow.targetSpecialty && !workflow.assignedDoctorName && <span className="triage-review__badge-assigned">🩺 {workflow.targetSpecialty}</span>}
+              <small>{workflow.redFlags?.join(', ') || workflow.riskFactors?.join(', ') || 'Clinical review required'}</small>
+            </button>
+          )
+        })}
       </section>
       <section className="glass-card triage-review__details">
         {!selected ? <div className="triage-review__empty"><ClipboardCheck size={34}/><p>Select a workflow to review its safety summary.</p></div> : <>
-          <div className="triage-review__section-title"><AlertTriangle size={18}/><h3>Workflow #{selected.workflowId}</h3><span className="triage-review__level">{humanize(selected.triageLevel)}</span></div>
+          <div className="triage-review__section-title"><AlertTriangle size={18}/><h3>{selected.priorityLevel === 'Critical' && <span className="triage-review__badge-emergency" style={{ fontSize: '.75rem', padding: '3px 8px', marginRight: 8 }}>CRITICAL EMERGENCY</span>}Workflow #{selected.workflowId}</h3><span className="triage-review__level">{humanize(selected.triageLevel)}</span></div>
+          {selected.assignedDoctorName && <div style={{ margin: '-8px 0 12px', fontSize: '.78rem', color: 'var(--clr-primary)', fontWeight: 600 }}>Assigned: {selected.assignedDoctorName} {selected.targetSpecialty ? `(${selected.targetSpecialty})` : ''}</div>}
           <div className="triage-review__review-required"><AlertTriangle size={18}/><div><strong>Clinical decision required</strong><span>This workflow remains in the queue until you approve the SafeTriage suggestion or provide your own final suggestion.</span></div></div>
           <section className="triage-review__privacy-note"><ShieldCheck size={15}/><span><strong>Minimum necessary information:</strong> this view shows symptom information needed for clinical review. Contact details and account data are redacted.</span></section>
           <Info title="Patient’s submitted report" items={selected.originalComplaint ? [selected.originalComplaint] : []} fallback="The original patient report was not recorded." />

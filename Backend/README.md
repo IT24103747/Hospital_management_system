@@ -59,7 +59,7 @@ so use a separate Neon development branch or database for local runs. To check t
 schema, inspect the `__EFMigrationsHistory` table in the Neon SQL Editor.
 
 ## Projects Structure:
-- `SmartCare.API`: Controllers, JWT Auth, Middlewares, Swagger OpenAPI specs.
-- `SmartCare.Infrastructure`: EF Core DbContext, PostgreSQL Data Access, Migrations.
-- `SmartCare.Core`: Data Entities (User, Patient, Vitals, TriageWorkflowState), Interfaces, DTOs.
-- `SmartCare.Tests`: xUnit Unit and Integration test suite.
+- `MediCore.API`: Controllers, JWT Auth, Middlewares, Swagger OpenAPI specs.
+- `MediCore.Infrastructure`: EF Core DbContext, PostgreSQL Data Access, Migrations.
+- `MediCore.Core`: Data Entities (User, Patient, Vitals, TriageWorkflowState), Interfaces, DTOs.
+- `MediCore.Tests`: xUnit Unit and Integration test suite.

@@ -32,5 +32,27 @@ public class DoctorProfileController : ControllerBase
         catch (ArgumentException exception) { return BadRequest(new { message = exception.Message }); }
     }
 
+    [HttpPost("request-deletion")]
+    public async Task<IActionResult> RequestDeletion([FromBody] RequestDoctorDeletionDto dto)
+    {
+        try
+        {
+            var doctor = await _service.RequestDeletionAsync(CurrentUserId(), dto?.Reason);
+            return doctor is null ? NotFound(new { message = "Doctor profile was not found." }) : Ok(doctor);
+        }
+        catch (InvalidOperationException exception) { return Conflict(new { message = exception.Message }); }
+    }
+
+    [HttpPost("cancel-deletion")]
+    public async Task<IActionResult> CancelDeletion()
+    {
+        try
+        {
+            var doctor = await _service.CancelDeletionByDoctorAsync(CurrentUserId());
+            return doctor is null ? NotFound(new { message = "Doctor profile was not found." }) : Ok(doctor);
+        }
+        catch (InvalidOperationException exception) { return Conflict(new { message = exception.Message }); }
+    }
+
     private int CurrentUserId() => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 }

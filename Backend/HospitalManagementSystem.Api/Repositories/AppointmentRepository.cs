@@ -76,6 +76,14 @@ namespace HospitalManagementSystem.Api.Repositories
                 if (appointment.AppointmentNumber == 0)
                     throw new InvalidOperationException("Selected doctor time slot is fully booked.");
 
+                var localTime = TimeZoneInfo.ConvertTimeFromUtc(slot.StartAt,
+                    TimeZoneInfo.FindSystemTimeZoneById("Asia/Colombo"));
+
+                appointment.Notifications.Add(new AppointmentNotification
+                {
+                    Message = $"New appointment #{appointment.AppointmentNumber} booked for {appointment.PatientName} with {slot.DoctorName}. New appointment time: {localTime:dd MMM yyyy, hh:mm tt} (Sri Lanka time)."
+                });
+
                 context.Appointments.Add(appointment);
                 await context.SaveChangesAsync(ct);
                 if (transaction is not null) await transaction.CommitAsync(ct);
@@ -279,6 +287,13 @@ namespace HospitalManagementSystem.Api.Repositories
             }
 
             return query;
+        }
+
+        public async Task<int> GetActiveSlotsCountByDoctorIdAsync(int doctorId)
+        {
+            var now = DateTime.UtcNow;
+            return await _context.DoctorTimeSlots
+                .CountAsync(s => s.DoctorId == doctorId && s.IsActive && s.EndAt > now);
         }
     }
 }
