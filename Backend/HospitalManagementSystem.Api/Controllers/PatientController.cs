@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using HospitalManagementSystem.Api.DTOs;
 using HospitalManagementSystem.Api.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace HospitalManagementSystem.Api.Controllers
 {
@@ -174,14 +175,28 @@ namespace HospitalManagementSystem.Api.Controllers
         [HttpDelete("{id:int}")]
         [Authorize(Roles = "Admin")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Delete(int id)
         {
-            var deleted = await _service.DeletePatientAsync(id);
-            if (!deleted)
-                return NotFound(new { message = $"Patient with ID {id} not found." });
+            try
+            {
+                var deleted = await _service.DeletePatientAsync(id);
+                if (!deleted)
+                    return NotFound(new { message = $"Patient with ID {id} not found." });
 
-            return NoContent();
+                return NoContent();
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning("Cannot delete patient {Id}: {Message}", id, ex.Message);
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogWarning(ex, "Cannot delete patient {Id} due to database constraints.", id);
+                return BadRequest(new { message = "Cannot delete patient because they have existing appointments, medical records, or linked clinical data." });
+            }
         }
     }
 }
